@@ -7,13 +7,23 @@ detection, and drive scanning. Pure Python stdlib.
 import json, os, subprocess, urllib.request, urllib.error
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-import config, argspec, hardware, prereqs, scanner
+import config, argspec, hardware, prereqs, scanner, hub
 from builder import BuildManager
 
 ROOT    = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WEB     = os.path.join(ROOT, "web")
 LOGDIR  = os.path.join(ROOT, "logs")
 BUILDER = BuildManager(LOGDIR)
+DOWNLOADS = hub.DownloadManager()
+
+def total_vram_mib():
+    return sum(g["total"] for g in _gpu_telemetry() if "total" in g)
+
+def download_dir():
+    c = cfg()
+    if c.get("model_dirs"):
+        return os.path.join(c["model_dirs"][0], "LlamaForge-downloads")
+    return os.path.join(ROOT, "models")
 _SCHEMA = None   # cached knob schema
 
 def cfg():          return config.load()
@@ -134,6 +144,8 @@ class H(BaseHTTPRequestHandler):
             })
         if p == "/api/build/log":
             s = dict(BUILDER.state); s["log"] = BUILDER.tail(300); return self._send(200, s)
+        if p == "/api/hub/progress":
+            return self._send(200, DOWNLOADS.progress())
         return self._send(404, {"error": "not found"})
 
     def do_POST(self):
@@ -187,6 +199,47 @@ class H(BaseHTTPRequestHandler):
                 config.set_keys(e["id"], keys)
             router("/models?reload=1")
             return self._send(200, {"ok": True, "added": len(entries)})
+
+        if p == "/api/hub/search":
+            try:
+                res = hub.search(body.get("query", ""), body.get("sort", "downloads"))
+                return self._send(200, {"results": res, "vram_mib": total_vram_mib()})
+            except Exception as e:
+                return self._send(200, {"error": str(e), "results": []})
+
+        if p == "/api/hub/files":
+            try:
+                return self._send(200, hub.files(body.get("repo", ""), total_vram_mib()))
+            except Exception as e:
+                return self._send(200, {"error": str(e), "files": [], "mmproj": []})
+
+        if p == "/api/hub/download":
+            repo   = body.get("repo", "")
+            first  = body.get("path", "")
+            shards = int(body.get("shards", 1))
+            paths  = hub.shard_paths(first, shards)
+            if body.get("mmproj"):
+                paths.append(body["mmproj"])
+            dest = os.path.join(download_dir(),
+                                repo.replace("/", "--"))
+            ok = DOWNLOADS.start(repo, paths, dest)
+            return self._send(200, {"started": ok, "dest": dest})
+
+        if p == "/api/hub/add":
+            # register a finished download in models.ini
+            path = body.get("path", "")
+            if not path or not os.path.exists(path):
+                return self._send(400, {"error": "file not found"})
+            entries = scanner.build_entries(
+                [os.path.join(os.path.dirname(path), f)
+                 for f in os.listdir(os.path.dirname(path)) if f.lower().endswith(".gguf")])
+            for e in entries:
+                keys = {"model": e["model"]}
+                if e.get("mmproj"): keys["mmproj"] = e["mmproj"]
+                if e.get("embeddings"): keys["embeddings"] = "true"
+                config.set_keys(e["id"], keys)
+            router("/models?reload=1")
+            return self._send(200, {"ok": True, "added": [e["id"] for e in entries]})
 
         if p == "/api/config":
             c = cfg(); c.update(body or {}); config.save(c)

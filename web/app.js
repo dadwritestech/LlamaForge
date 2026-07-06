@@ -17,6 +17,7 @@ $$(".tab").forEach(t=>t.onclick=()=>{
   $$(".view").forEach(v=>v.classList.remove("active"));$("#view-"+t.dataset.tab).classList.add("active");
   if(t.dataset.tab==="build")loadBuild();
   if(t.dataset.tab==="setup")loadSetup();
+  if(t.dataset.tab==="discover")loadDiscover();
 });
 
 /* ---------- models ---------- */
@@ -210,6 +211,99 @@ async function scanDrives(){
     ${fresh.length?`<div class="actions"><button class="primary" id="btn-apply">Add ${fresh.length} models to config</button><span class="msg" id="apply-msg"></span></div>`:""}`);
   if(fresh.length)$("#btn-apply").onclick=async()=>{const am=$("#apply-msg");am.className="msg work";am.textContent="writing config...";
     const rr=await api("/api/scan/apply",{entries:fresh});am.className="msg ok";am.textContent=`added ${rr.added}`;toast("Models added","ok");refresh(true);};
+}
+
+/* ---------- discover tab (HuggingFace) ---------- */
+let dlPoll=null, discoverLoaded=false;
+const FIT_LABEL={fits:["FITS VRAM","ok"],tight:["TIGHT","work"],offload:["CPU OFFLOAD","err"],unknown:["?",""]};
+function fitBadge(fit){const [txt,cls]=FIT_LABEL[fit]||FIT_LABEL.unknown;
+  const col=cls==="ok"?"var(--green)":cls==="work"?"var(--amber)":cls==="err"?"var(--red)":"var(--dim)";
+  return `<span class="tag" style="color:${col};border-color:${col}">${txt}</span>`;}
+function loadDiscover(){
+  if(discoverLoaded)return; discoverLoaded=true;
+  setHTML($("#view-discover"),`
+    <div class="card"><h3>Discover GGUF models on huggingface.co</h3>
+      <div class="toolbar">
+        <input class="search" id="hub-q" placeholder="search models (e.g. qwen coder, gemma vision)... blank = most downloaded">
+        <select id="hub-sort" style="background:#0a0d0e;border:1px solid var(--hair);color:var(--ink);font-family:var(--mono);font-size:12px;padding:8px">
+          <option value="downloads">most downloaded</option>
+          <option value="lastModified">newest</option>
+          <option value="likes">most liked</option>
+        </select>
+        <button class="primary" id="hub-go">Search</button>
+        <span class="msg" id="hub-msg"></span>
+      </div>
+      <div class="note">Fit ratings compare file size against your total VRAM (<span id="hub-vram">?</span> GB across all GPUs).
+        FITS = full GPU offload with headroom &middot; TIGHT = loads but little room for context &middot; CPU OFFLOAD = larger than VRAM, will use system RAM (slower).</div>
+    </div>
+    <div id="hub-results"></div>
+    <div class="card" id="hub-dlcard" style="display:none"><h3>Download</h3>
+      <div class="kv"><span class="k">file</span><span class="v" id="dl-file">-</span></div>
+      <div class="meter" style="margin-top:8px" id="dl-meter"></div>
+      <div class="kv"><span class="k">progress</span><span class="v" id="dl-prog">-</span></div>
+      <div class="actions" id="dl-done" style="display:none">
+        <button class="primary" id="dl-add">Add to my models</button><span class="msg" id="dl-msg"></span>
+      </div>
+    </div>`);
+  $("#hub-go").onclick=hubSearch;
+  $("#hub-q").addEventListener("keydown",e=>{if(e.key==="Enter")hubSearch();});
+  hubSearch();
+}
+async function hubSearch(){
+  const msg=$("#hub-msg");msg.className="msg work";msg.textContent="searching huggingface.co...";
+  const r=await api("/api/hub/search",{query:$("#hub-q").value.trim(),sort:$("#hub-sort").value});
+  if(r.error){msg.className="msg err";msg.textContent=r.error.slice(0,80);return;}
+  $("#hub-vram").textContent=(r.vram_mib/1024).toFixed(1);
+  msg.className="msg ok";msg.textContent=`${r.results.length} repos`;
+  setHTML($("#hub-results"),`<div class="list">${r.results.map(m=>`
+    <div class="row" data-repo="${esc(m.repo)}">
+      <div class="rhead hub-repo" style="grid-template-columns:1fr auto auto auto">
+        <span class="mid">${esc(m.repo)}</span>
+        <span class="ctxpill">${esc((m.downloads||0).toLocaleString())} dl</span>
+        <span class="ctxpill" style="color:var(--cyan)">${esc(m.likes)} &hearts;</span>
+        <span class="chev">&#9654;</span>
+      </div>
+      <div class="edit"></div>
+    </div>`).join("")}</div>`);
+  $$("#hub-results .hub-repo").forEach(h=>h.onclick=()=>hubFiles(h.parentElement));
+}
+async function hubFiles(row){
+  const open=row.classList.toggle("open");
+  if(!open)return;
+  const box=$(".edit",row);setHTML(box,`<div class="note">listing files...</div>`);
+  const r=await api("/api/hub/files",{repo:row.dataset.repo});
+  if(r.error){setHTML(box,`<div class="note" style="color:var(--red)">${esc(r.error.slice(0,120))}</div>`);return;}
+  const mm=r.mmproj&&r.mmproj.length?r.mmproj[0].path:"";
+  setHTML(box,`
+    ${mm?`<div class="note">vision model - the smallest mmproj (${esc(mm)}) will be downloaded too</div>`:""}
+    <div class="list" style="margin-top:8px">${r.files.map(f=>`
+      <div class="row"><div class="rhead" style="grid-template-columns:1fr auto auto auto;cursor:default">
+        <span class="mid">${esc(f.path)}${f.shards>1?`<span class="tag">${f.shards} shards</span>`:""}</span>
+        <span class="ctxpill">${esc((f.size/1e9).toFixed(2))} GB</span>
+        ${fitBadge(f.fit)}
+        <button data-dl="${esc(f.path)}" data-shards="${f.shards}" ${f.fit==="offload"?'title="larger than VRAM - will be slow"':""}>Download</button>
+      </div></div>`).join("")}</div>`);
+  $$("[data-dl]",box).forEach(b=>b.onclick=()=>hubDownload(row.dataset.repo,b.dataset.dl,parseInt(b.dataset.shards),mm));
+}
+async function hubDownload(repo,path,shards,mmproj){
+  const r=await api("/api/hub/download",{repo,path,shards,mmproj});
+  if(!r.started){toast("A download is already running","err");return;}
+  toast("Download started","ok");
+  $("#hub-dlcard").style.display="";$("#dl-done").style.display="none";
+  clearInterval(dlPoll);
+  dlPoll=setInterval(async()=>{
+    const s=await api("/api/hub/progress");
+    $("#dl-file").textContent=`${s.repo} :: ${s.file||"-"} (${s.done_files+1 > s.total_files ? s.total_files : s.done_files+1}/${s.total_files})`;
+    const pct=s.total?Math.round(100*s.downloaded/s.total):0;
+    setHTML($("#dl-meter"),meter(s.downloaded,Math.max(s.total,1)));
+    $("#dl-prog").textContent=s.phase==="done"?"complete":s.phase==="failed"?("FAILED: "+s.error.slice(0,80)):`${(s.downloaded/1e9).toFixed(2)} / ${(s.total/1e9).toFixed(2)} GB (${pct}%)`;
+    if(s.phase==="done"){clearInterval(dlPoll);$("#dl-done").style.display="";
+      $("#dl-add").onclick=async()=>{const m=$("#dl-msg");m.className="msg work";m.textContent="registering...";
+        const rr=await api("/api/hub/add",{path:s.finished_path});
+        if(rr.ok){m.className="msg ok";m.textContent="added: "+rr.added.join(", ");toast("Model added to registry","ok");refresh(true);}
+        else{m.className="msg err";m.textContent=rr.error||"failed";}};}
+    if(s.phase==="failed")clearInterval(dlPoll);
+  },1000);
 }
 
 function clock(){$("#clock").textContent=new Date().toLocaleTimeString('en-GB')+" LOCAL";}

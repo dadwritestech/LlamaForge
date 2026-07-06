@@ -17,6 +17,11 @@ command line.
   meters. Expand any model to edit all ~220 llama.cpp knobs (context, KV-cache type,
   speculative decoding, tensor split, sampling, rope, etc.), grouped and searchable.
   Save writes `models.ini` and hot-reloads with no restart. Load / unload in a click.
+- **Discover tab** - search huggingface.co for GGUF models (newest / most downloaded /
+  most liked). Every quant file is rated against your total VRAM (FITS / TIGHT /
+  CPU OFFLOAD) so you know what will run well *before* downloading. One click streams
+  the download (shards and vision mmproj handled automatically) and registers the
+  model in your registry, ready to load.
 - **Build / Update tab** - shows your current llama.cpp commit, checks GitHub for how
   many commits you're behind, and rebuilds via CMake with flags auto-detected for your
   CPU/GPU. Prior binaries are backed up first; the build streams live.
