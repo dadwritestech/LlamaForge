@@ -1,0 +1,9 @@
+# machine-specific - never commit
+config.json
+models.ini
+logs/
+__pycache__/
+*.pyc
+
+# a user's cloned engine + build artifacts
+llama.cpp/

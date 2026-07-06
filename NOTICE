@@ -1,0 +1,22 @@
+LlamaForge
+==========
+
+LlamaForge is a graphical management wrapper for llama.cpp. It is an
+independent project and is NOT affiliated with, endorsed by, or part of
+the llama.cpp / ggml-org project.
+
+LlamaForge builds and runs llama.cpp but contains no llama.cpp source code
+itself; it invokes llama.cpp's own binaries and build system. When you use
+LlamaForge to build llama.cpp, the resulting binaries are governed by
+llama.cpp's own MIT license.
+
+--------------------------------------------------------------------------
+Bundled / built dependency: llama.cpp
+Source:  https://github.com/ggml-org/llama.cpp
+License: MIT License, Copyright (c) 2023-2026 The ggml authors
+The full text of llama.cpp's license is included in LICENSE.llama.cpp.txt
+--------------------------------------------------------------------------
+
+All credit for the inference engine, model support, and performance belongs
+to the llama.cpp and ggml authors and contributors. Please support and cite
+the upstream project: https://github.com/ggml-org/llama.cpp
