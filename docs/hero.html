@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#080a0b;--panel:#0f1315;--hair:#1e262a;--ink:#c8d2d4;--dim:#6b7a7e;
+  --amber:#ffb000;--amber-dim:#7a5600;--cyan:#3fd7e6;--green:#39d98a;--red:#ff5c57;--grid:#0d1214}
+*{box-sizing:border-box;margin:0}
+body{width:1280px;height:420px;overflow:hidden;background:var(--bg);
+  font-family:'JetBrains Mono',monospace;position:relative;
+  background-image:linear-gradient(var(--grid) 1px,transparent 1px),linear-gradient(90deg,var(--grid) 1px,transparent 1px);
+  background-size:44px 44px}
+body::after{content:"";position:fixed;inset:0;pointer-events:none;
+  background:repeating-linear-gradient(0deg,rgba(0,0,0,.15) 0,rgba(0,0,0,.15) 1px,transparent 1px,transparent 3px)}
+.glow{position:absolute;width:700px;height:700px;border-radius:50%;filter:blur(140px);opacity:.14}
+.g1{background:var(--amber);top:-380px;left:-160px}
+.g2{background:var(--cyan);bottom:-460px;right:-120px;opacity:.10}
+.wrap{position:relative;height:100%;display:flex;align-items:center;padding:0 70px;gap:60px}
+.logo{width:96px;height:96px;border:2px solid var(--amber);position:relative;flex:none;box-shadow:0 0 40px rgba(255,176,0,.25)}
+.logo::before{content:"";position:absolute;left:16px;right:16px;top:50%;height:6px;transform:translateY(-3px);
+  background:var(--amber);box-shadow:0 -22px 0 var(--amber),0 22px 0 var(--amber)}
+h1{font-family:'Chakra Petch';font-weight:700;font-size:64px;letter-spacing:.1em;color:#fff;line-height:1}
+h1 span{color:var(--amber)}
+.tag{color:var(--dim);font-size:16px;letter-spacing:.42em;text-transform:uppercase;margin-top:14px}
+.feats{display:flex;gap:14px;margin-top:30px}
+.feat{border:1px solid var(--hair);background:var(--panel);padding:10px 16px;font-size:13px;color:var(--ink);letter-spacing:.06em}
+.feat b{color:var(--amber);font-weight:500}
+.panel{margin-left:auto;width:360px;background:var(--panel);border:1px solid var(--hair);padding:18px 20px;box-shadow:0 20px 60px rgba(0,0,0,.5)}
+.ph{display:flex;justify-content:space-between;font-size:10px;letter-spacing:.12em;color:var(--dim);text-transform:uppercase;margin-bottom:12px;white-space:nowrap;gap:10px}
+.ph b{color:var(--amber);font-weight:600}
+.meter{height:20px;background:#0a0d0e;border:1px solid var(--hair);display:flex;gap:2px;padding:3px;margin-bottom:8px}
+.seg{flex:1;background:#12181a}.on{background:var(--amber);box-shadow:0 0 5px var(--amber-dim)}
+.mrow{display:flex;justify-content:space-between;align-items:center;font-size:12px;color:var(--ink);
+  border:1px solid var(--hair);padding:9px 11px;margin-top:7px;white-space:nowrap;gap:10px}
+.led{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:9px}
+.lg{background:var(--green);box-shadow:0 0 7px var(--green)}
+.ld{background:#33403f}
+.st{font-size:10px;letter-spacing:.14em;color:var(--green)}
+.std{font-size:10px;letter-spacing:.14em;color:var(--dim)}
+.fit{font-size:9px;letter-spacing:.1em;color:var(--green);border:1px solid var(--green);padding:2px 6px}
+</style>
+</head>
+<body>
+<div class="glow g1"></div><div class="glow g2"></div>
+<div class="wrap">
+  <div class="logo"></div>
+  <div>
+    <h1>LLAMA<span>FORGE</span></h1>
+    <div class="tag">The full GUI experience on top of llama.cpp</div>
+    <div class="feats">
+      <div class="feat"><b>222</b> tunable knobs</div>
+      <div class="feat"><b>1-click</b> build &amp; update</div>
+      <div class="feat"><b>VRAM-fit</b> model discovery</div>
+      <div class="feat"><b>0</b> dependencies</div>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="ph"><span>GPU 0 &middot; RTX 5080</span><b>13.2 / 16 GB</b></div>
+    <div class="meter">
+      <div class="seg on"></div><div class="seg on"></div><div class="seg on"></div><div class="seg on"></div>
+      <div class="seg on"></div><div class="seg on"></div><div class="seg on"></div><div class="seg on"></div>
+      <div class="seg on"></div><div class="seg on"></div><div class="seg on"></div><div class="seg on"></div>
+      <div class="seg on"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div>
+    </div>
+    <div class="mrow"><span><span class="led lg"></span>qwopus-coder</span><span class="st">LOADED</span></div>
+    <div class="mrow"><span><span class="led ld"></span>gemma-4-12b</span><span class="std">READY</span></div>
+    <div class="mrow"><span><span class="led ld"></span>deepseek-v4-flash</span><span class="fit">FITS VRAM</span></div>
+  </div>
+</div>
+</body>
+</html>
