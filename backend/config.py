@@ -5,6 +5,8 @@ nothing is hardcoded. On a fresh machine, bootstrap writes config.json.
 """
 import json, os, re
 
+import gguf
+
 ROOT      = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CONFIG    = os.path.join(ROOT, "config.json")
 
@@ -16,6 +18,8 @@ DEFAULTS = {
     "model_dirs":  [],                       # directories to scan for GGUFs
     "router_port": 8080,
     "panel_port":  8090,
+    "router_host": "127.0.0.1",               # 127.0.0.1 = local only, 0.0.0.0 = reachable on the LAN
+    "router_api_key": "",                     # required by clients when router_host != 127.0.0.1
     "cmake_flags": {},                       # persisted build flags (from hardware detect)
     "git_remote":  "https://github.com/ggml-org/llama.cpp",
 }
@@ -127,6 +131,77 @@ def set_keys(section, updates, path=None):
 def _write(path, lines):
     with open(path, "w", encoding="utf-8", newline="") as f:  # never write a BOM
         f.write("\n".join(lines))
+
+def remove_section(section, path=None):
+    """Delete an entire [section] block (header + body up to the next section),
+    preserving everything else in the file. Returns True if it was removed."""
+    path = path or ini_path()
+    if not path or not os.path.exists(path):
+        return False
+    with open(path, encoding="utf-8-sig") as f:
+        lines = f.read().split("\n")
+    start = end = None
+    for i, line in enumerate(lines):
+        m = re.match(r"^\s*\[(.+?)\]", line)
+        if m:
+            if m.group(1) == section:
+                start = i
+            elif start is not None and end is None:
+                end = i
+                break
+    if start is None:
+        return False
+    if end is None:
+        end = len(lines)
+    del lines[start:end]
+    _write(path, lines)
+    return True
+
+# ---------------- automatic ctx-size defaults ----------------
+
+CTX_GLOBAL_DEFAULT = str(gguf.CTX_FULL)   # "150000"
+
+def apply_ctx_defaults(path=None):
+    """Set sane ctx-size defaults across models.ini, idempotently.
+
+    - global [*]: ctx-size = 150000 (the baseline for models that support it)
+    - each model: an explicit ctx-size only when it can't reach the global -
+      100000, capped at the model's GGUF-trained length (never over-extends).
+      Models that support >= 150000 have their per-model override removed so they
+      inherit the global; models whose trained length can't be read are left
+      untouched. Only sections that actually change are rewritten.
+
+    Returns {"changed": [section, ...]}.
+    """
+    path = path or ini_path()
+    if not path or not os.path.exists(path):
+        return {"changed": []}
+    secs = read_sections(path)
+    changed = []
+
+    glob = secs.get("*", {})
+    if glob.get("ctx-size") != CTX_GLOBAL_DEFAULT:
+        set_keys("*", {"ctx-size": CTX_GLOBAL_DEFAULT}, path)
+        changed.append("*")
+
+    for sec, kv in secs.items():
+        if sec == "*":
+            continue
+        mpath = kv.get("model")
+        if not mpath:
+            continue
+        d = gguf.default_ctx(mpath)
+        if d is None:                       # unknown trained length -> leave as-is
+            continue
+        cur = kv.get("ctx-size")
+        if d == 0:                          # supports the global default
+            if cur is not None:
+                set_keys(sec, {"ctx-size": None}, path)
+                changed.append(sec)
+        elif cur != str(d):                 # needs an explicit smaller override
+            set_keys(sec, {"ctx-size": str(d)}, path)
+            changed.append(sec)
+    return {"changed": changed}
 
 def ensure_global(defaults, path=None):
     """Make sure a [*] global section exists with sane defaults (first run)."""

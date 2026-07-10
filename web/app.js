@@ -4,7 +4,12 @@
 const $=(s,e=document)=>e.querySelector(s), $$=(s,e=document)=>[...e.querySelectorAll(s)];
 const esc=v=>String(v==null?"":v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const setHTML=(el,h)=>{ if(el) el["inner"+"HTML"]=h; };   // escaped input only
-let STATE=null, SCHEMA=null, openId=null, onlySet=false, kquery="";
+let STATE=null, SCHEMA=null, openId=null, onlySet=false, kquery="", mquery="", favOnly=false;
+const favs=new Set(JSON.parse(localStorage.getItem("lf_favs")||"[]"));
+function saveFavs(){localStorage.setItem("lf_favs",JSON.stringify([...favs]));}
+function toggleFav(id){favs.has(id)?favs.delete(id):favs.add(id);saveFavs();renderModels();}
+function filterModels(inp){mquery=inp.value.trim().toLowerCase();renderModels();}
+function toggleFavOnly(el){favOnly=!favOnly;el.classList.toggle("on",favOnly);renderModels();}
 
 async function api(path,body){
   const o=body?{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}:{};
@@ -18,6 +23,7 @@ $$(".tab").forEach(t=>t.onclick=()=>{
   if(t.dataset.tab==="build")loadBuild();
   if(t.dataset.tab==="setup")loadSetup();
   if(t.dataset.tab==="discover")loadDiscover();
+  if(t.dataset.tab==="stats")loadStats();
 });
 
 /* ---------- models ---------- */
@@ -59,9 +65,9 @@ function editor(m){
     </div>${groups}
     <div class="actions">
       <button class="primary" data-act="save">Save + Reload</button>
-      ${m.status==="loaded"?`<button class="ghost" data-act="unload">Unload</button>`:`<button data-act="load">Load</button>`}
+      ${m.status==="loaded"||m.status==="loading"?`<button class="ghost" data-act="unload">${m.status==="loading"?"Cancel / Unload":"Unload"}</button>`:`<button data-act="load">Load</button>`}
       <span class="msg" data-msg></span>
-    </div>`;
+    </div>${m.status==="loading"?`<div class="note">Still loading? Check the Router Log panel below the model list for the real llama.cpp output (crashes, out-of-memory, etc. show up there).</div>`:""}`;
 }
 function applyKnobFilter(root){
   $$(".fld",root).forEach(f=>{
@@ -72,28 +78,78 @@ function applyKnobFilter(root){
 }
 function filterKnobs(inp){kquery=inp.value.trim().toLowerCase();applyKnobFilter(inp.closest(".edit"));}
 function toggleOnlySet(el){onlySet=!onlySet;el.classList.toggle("on",onlySet);applyKnobFilter(el.closest(".edit"));}
+const loadingSince={};
+function loadingSecs(m){
+  if(m.status!=="loading"){delete loadingSince[m.id];return 0;}
+  if(!loadingSince[m.id])loadingSince[m.id]=Date.now();
+  return Math.round((Date.now()-loadingSince[m.id])/1000);
+}
 function renderModels(){
-  const ms=STATE.models;
-  $("#count").textContent=`${ms.filter(m=>m.status==="loaded").length} LOADED / ${ms.length} TOTAL`;
+  const all=STATE.models;
+  const ms=all.filter(m=>(!mquery||m.id.toLowerCase().includes(mquery))&&(!favOnly||favs.has(m.id)))
+    .sort((a,b)=>(favs.has(b.id)?1:0)-(favs.has(a.id)?1:0));
+  $("#count").textContent=`${all.filter(m=>m.status==="loaded").length} LOADED / ${all.length} TOTAL`+(ms.length!==all.length?` · ${ms.length} shown`:"");
   setHTML($("#list"),ms.map(m=>{
-    const vis=m.modalities.includes("image"),loaded=m.status==="loaded";
+    const vis=m.modalities.includes("image"),loaded=m.status==="loaded",isFav=favs.has(m.id);
+    const stuckSecs=loadingSecs(m);
     return `<div class="row ${m.id===openId?"open":""}" data-id="${esc(m.id)}">
       <div class="rhead">
         <span class="led ${loaded?"loaded":""} ${m.failed?"failed":""}"></span>
+        <span class="fav ${isFav?"on":""}" data-fav="${esc(m.id)}" title="${isFav?"unfavorite":"favorite"}">&starf;</span>
         <span class="mid">${esc(m.id)}${vis?'<span class="tag vis">vision</span>':''}${!m.in_ini?'<span class="tag">auto</span>':''}</span>
         <span class="ctxpill"><span class="k">CTX</span> ${esc(m.eff_ctx)}</span>
-        <span class="stat ${loaded?"loaded":""}">${m.failed?"FAILED":esc(m.status)}</span>
+        <span class="stat ${loaded?"loaded":""}" style="${stuckSecs>=20?"color:var(--red)":""}">${m.failed?"FAILED":esc(m.status)}${stuckSecs>=20?` (${stuckSecs}s, check log)`:""}</span>
         <span class="chev">&#9654;</span>
       </div>
       <div class="edit">${m.id===openId?editor(m):""}</div>
     </div>`;
-  }).join(""));
+  }).join("")||`<div class="skel">NO MODELS MATCH</div>`);
+}
+function captureEditorState(){
+  if(!openId)return null;
+  const row=$(`.row[data-id="${CSS.escape(openId)}"]`);
+  if(!row)return null;
+  const vals={};
+  $$("[data-k]",row).forEach(el=>vals[el.dataset.k]=el.value);
+  const groupsOpen=$$(".kgroup",row).map(d=>d.open);
+  const searchEl=$(".edit .search",row);
+  const searchVal=searchEl?searchEl.value:null;
+  const active=document.activeElement;
+  const focusKey=(active&&active.dataset&&row.contains(active))?active.dataset.k:null;
+  const focusSearch=(active===searchEl);
+  const selStart=focusKey&&"selectionStart" in active?active.selectionStart:null;
+  const selEnd=focusKey&&"selectionEnd" in active?active.selectionEnd:null;
+  return {vals,groupsOpen,searchVal,focusKey,focusSearch,selStart,selEnd};
+}
+function restoreEditorState(snap){
+  if(!snap||!openId)return;
+  const row=$(`.row[data-id="${CSS.escape(openId)}"]`);
+  if(!row)return;
+  $$("[data-k]",row).forEach(el=>{if(snap.vals[el.dataset.k]!=null)el.value=snap.vals[el.dataset.k];});
+  $$(".kgroup",row).forEach((d,i)=>{if(snap.groupsOpen[i]!=null)d.open=snap.groupsOpen[i];});
+  if(snap.searchVal!=null){
+    const searchEl=$(".edit .search",row);
+    if(searchEl){searchEl.value=snap.searchVal;kquery=snap.searchVal.trim().toLowerCase();applyKnobFilter(row.querySelector(".edit"));}
+  }
+  if(snap.focusKey){
+    const el=$(`[data-k="${CSS.escape(snap.focusKey)}"]`,row);
+    if(el){el.focus();if(snap.selStart!=null&&el.setSelectionRange)el.setSelectionRange(snap.selStart,snap.selEnd);}
+  }else if(snap.focusSearch){
+    const searchEl=$(".edit .search",row);
+    if(searchEl)searchEl.focus();
+  }
 }
 async function refresh(silent){
-  try{const s=await api("/api/state");STATE=s;renderGpus(s.gpus);renderModels();}
+  try{
+    const snap=silent?captureEditorState():null;
+    const s=await api("/api/state");STATE=s;renderGpus(s.gpus);renderModels();
+    restoreEditorState(snap);
+  }
   catch(e){if(!silent)setHTML($("#list"),`<div class="skel" style="color:var(--red)">BACKEND UNREACHABLE</div>`);}
 }
 document.addEventListener("click",async e=>{
+  const favBtn=e.target.closest("#view-models [data-fav]");
+  if(favBtn){e.stopPropagation();toggleFav(favBtn.dataset.fav);return;}
   const head=e.target.closest("#view-models .rhead");
   if(head&&!e.target.closest("button")){
     const id=head.parentElement.dataset.id;openId=(openId===id)?null:id;kquery="";renderModels();return;
@@ -170,7 +226,7 @@ async function pollBuild(){
 /* ---------- setup tab ---------- */
 async function loadSetup(){
   const v=$("#view-setup");setHTML(v,`<div class="skel">PROBING SYSTEM...</div>`);
-  const s=await api("/api/setup");
+  const [s,net]=await Promise.all([api("/api/setup"),api("/api/network")]);
   const p=s.prereqs,hw=s.hardware;
   const toolRow=(name,t)=>`<div class="kv"><span class="k">${esc(name)}</span>
     <span class="v ${t.present?'ok':'bad'}">${t.present?esc(t.version||"present"):"MISSING"}
@@ -191,12 +247,54 @@ async function loadSetup(){
       ${hw.notes.map(n=>`<div class="note">&bull; ${esc(n)}</div>`).join("")}
     </div>
     <div class="card"><h3>Scan Drives for Models</h3>
-      <div class="actions"><button id="btn-scan">Scan for GGUF models</button><span class="msg" id="scan-msg"></span></div>
+      <div class="actions"><button id="btn-scan">Scan for GGUF models</button><button class="ghost" id="btn-missing">Check for deleted models</button><span class="msg" id="scan-msg"></span></div>
       <div id="scan-out"></div>
+      <div id="missing-out"></div>
+    </div>
+    <div class="card"><h3>Network Access</h3>
+      <div class="kv"><span class="k">router status</span><span class="v ${net.router_running?'ok':'bad'}">${net.router_running?"running":"not running"}</span></div>
+      <div class="kv"><span class="k">currently bound to</span><span class="v">${esc(net.host)}:${esc(net.port)}${net.host!=="127.0.0.1"?" (LAN-accessible)":" (local only)"}</span></div>
+      <div class="kv"><span class="k">this machine's LAN IP</span><span class="v">${esc(net.lan_ip||"not detected")}</span></div>
+      <div class="note">By default the router only answers on 127.0.0.1 (this machine only). Enabling LAN access lets other devices on your network reach it at <b>http://${esc(net.lan_ip||"<lan-ip>")}:${esc(net.port)}/</b> &mdash; with no key set, anyone on your network can use it unauthenticated. An API key is optional but recommended.</div>
+      <div class="actions" style="margin-top:10px">
+        <label style="font-size:11px;color:var(--dim)"><input type="checkbox" id="net-lan" ${net.host!=="127.0.0.1"?"checked":""}> allow access from other devices on my network</label>
+      </div>
+      <div id="net-keyrow" style="display:${net.host!=="127.0.0.1"?"":"none"};margin-top:10px">
+        <label style="font-size:11px;color:var(--dim);display:block;margin-bottom:8px"><input type="checkbox" id="net-require-key" checked> require an API key (won't enable LAN access until a key is set)</label>
+        <div class="fld"><label>API key (clients send it as Authorization: Bearer &lt;key&gt;)</label>
+          <input id="net-apikey" value="" placeholder="${net.has_api_key?"(unchanged - a key is already set)":"leave blank for no key"}">
+        </div>
+      </div>
+      <div class="actions" style="margin-top:10px">
+        <button class="primary" id="btn-net-apply">Apply &amp; Restart Router</button>
+        <button class="ghost" id="btn-net-genkey" style="display:${net.host!=="127.0.0.1"?"":"none"}">Generate Key</button>
+        <span class="msg" id="net-msg"></span>
+      </div>
     </div>`);
   $$("[data-install]",v).forEach(b=>b.onclick=async()=>{b.disabled=true;b.textContent="installing...";
     const r=await api("/api/setup/install",{tool:b.dataset.install});toast(r.ok?"Installed":"Install failed",r.ok?"ok":"err");loadSetup();});
   $("#btn-scan").onclick=scanDrives;
+  $("#btn-missing").onclick=checkMissing;
+  $("#net-lan").onchange=e=>{
+    $("#net-keyrow").style.display=e.target.checked?"":"none";
+    $("#btn-net-genkey").style.display=e.target.checked?"":"none";
+  };
+  $("#btn-net-genkey").onclick=()=>{
+    const key=[...crypto.getRandomValues(new Uint8Array(24))].map(b=>b.toString(16).padStart(2,"0")).join("");
+    $("#net-apikey").value=key;
+  };
+  $("#btn-net-apply").onclick=async()=>{
+    const msg=$("#net-msg"),lan=$("#net-lan").checked;
+    const host=lan?"0.0.0.0":"127.0.0.1";
+    const apiKey=$("#net-apikey").value.trim();
+    if(lan&&$("#net-require-key").checked&&!apiKey&&!net.has_api_key){
+      msg.className="msg err";msg.textContent='set or generate an API key first (or uncheck "require an API key")';return;
+    }
+    msg.className="msg work";msg.textContent="restarting router...";
+    const r=await api("/api/network",{host,api_key:lan?(apiKey||undefined):""});
+    if(r.ok){msg.className="msg ok";msg.textContent="applied";toast(lan?"LAN access enabled":"LAN access disabled","ok");setTimeout(loadSetup,1500);}
+    else{msg.className="msg err";msg.textContent=r.error||"failed";}
+  };
 }
 async function scanDrives(){
   const msg=$("#scan-msg");msg.className="msg work";msg.textContent="scanning all drives (may take a moment)...";
@@ -211,6 +309,21 @@ async function scanDrives(){
     ${fresh.length?`<div class="actions"><button class="primary" id="btn-apply">Add ${fresh.length} models to config</button><span class="msg" id="apply-msg"></span></div>`:""}`);
   if(fresh.length)$("#btn-apply").onclick=async()=>{const am=$("#apply-msg");am.className="msg work";am.textContent="writing config...";
     const rr=await api("/api/scan/apply",{entries:fresh});am.className="msg ok";am.textContent=`added ${rr.added}`;toast("Models added","ok");refresh(true);};
+}
+
+async function checkMissing(){
+  const out=$("#missing-out");setHTML(out,`<div class="note">checking configured models against disk...</div>`);
+  let r;try{r=await api("/api/scan/missing");}catch(e){setHTML(out,`<div class="note" style="color:var(--red)">backend unreachable</div>`);return;}
+  const miss=(r&&r.missing)||[];
+  if(!miss.length){setHTML(out,`<div class="note">All configured models still exist on disk.</div>`);return;}
+  setHTML(out,`<div class="note">${esc(miss.length)} configured model(s) whose file is gone:</div>
+    <div class="list" style="margin-top:10px">${miss.map(m=>`<div class="row"><div class="rhead" style="cursor:default;grid-template-columns:1fr auto">
+      <span class="mid">${esc(m.id)}${m.loaded?'<span class="tag">loaded</span>':''}</span>
+      <span class="ctxpill" title="${esc(m.model)}" style="color:var(--red);border-color:var(--red)">missing file</span></div></div>`).join("")}</div>
+    <div class="actions"><button class="primary" id="btn-prune">Remove ${miss.length} missing</button><span class="msg" id="prune-msg"></span></div>`);
+  $("#btn-prune").onclick=async()=>{const pm=$("#prune-msg");pm.className="msg work";pm.textContent="removing...";
+    const rr=await api("/api/scan/prune",{ids:miss.map(m=>m.id)});
+    toast(`Removed ${rr.removed.length} missing model(s)`,"ok");refresh(true);checkMissing();};
 }
 
 /* ---------- discover tab (HuggingFace) ---------- */
@@ -306,7 +419,78 @@ async function hubDownload(repo,path,shards,mmproj){
   },1000);
 }
 
+/* ---------- stats tab ---------- */
+let statsSort="tokens";
+const SORT_COLS={tokens:"Total",prompt:"Prompt",generated:"Gen",runs:"Runs",loaded_secs:"Loaded"};
+function fmtNum(n){n=Number(n)||0;return n>=1e9?(n/1e9).toFixed(2)+"B":n>=1e6?(n/1e6).toFixed(2)+"M":n>=1e3?(n/1e3).toFixed(1)+"k":String(Math.round(n));}
+function fmtDur(s){s=Math.round(Number(s)||0);const h=Math.floor(s/3600),m=Math.floor(s%3600/60);return h?`${h}h ${m}m`:m?`${m}m`:`${s}s`;}
+function fmtAgo(ts){if(!ts)return "never";const d=Date.now()/1000-ts;return d<60?"just now":d<3600?Math.floor(d/60)+"m ago":d<86400?Math.floor(d/3600)+"h ago":Math.floor(d/86400)+"d ago";}
+function statCard(label,val){return `<div class="gpu"><div class="stats" style="margin:0"><span>${esc(label)}</span></div><div style="font-family:var(--disp);font-weight:600;color:#fff;font-size:22px;margin-top:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(val)}</div></div>`;}
+function sortStats(c){statsSort=c;loadStats(true);}
+async function loadStats(silent){
+  const v=$("#view-stats");
+  if(!silent)setHTML(v,`<div class="skel">LOADING STATS...</div>`);
+  let s;try{s=await api("/api/stats");}catch(e){s=null;}
+  // fetch() doesn't reject on HTTP errors, so a 404/500 arrives as a parsed
+  // error body, not an exception - guard on shape, not just the catch.
+  if(!s||s.error||!Array.isArray(s.per_model)){if(!silent)setHTML(v,`<div class="skel" style="color:var(--red)">BACKEND UNREACHABLE</div>`);return;}
+  const t=s.totals,live=s.live;
+  const rows=[...s.per_model].sort((a,b)=>(b[statsSort]||0)-(a[statsSort]||0));
+  const maxDaily=Math.max(1,...s.daily.map(d=>d.prompt+d.generated));
+  setHTML(v,`
+    <div class="gpus" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr))">
+      ${statCard("Tokens processed",fmtNum(t.tokens))}
+      ${statCard("Generated",fmtNum(t.generated))}
+      ${statCard("Inference time",fmtDur(t.loaded_hours*3600))}
+      ${statCard("Models used",t.models_used)}
+      ${statCard("Runs (approx)",fmtNum(t.total_runs))}
+      ${statCard("Most used",t.most_used||"-")}
+    </div>
+    <div class="card"><h3>Live Throughput${live.router_up?"":` <span style="color:var(--red);font-size:10px">(router offline)</span>`}</h3>
+      <div class="kv"><span class="k">loaded model</span><span class="v ${live.loaded_model?"ok":""}">${esc(live.loaded_model||"none")}</span></div>
+      <div class="kv"><span class="k">generation</span><span class="v">${(live.gen_per_sec||0).toFixed(1)} tok/s</span></div>
+      <div class="kv"><span class="k">prompt eval</span><span class="v">${(live.prompt_per_sec||0).toFixed(1)} tok/s</span></div>
+      <div class="kv"><span class="k">active requests</span><span class="v">${esc(live.requests_processing)}</span></div>
+    </div>
+    <div class="card"><h3>Activity${s.daily.length?` (last ${s.daily.length} days)`:""}</h3>
+      ${s.daily.length?`<div style="display:flex;align-items:flex-end;gap:4px;height:120px;margin-top:10px">
+        ${s.daily.map(d=>{const tot=d.prompt+d.generated,h=Math.round(100*tot/maxDaily);
+          return `<div title="${esc(d.date)} &middot; ${fmtNum(tot)} tokens" style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;height:100%">
+            <div style="height:${h}%;min-height:${tot?2:0}px;background:var(--amber);box-shadow:0 0 6px var(--amber-dim)"></div></div>`;}).join("")}
+      </div>
+      <div style="display:flex;justify-content:space-between;margin-top:6px;color:var(--dim);font-size:9px"><span>${esc(s.daily[0].date)}</span><span>${esc(s.daily[s.daily.length-1].date)}</span></div>`
+      :`<div class="note">No usage recorded yet - load a model and run some inference.</div>`}
+    </div>
+    <div class="card"><h3>Per-model Usage</h3>
+      ${rows.length?`<div class="toolbar" style="margin:6px 0 0">
+        ${Object.keys(SORT_COLS).map(c=>`<span class="chip ${statsSort===c?"on":""}" onclick="sortStats('${c}')">${SORT_COLS[c]}</span>`).join("")}
+      </div>
+      <div class="list" style="margin-top:12px">${rows.map(m=>`
+        <div class="row"><div class="rhead" style="cursor:default;grid-template-columns:9px 1fr auto auto auto auto">
+          <span class="led ${live.loaded_model===m.id?"loaded":""}"></span>
+          <span class="mid">${esc(m.id)}</span>
+          <span class="ctxpill" title="prompt ${fmtNum(m.prompt)} + generated ${fmtNum(m.generated)}">${fmtNum(m.tokens)} tok</span>
+          <span class="stat">${fmtNum(m.runs)} runs</span>
+          <span class="stat">${fmtDur(m.loaded_secs)}</span>
+          <span class="stat">${fmtAgo(m.last_used)}</span>
+        </div></div>`).join("")}</div>`
+      :`<div class="note">No models have logged usage yet.</div>`}
+    </div>`);
+}
+setInterval(()=>{if($(".tab.active").dataset.tab==="stats")loadStats(true);},4000);
+
 function clock(){$("#clock").textContent=new Date().toLocaleTimeString('en-GB')+" LOCAL";}
 setInterval(clock,1000);clock();
 (async()=>{SCHEMA=await api("/api/schema");await refresh();})();
 setInterval(()=>{if($(".tab.active").dataset.tab==="models")refresh(true);},4000);
+
+/* ---------- router log ---------- */
+async function refreshRouterLog(){
+  const el=$("#router-log");if(!el)return;
+  const s=await api("/api/router/log");
+  const wasBottom=el.scrollTop+el.clientHeight>=el.scrollHeight-20;
+  el.textContent=s.log||"idle";
+  if(wasBottom)el.scrollTop=el.scrollHeight;
+}
+setInterval(()=>{if($(".tab.active").dataset.tab==="models")refreshRouterLog();},3000);
+refreshRouterLog();

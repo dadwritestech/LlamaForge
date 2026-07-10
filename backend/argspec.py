@@ -17,6 +17,21 @@ RESERVED = {
 
 SECTION_RE = re.compile(r"^-+\s*(.+?)\s*-+\s*$")
 
+def _balance_parens(s):
+    """Drop orphan ')' left over after trimming a '(default:/env:...)' tail.
+    Upstream --help text (and our own truncation) can leave a dangling ')'
+    with no matching '(' - it shows up as a stray ')' in the UI, so strip it."""
+    out, depth = [], 0
+    for ch in s:
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            if depth == 0:
+                continue            # orphan close paren -> drop
+            depth -= 1
+        out.append(ch)
+    return "".join(out).strip()
+
 # curated types/options for common knobs (help text lacks enum values for these)
 OVERRIDES = {
     "cache-type-k": ("enum", ["f16", "bf16", "q8_0", "q5_1", "q5_0", "q4_1", "q4_0", "iq4_nl"]),
@@ -91,9 +106,11 @@ def parse_help(text):
         flags, placeholder = [], ""
         for fp in flag_parts:
             toks = fp.split()
-            flags.append(toks[0].rstrip(","))
-            if len(toks) > 1:
-                placeholder = " ".join(toks[1:]).rstrip(",")
+            j = 0
+            while j < len(toks) and toks[j].rstrip(",").startswith("-"):
+                flags.append(toks[j].rstrip(",")); j += 1
+            if j < len(toks):
+                placeholder = " ".join(toks[j:])
         longs = [f[2:] for f in flags if f.startswith("--")]
         if not longs:
             continue
@@ -109,7 +126,7 @@ def parse_help(text):
             "key": key, "flags": flags, "aliases": longs, "section": section,
             "type": typ, "options": opts,
             "placeholder": placeholder,
-            "desc": re.sub(r"\s*\((env|default):.*", "", desc).strip(),
+            "desc": _balance_parens(re.sub(r"\s*\((env|default):.*", "", desc)),
             "default": clean_default,
             "env": env.group(1) if env else "",
             "reserved": any(l in RESERVED for l in longs),

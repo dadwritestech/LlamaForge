@@ -7,13 +7,20 @@ $cfg  = Get-Content (Join-Path $here "config.json") -Raw | ConvertFrom-Json
 
 function Listening($port){ [bool](Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue) }
 
+$logDir = Join-Path $here "logs"
+New-Item -ItemType Directory -Force -Path $logDir | Out-Null
+
 # 1. llama.cpp router (only if not already up)
 if (-not (Listening $cfg.router_port)) {
   if (Test-Path $cfg.server_bin) {
+    $routerHost = if ($cfg.router_host) { $cfg.router_host } else { "127.0.0.1" }
     $args = @("--models-preset", $cfg.models_ini, "--models-max", "1", "--offline",
-              "--host", "127.0.0.1", "--port", "$($cfg.router_port)", "--metrics")
-    Start-Process -FilePath $cfg.server_bin -ArgumentList $args -WindowStyle Hidden
-    Write-Host "started llama.cpp router on port $($cfg.router_port)"
+              "--host", $routerHost, "--port", "$($cfg.router_port)", "--metrics")
+    if ($cfg.router_api_key) { $args += @("--api-key", $cfg.router_api_key) }
+    Start-Process -FilePath $cfg.server_bin -ArgumentList $args -WindowStyle Hidden `
+                  -RedirectStandardOutput (Join-Path $logDir "router.out.log") `
+                  -RedirectStandardError  (Join-Path $logDir "router.err.log")
+    Write-Host "started llama.cpp router on $($routerHost):$($cfg.router_port)"
   } else {
     Write-Host "server_bin not found ($($cfg.server_bin)) - open the dashboard Build tab to build llama.cpp first." -ForegroundColor Yellow
   }

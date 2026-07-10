@@ -1,9 +1,13 @@
 # machine-specific - never commit
 config.json
 models.ini
+stats.json
 logs/
 __pycache__/
 *.pyc
 
 # a user's cloned engine + build artifacts
 llama.cpp/
+
+# local editor / agent tooling config
+.claude/

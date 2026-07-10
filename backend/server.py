@@ -7,7 +7,7 @@ detection, and drive scanning. Pure Python stdlib.
 import json, os, subprocess, urllib.request, urllib.error
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-import config, argspec, hardware, prereqs, scanner, hub
+import config, argspec, hardware, prereqs, scanner, hub, router_ctl, stats
 from builder import BuildManager
 
 ROOT    = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -15,6 +15,19 @@ WEB     = os.path.join(ROOT, "web")
 LOGDIR  = os.path.join(ROOT, "logs")
 BUILDER = BuildManager(LOGDIR)
 DOWNLOADS = hub.DownloadManager()
+
+def _tail_file(path, n):
+    if not os.path.exists(path):
+        return []
+    with open(path, "r", encoding="utf-8", errors="replace") as f:
+        return f.readlines()[-n:]
+
+def router_log_tail(n=400):
+    err = _tail_file(os.path.join(LOGDIR, "router.err.log"), n)
+    out = _tail_file(os.path.join(LOGDIR, "router.out.log"), n)
+    if not err and not out:
+        return "(no router log yet - restart LlamaForge to start capturing router.err.log / router.out.log)"
+    return "".join(out) + ("\n--- stderr ---\n" if out and err else "") + "".join(err)
 
 def total_vram_mib():
     return sum(g["total"] for g in _gpu_telemetry() if "total" in g)
@@ -146,6 +159,28 @@ class H(BaseHTTPRequestHandler):
             s = dict(BUILDER.state); s["log"] = BUILDER.tail(300); return self._send(200, s)
         if p == "/api/hub/progress":
             return self._send(200, DOWNLOADS.progress())
+        if p == "/api/router/log":
+            return self._send(200, {"log": router_log_tail(400)})
+        if p == "/api/stats":
+            return self._send(200, stats.TRACKER.summary())
+        if p == "/api/scan/missing":
+            ini = config.read_sections()
+            st, data = router("/models")
+            loaded = {m["id"] for m in data.get("data", [])
+                      if st == 200 and m.get("status", {}).get("value") == "loaded"}
+            missing = [{"id": sec, "model": kv["model"], "loaded": sec in loaded}
+                       for sec, kv in ini.items()
+                       if sec != "*" and kv.get("model") and not os.path.exists(kv["model"])]
+            return self._send(200, {"missing": missing})
+        if p == "/api/network":
+            c = cfg()
+            return self._send(200, {
+                "host": c.get("router_host", "127.0.0.1"),
+                "port": c["router_port"],
+                "has_api_key": bool(c.get("router_api_key")),
+                "lan_ip": router_ctl.lan_ip(),
+                "router_running": router_ctl.is_running(c["router_port"]),
+            })
         return self._send(404, {"error": "not found"})
 
     def do_POST(self):
@@ -197,8 +232,29 @@ class H(BaseHTTPRequestHandler):
                 if e.get("mmproj"): keys["mmproj"] = e["mmproj"]
                 if e.get("embeddings"): keys["embeddings"] = "true"
                 config.set_keys(e["id"], keys)
+            config.apply_ctx_defaults()
             router("/models?reload=1")
             return self._send(200, {"ok": True, "added": len(entries)})
+
+        if p == "/api/scan/prune":
+            ids, removed = body.get("ids", []), []
+            st, data = router("/models")
+            loaded = {m["id"] for m in data.get("data", [])
+                      if st == 200 and m.get("status", {}).get("value") == "loaded"}
+            for mid in ids:
+                sect = config.read_sections().get(mid)
+                if sect is None:
+                    continue
+                mpath = sect.get("model")
+                if mpath and os.path.exists(mpath):
+                    continue                     # file reappeared - don't remove
+                if mid in loaded:
+                    router("/models/unload", "POST", {"model": mid})
+                if config.remove_section(mid):
+                    removed.append(mid)
+            if removed:
+                router("/models?reload=1")
+            return self._send(200, {"removed": removed})
 
         if p == "/api/hub/search":
             try:
@@ -238,6 +294,7 @@ class H(BaseHTTPRequestHandler):
                 if e.get("mmproj"): keys["mmproj"] = e["mmproj"]
                 if e.get("embeddings"): keys["embeddings"] = "true"
                 config.set_keys(e["id"], keys)
+            config.apply_ctx_defaults()
             router("/models?reload=1")
             return self._send(200, {"ok": True, "added": [e["id"] for e in entries]})
 
@@ -245,11 +302,30 @@ class H(BaseHTTPRequestHandler):
             c = cfg(); c.update(body or {}); config.save(c)
             return self._send(200, {"ok": True, "config": c})
 
+        if p == "/api/network":
+            c = cfg()
+            host = body.get("host", "127.0.0.1")
+            api_key = body.get("api_key")
+            if api_key is None:
+                api_key = c.get("router_api_key", "")   # field left blank -> keep existing key
+            c["router_host"] = host
+            c["router_api_key"] = api_key
+            config.save(c)
+            ok, err = router_ctl.restart(c["server_bin"], c["models_ini"], c["router_port"],
+                                          host, api_key, LOGDIR)
+            return self._send(200 if ok else 500, {"ok": ok, "error": err, "host": host})
+
         return self._send(404, {"error": "not found"})
 
 def main():
     port = cfg()["panel_port"]
     print(f"LlamaForge -> http://127.0.0.1:{port}")
+    try:                    # backfill ctx-size defaults, then nudge the router
+        if config.apply_ctx_defaults().get("changed"):
+            router("/models?reload=1")
+    except Exception:
+        pass
+    stats.TRACKER.start()   # background usage poller
     ThreadingHTTPServer(("127.0.0.1", port), H).serve_forever()
 
 if __name__ == "__main__":

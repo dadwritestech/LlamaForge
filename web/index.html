@@ -50,8 +50,11 @@ h1 span{color:var(--amber)}
 .list{display:flex;flex-direction:column;gap:8px}
 .row{background:var(--panel);border:1px solid var(--hair)}
 .row:hover{border-color:#2b3539}.row.open{border-color:var(--amber)}
-.rhead{display:grid;grid-template-columns:14px 1fr auto auto auto;gap:14px;align-items:center;padding:13px 16px;cursor:pointer}
+.rhead{display:grid;grid-template-columns:14px 18px 1fr auto auto auto;gap:14px;align-items:center;padding:13px 16px;cursor:pointer}
 .led{width:9px;height:9px;border-radius:50%;background:#33403f}
+.fav{color:var(--dim);font-size:15px;cursor:pointer;user-select:none;line-height:1}
+.fav:hover{color:var(--amber)}
+.fav.on{color:var(--amber);text-shadow:0 0 6px var(--amber-dim)}
 .led.loaded{background:var(--green);box-shadow:0 0 8px var(--green)}.led.failed{background:var(--red);box-shadow:0 0 8px var(--red)}
 .mid{font-weight:500;color:#e6eeef;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .tag{font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim);border:1px solid var(--hair);padding:2px 7px;margin-left:8px}
@@ -113,6 +116,7 @@ button:disabled{opacity:.4;cursor:not-allowed}
   </header>
   <div class="tabs">
     <div class="tab active" data-tab="models">Models</div>
+    <div class="tab" data-tab="stats">Stats</div>
     <div class="tab" data-tab="discover">Discover</div>
     <div class="tab" data-tab="build">Build / Update</div>
     <div class="tab" data-tab="setup">Setup</div>
@@ -120,8 +124,17 @@ button:disabled{opacity:.4;cursor:not-allowed}
   <div class="view active" id="view-models">
     <div class="gpus" id="gpus"></div>
     <div class="tbl-head"><h2>Model Registry</h2><div class="count" id="count">--</div></div>
+    <div class="toolbar">
+      <input class="search" id="model-search" placeholder="filter models (e.g. qwen, vision, coder)..." oninput="filterModels(this)">
+      <span class="chip" id="fav-chip" onclick="toggleFavOnly(this)">&starf; Favorites only</span>
+    </div>
     <div class="list" id="list"><div class="skel">SCANNING REGISTRY...</div></div>
+    <details class="kgroup" style="margin-top:16px" id="router-log-details">
+      <summary>Router Log (llama.cpp stdout/stderr)</summary>
+      <div class="log" id="router-log" style="margin:0;border-top:1px solid var(--hair)">idle</div>
+    </details>
   </div>
+  <div class="view" id="view-stats"><div class="skel">LOADING STATS...</div></div>
   <div class="view" id="view-discover"><div class="skel">LOADING...</div></div>
   <div class="view" id="view-build"><div class="skel">LOADING BUILD STATUS...</div></div>
   <div class="view" id="view-setup"><div class="skel">PROBING SYSTEM...</div></div>
