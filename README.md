@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/hero.png" alt="LlamaForge - the full GUI experience on top of llama.cpp" width="100%">
+  <img src="docs/hero.png" alt="LlamaForge - a control panel for llama.cpp" width="100%">
 </p>
 
 <p align="center">
@@ -22,10 +22,19 @@
 
 # LlamaForge
 
-A graphical control panel that sits on top of [llama.cpp](https://github.com/ggml-org/llama.cpp):
+A graphical control panel for [llama.cpp](https://github.com/ggml-org/llama.cpp):
 build it, keep it current with upstream, discover models that fit your hardware,
-tune **every** server parameter per model, and run - all from a browser, no
-command line.
+tune **every** server parameter per model, and run — all from your browser instead
+of hand-editing `models.ini` and long `llama-server` command lines.
+
+**Who it's for:** people who want llama.cpp's speed and control but would rather not
+memorize flags, edit config files by hand, or babysit build commands. It assumes
+you're comfortable running a setup script once and building llama.cpp for your
+machine — both guided from the dashboard, on Windows with an NVIDIA GPU (CPU-only
+works too). **Looking for something else?** If you want a zero-config, double-click
+installer with no compile step, [LM Studio](https://lmstudio.ai),
+[Ollama](https://ollama.com), or [Jan](https://jan.ai) will get you running faster —
+LlamaForge trades that for direct, per-model control over the real llama.cpp server.
 
 > LlamaForge is an independent wrapper and is **not affiliated with llama.cpp / ggml-org**.
 > All inference, model support, and performance come from llama.cpp (MIT, (c) The ggml
