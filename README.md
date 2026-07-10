@@ -12,12 +12,12 @@
 
 <p align="center">
   <a href="https://github.com/dadwritestech/LlamaForge/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/dadwritestech/LlamaForge/ci.yml?branch=master&style=flat-square&labelColor=0f1315&color=39d98a&label=CI"></a>
-  <a href="https://github.com/dadwritestech/LlamaForge/stargazers"><img alt="stars" src="https://img.shields.io/github/stars/dadwritestech/LlamaForge?style=flat-square&labelColor=0f1315&color=ffb000"></a>
-  <a href="https://github.com/dadwritestech/LlamaForge/network/members"><img alt="forks" src="https://img.shields.io/github/forks/dadwritestech/LlamaForge?style=flat-square&labelColor=0f1315&color=3fd7e6"></a>
+  <a href="https://github.com/dadwritestech/LlamaForge/stargazers"><img alt="stars" src="https://img.shields.io/github/stars/dadwritestech/LlamaForge?style=flat-square&labelColor=0f1315&color=ffb000&cacheSeconds=1800"></a>
+  <a href="https://github.com/dadwritestech/LlamaForge/network/members"><img alt="forks" src="https://img.shields.io/github/forks/dadwritestech/LlamaForge?style=flat-square&labelColor=0f1315&color=3fd7e6&cacheSeconds=1800"></a>
   <a href="https://github.com/dadwritestech/LlamaForge/issues"><img alt="open issues" src="https://img.shields.io/github/issues/dadwritestech/LlamaForge?style=flat-square&labelColor=0f1315&color=39d98a"></a>
   <a href="https://github.com/dadwritestech/LlamaForge/pulls"><img alt="pull requests" src="https://img.shields.io/github/issues-pr/dadwritestech/LlamaForge?style=flat-square&labelColor=0f1315&color=39d98a"></a>
   <a href="https://github.com/dadwritestech/LlamaForge/commits/master"><img alt="last commit" src="https://img.shields.io/github/last-commit/dadwritestech/LlamaForge?style=flat-square&labelColor=0f1315&color=c8d2d4"></a>
-  <img alt="repo size" src="https://img.shields.io/github/repo-size/dadwritestech/LlamaForge?style=flat-square&labelColor=0f1315&color=6b7a7e">
+  <img alt="repo size" src="https://img.shields.io/github/repo-size/dadwritestech/LlamaForge?style=flat-square&labelColor=0f1315&color=6b7a7e&cacheSeconds=1800">
 </p>
 
 # LlamaForge
