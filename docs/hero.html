@@ -1,71 +1,83 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
 <meta charset="utf-8">
+<!-- Source for docs/hero.png. Regenerate at 1280x420 with Chrome headless:
+     chrome --headless --disable-gpu --force-device-scale-factor=2 \
+       --window-size=1280,420 --virtual-time-budget=4000 \
+       --screenshot=docs/_hero_2x.png file:///.../docs/hero.html
+     then downscale _hero_2x.png (2560x840) -> docs/hero.png with LANCZOS. -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 <style>
-:root{--bg:#080a0b;--panel:#0f1315;--hair:#1e262a;--ink:#c8d2d4;--dim:#6b7a7e;
-  --amber:#ffb000;--amber-dim:#7a5600;--cyan:#3fd7e6;--green:#39d98a;--red:#ff5c57;--grid:#0d1214}
-*{box-sizing:border-box;margin:0}
-body{width:1280px;height:420px;overflow:hidden;background:var(--bg);
-  font-family:'JetBrains Mono',monospace;position:relative;
+:root{
+  --bg:#080a0b;--panel:#0f1315;--panel2:#141a1d;--hair:#1e262a;
+  --ink:#c8d2d4;--dim:#6b7a7e;--amber:#ffb000;--amber-dim:#7a5600;
+  --cyan:#3fd7e6;--green:#39d98a;--red:#ff5c57;--grid:#0d1214;
+  --mono:'JetBrains Mono',ui-monospace,monospace;--disp:'Chakra Petch',var(--mono);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:1280px;height:420px;overflow:hidden;background:var(--bg);color:var(--ink);font-family:var(--mono)}
+.hero{position:relative;width:1280px;height:420px;overflow:hidden;border:1px solid var(--hair);
   background-image:linear-gradient(var(--grid) 1px,transparent 1px),linear-gradient(90deg,var(--grid) 1px,transparent 1px);
-  background-size:44px 44px}
-body::after{content:"";position:fixed;inset:0;pointer-events:none;
-  background:repeating-linear-gradient(0deg,rgba(0,0,0,.15) 0,rgba(0,0,0,.15) 1px,transparent 1px,transparent 3px)}
-.glow{position:absolute;width:700px;height:700px;border-radius:50%;filter:blur(140px);opacity:.14}
-.g1{background:var(--amber);top:-380px;left:-160px}
-.g2{background:var(--cyan);bottom:-460px;right:-120px;opacity:.10}
-.wrap{position:relative;height:100%;display:flex;align-items:center;padding:0 70px;gap:60px}
-.logo{width:96px;height:96px;border:2px solid var(--amber);position:relative;flex:none;box-shadow:0 0 40px rgba(255,176,0,.25)}
-.logo::before{content:"";position:absolute;left:16px;right:16px;top:50%;height:6px;transform:translateY(-3px);
-  background:var(--amber);box-shadow:0 -22px 0 var(--amber),0 22px 0 var(--amber)}
-h1{font-family:'Chakra Petch';font-weight:700;font-size:64px;letter-spacing:.1em;color:#fff;line-height:1}
+  background-size:44px 44px;display:flex;align-items:center;justify-content:space-between;padding:0 60px}
+.hero::before{content:"";position:absolute;left:-120px;top:-160px;width:760px;height:620px;
+  background:radial-gradient(circle at center,rgba(255,176,0,.20),rgba(255,176,0,.05) 40%,transparent 66%);pointer-events:none}
+.hero::after{content:"";position:absolute;inset:0;pointer-events:none;
+  background:repeating-linear-gradient(0deg,rgba(0,0,0,.16) 0,rgba(0,0,0,.16) 1px,transparent 1px,transparent 3px);
+  mix-blend-mode:multiply;opacity:.5}
+.left{position:relative;z-index:2;display:flex;gap:26px;align-items:flex-start}
+.logo{width:74px;height:74px;border:2px solid var(--amber);position:relative;flex:none;margin-top:16px}
+.logo::before{content:"";position:absolute;left:14px;right:14px;top:50%;height:4px;transform:translateY(-2px);
+  background:var(--amber);box-shadow:0 -18px 0 var(--amber),0 18px 0 var(--amber)}
+h1{font-family:var(--disp);font-weight:700;letter-spacing:.10em;font-size:74px;line-height:.94;color:#fff}
 h1 span{color:var(--amber)}
-.tag{color:var(--dim);font-size:16px;letter-spacing:.42em;text-transform:uppercase;margin-top:14px}
-.feats{display:flex;gap:14px;margin-top:30px}
-.feat{border:1px solid var(--hair);background:var(--panel);padding:10px 16px;font-size:13px;color:var(--ink);letter-spacing:.06em}
-.feat b{color:var(--amber);font-weight:500}
-.panel{margin-left:auto;width:360px;background:var(--panel);border:1px solid var(--hair);padding:18px 20px;box-shadow:0 20px 60px rgba(0,0,0,.5)}
-.ph{display:flex;justify-content:space-between;font-size:10px;letter-spacing:.12em;color:var(--dim);text-transform:uppercase;margin-bottom:12px;white-space:nowrap;gap:10px}
-.ph b{color:var(--amber);font-weight:600}
-.meter{height:20px;background:#0a0d0e;border:1px solid var(--hair);display:flex;gap:2px;padding:3px;margin-bottom:8px}
-.seg{flex:1;background:#12181a}.on{background:var(--amber);box-shadow:0 0 5px var(--amber-dim)}
-.mrow{display:flex;justify-content:space-between;align-items:center;font-size:12px;color:var(--ink);
-  border:1px solid var(--hair);padding:9px 11px;margin-top:7px;white-space:nowrap;gap:10px}
-.led{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:9px}
-.lg{background:var(--green);box-shadow:0 0 7px var(--green)}
-.ld{background:#33403f}
-.st{font-size:10px;letter-spacing:.14em;color:var(--green)}
-.std{font-size:10px;letter-spacing:.14em;color:var(--dim)}
-.fit{font-size:9px;letter-spacing:.1em;color:var(--green);border:1px solid var(--green);padding:2px 6px}
+.sub{color:var(--dim);font-size:15px;letter-spacing:.30em;text-transform:uppercase;margin:14px 0 26px;font-family:var(--disp)}
+.chips{display:flex;flex-wrap:wrap;gap:12px;max-width:600px}
+.chip{background:var(--panel2);border:1px solid var(--hair);padding:12px 16px;font-size:14px;line-height:1.3}
+.chip b{font-family:var(--disp);font-weight:700;letter-spacing:.04em}
+.chip .amber{color:var(--amber)}.chip .green{color:var(--green)}.chip .cyan{color:var(--cyan)}
+.chip span{color:var(--dim)}
+.panel{position:relative;z-index:2;width:352px;background:rgba(15,19,21,.85);border:1px solid var(--hair);padding:16px 18px;flex:none}
+.phead{display:flex;justify-content:space-between;align-items:baseline;font-size:12px;letter-spacing:.14em;text-transform:uppercase}
+.phead .g{color:var(--dim)}.phead .v{color:var(--amber);font-family:var(--disp);font-weight:600}
+.meter{height:26px;background:#0a0d0e;border:1px solid var(--hair);display:flex;gap:2px;padding:3px;margin:12px 0 16px}
+.seg{flex:1;background:#12181a}.seg.on{background:var(--amber);box-shadow:0 0 6px var(--amber-dim)}
+.mrow{display:flex;align-items:center;gap:10px;padding:10px 2px;border-top:1px solid #131a1c}
+.led{width:9px;height:9px;border-radius:50%;background:#33403f;flex:none}
+.led.loaded{background:var(--green);box-shadow:0 0 8px var(--green)}
+.mname{flex:1;color:#e6eeef;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mtag{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim);border:1px solid var(--hair);padding:2px 7px}
+.mtag.load{color:var(--green);border:none}.mtag.fit{color:var(--green);border-color:#1f4a37}
 </style>
 </head>
 <body>
-<div class="glow g1"></div><div class="glow g2"></div>
-<div class="wrap">
-  <div class="logo"></div>
-  <div>
-    <h1>LLAMA<span>FORGE</span></h1>
-    <div class="tag">The full GUI experience on top of llama.cpp</div>
-    <div class="feats">
-      <div class="feat"><b>222</b> tunable knobs</div>
-      <div class="feat"><b>1-click</b> build &amp; update</div>
-      <div class="feat"><b>VRAM-fit</b> model discovery</div>
-      <div class="feat"><b>0</b> dependencies</div>
+<div class="hero">
+  <div class="left">
+    <div class="logo"></div>
+    <div>
+      <h1>LLAMA<span>FORGE</span></h1>
+      <div class="sub">a control panel for llama.cpp</div>
+      <div class="chips">
+        <div class="chip"><b class="amber">222</b> <span>tunable knobs</span></div>
+        <div class="chip"><b class="amber">guided</b> <span>build &amp; update</span></div>
+        <div class="chip"><b class="cyan">VRAM-fit</b> <span>model discovery</span></div>
+        <div class="chip"><b class="green">0</b> <span>dependencies</span></div>
+      </div>
     </div>
   </div>
   <div class="panel">
-    <div class="ph"><span>GPU 0 &middot; RTX 5080</span><b>13.2 / 16 GB</b></div>
+    <div class="phead"><span class="g">GPU 0 &middot; RTX 5080</span><span class="v">13.2 / 16 GB</span></div>
     <div class="meter">
       <div class="seg on"></div><div class="seg on"></div><div class="seg on"></div><div class="seg on"></div>
       <div class="seg on"></div><div class="seg on"></div><div class="seg on"></div><div class="seg on"></div>
       <div class="seg on"></div><div class="seg on"></div><div class="seg on"></div><div class="seg on"></div>
       <div class="seg on"></div><div class="seg"></div><div class="seg"></div><div class="seg"></div>
     </div>
-    <div class="mrow"><span><span class="led lg"></span>qwopus-coder</span><span class="st">LOADED</span></div>
-    <div class="mrow"><span><span class="led ld"></span>gemma-4-12b</span><span class="std">READY</span></div>
-    <div class="mrow"><span><span class="led ld"></span>deepseek-v4-flash</span><span class="fit">FITS VRAM</span></div>
+    <div class="mrow"><span class="led loaded"></span><span class="mname">qwopus-coder</span><span class="mtag load">Loaded</span></div>
+    <div class="mrow"><span class="led"></span><span class="mname">gemma-4-12b</span><span class="mtag">Ready</span></div>
+    <div class="mrow"><span class="led"></span><span class="mname">deepseek-v4-flash</span><span class="mtag fit">Fits VRAM</span></div>
   </div>
 </div>
 </body>
