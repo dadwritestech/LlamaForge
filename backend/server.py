@@ -37,7 +37,8 @@ def download_dir():
     if c.get("model_dirs"):
         return os.path.join(c["model_dirs"][0], "LlamaForge-downloads")
     return os.path.join(ROOT, "models")
-_SCHEMA = None   # cached knob schema
+_SCHEMA = None       # cached knob schema
+_SCHEMA_KEY = None   # (server_bin, mtime) the cache was built from
 
 def cfg():          return config.load()
 def router_base():  return f"http://127.0.0.1:{cfg()['router_port']}"
@@ -77,9 +78,21 @@ def _gpu_telemetry():
     return res
 
 def schema():
-    global _SCHEMA
-    if _SCHEMA is None:
-        _SCHEMA = argspec.build_schema(cfg()["server_bin"])
+    """Knob schema, cached per (server_bin path, binary mtime).
+
+    Keying on the mtime means the cache self-invalidates when config.json is
+    repointed at a different binary or the binary is rebuilt. Failed attempts
+    are never cached, so fixing the config takes effect without a backend
+    restart."""
+    global _SCHEMA, _SCHEMA_KEY
+    bin_ = cfg()["server_bin"]
+    try:
+        key = (bin_, os.path.getmtime(bin_))
+    except OSError:
+        key = (bin_, None)
+    if _SCHEMA is None or _SCHEMA_KEY != key or _SCHEMA.get("error"):
+        _SCHEMA = argspec.build_schema(bin_)
+        _SCHEMA_KEY = key
     return _SCHEMA
 
 # ---------- model list (router status + ini settings) ----------
