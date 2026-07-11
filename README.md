@@ -129,6 +129,12 @@ straight from its header and writes sensible `ctx-size` defaults into `models.in
 model's own trained length so nothing is over-extended). Per-model settings you set
 by hand always win.
 
+## Roadmap
+
+Multi-engine support (vLLM, ik-llama), named launch profiles, and Linux/macOS are
+on the way. See [ROADMAP.md](ROADMAP.md) for what's shipped, in progress, and
+planned — it's an early preview, so priorities follow feedback.
+
 ## Credits & license
 
 LlamaForge is MIT-licensed ([LICENSE](LICENSE)). It builds and drives
