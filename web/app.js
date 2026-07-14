@@ -4,7 +4,7 @@
 const $=(s,e=document)=>e.querySelector(s), $$=(s,e=document)=>[...e.querySelectorAll(s)];
 const esc=v=>String(v==null?"":v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const setHTML=(el,h)=>{ if(el) el["inner"+"HTML"]=h; };   // escaped input only
-let STATE=null, SCHEMA=null, openId=null, onlySet=false, kquery="", mquery="", favOnly=false;
+let STATE=null, SCHEMA=null, VLLM_SCHEMA=null, vllmSchemaPending=false, openId=null, onlySet=false, kquery="", mquery="", favOnly=false;
 const favs=new Set(JSON.parse(localStorage.getItem("lf_favs")||"[]"));
 function saveFavs(){localStorage.setItem("lf_favs",JSON.stringify([...favs]));}
 function toggleFav(id){favs.has(id)?favs.delete(id):favs.add(id);saveFavs();renderModels();}
@@ -53,6 +53,7 @@ function knobField(m,k){
     ${k.desc?`<div class="hint" title="${esc(k.desc)}">${esc(k.desc)}</div>`:""}</div>`;
 }
 function editor(m){
+  if(m.backend==="vllm") return vllmEditor(m);
   if(!m.in_ini) return `<div class="note">Auto-discovered (not in models.ini) &mdash; add it via Setup &rarr; Scan Drives to tune it here.</div>`;
   if(!SCHEMA||!SCHEMA.groups) return `<div class="note">Loading knob schema...</div>`;
   const groups=SCHEMA.groups.map((g,gi)=>{
@@ -68,6 +69,25 @@ function editor(m){
       ${m.status==="loaded"||m.status==="loading"?`<button class="ghost" data-act="unload">${m.status==="loading"?"Cancel / Unload":"Unload"}</button>`:`<button data-act="load">Load</button>`}
       <span class="msg" data-msg></span>
     </div>${m.status==="loading"?`<div class="note">Still loading? Check the Router Log panel below the model list for the real llama.cpp output (crashes, out-of-memory, etc. show up there).</div>`:""}`;
+}
+function vllmEditor(m){
+  if(!VLLM_SCHEMA){ if(!vllmSchemaPending){vllmSchemaPending=true;api("/api/vllm/schema").then(s=>{VLLM_SCHEMA=s;vllmSchemaPending=false;renderModels();});} return `<div class="note">Loading vLLM knob schema...</div>`; }
+  if(VLLM_SCHEMA.error) return `<div class="note" style="color:var(--red)">vLLM knobs unavailable: ${esc(VLLM_SCHEMA.error)} &mdash; install vLLM from the Setup tab.</div>`;
+  const groups=VLLM_SCHEMA.groups.map((g,gi)=>{
+    const flds=g.knobs.map(k=>knobField(m,k)).join("");
+    return `<details class="kgroup" ${gi===0?"open":""}><summary>${esc(g.name)} &middot; ${g.knobs.length}</summary><div class="kgrid">${flds}</div></details>`;
+  }).join("");
+  return `<div class="toolbar">
+      <input class="search" placeholder="filter knobs (e.g. tensor, memory, quant)..." oninput="filterKnobs(this)">
+      <span class="chip ${onlySet?"on":""}" onclick="toggleOnlySet(this)">Only set</span>
+    </div>${groups}
+    <div class="actions">
+      <button class="primary" data-act="vsave">Save${m.status==="loaded"?" + Restart":""}</button>
+      ${m.status==="loaded"||m.status==="loading"?`<button class="ghost" data-act="vunload">${m.status==="loading"?"Cancel / Stop":"Stop"}</button>`:`<button data-act="vload">Load</button>`}
+      <button class="ghost" data-act="vdelete" title="remove model + delete its files from WSL">Delete</button>
+      <span class="msg" data-msg></span>
+    </div>
+    <div class="note">vLLM runs one model at a time inside WSL. Saving knobs on a loaded model restarts it (vLLM has no hot reload). Startup can take 1&ndash;5 minutes; watch the vLLM Log panel below.</div>`;
 }
 function applyKnobFilter(root){
   $$(".fld",root).forEach(f=>{
@@ -96,7 +116,7 @@ function renderModels(){
       <div class="rhead">
         <span class="led ${loaded?"loaded":""} ${m.failed?"failed":""}"></span>
         <span class="fav ${isFav?"on":""}" data-fav="${esc(m.id)}" title="${isFav?"unfavorite":"favorite"}">&starf;</span>
-        <span class="mid">${esc(m.id)}${vis?'<span class="tag vis">vision</span>':''}${!m.in_ini?'<span class="tag">auto</span>':''}</span>
+        <span class="mid">${esc(m.id)}<span class="tag be-${esc(m.backend||'llamacpp')}">${(m.backend==='vllm')?'vLLM':'llama.cpp'}</span>${vis?'<span class="tag vis">vision</span>':''}${!m.in_ini?'<span class="tag">auto</span>':''}${m.endpoint?`<span class="tag ep" data-ep="${esc(m.endpoint)}" title="click to copy endpoint">${esc(m.endpoint.replace('http://',''))}</span>`:''}</span>
         <span class="ctxpill"><span class="k">CTX</span> ${esc(m.eff_ctx)}</span>
         <span class="stat ${loaded?"loaded":""}" style="${stuckSecs>=20?"color:var(--red)":""}">${m.failed?"FAILED":esc(m.status)}${stuckSecs>=20?` (${stuckSecs}s, check log)`:""}</span>
         <span class="chev">&#9654;</span>
@@ -148,6 +168,8 @@ async function refresh(silent){
   catch(e){if(!silent)setHTML($("#list"),`<div class="skel" style="color:var(--red)">BACKEND UNREACHABLE</div>`);}
 }
 document.addEventListener("click",async e=>{
+  const epChip=e.target.closest("#view-models [data-ep]");
+  if(epChip){e.stopPropagation();navigator.clipboard.writeText(epChip.dataset.ep).then(()=>toast("Endpoint copied","ok"));return;}
   const favBtn=e.target.closest("#view-models [data-fav]");
   if(favBtn){e.stopPropagation();toggleFav(favBtn.dataset.fav);return;}
   const head=e.target.closest("#view-models .rhead");
@@ -167,7 +189,22 @@ document.addEventListener("click",async e=>{
       else{msg.className="msg err";msg.textContent=r.error||"failed";}
     }else if(act==="load"){msg.className="msg work";msg.textContent="loading (may take seconds)...";
       const r=await api("/api/load",{model:id});r.success?toast("Loaded","ok"):(msg.className="msg err",msg.textContent=(r.error&&r.error.message)||"load failed");
-    }else if(act==="unload"){msg.className="msg work";msg.textContent="unloading...";await api("/api/unload",{model:id});toast("Unloaded","ok");}
+    }else if(act==="unload"){msg.className="msg work";msg.textContent="unloading...";await api("/api/unload",{model:id});toast("Unloaded","ok");
+    }else if(act==="vsave"){
+      const settings={};$$("[data-k]",row).forEach(el=>settings[el.dataset.k]=el.value.trim());
+      msg.className="msg work";msg.textContent="saving vLLM knobs...";
+      const r=await api("/api/vllm/save",{model:id,settings});
+      msg.className="msg ok";msg.textContent=r.restarted?"saved - restarting":"saved";toast(r.restarted?"Saved & restarting":"Saved","ok");
+    }else if(act==="vload"){msg.className="msg work";msg.textContent="starting vLLM (1-5 min)...";
+      const r=await api("/api/vllm/load",{model:id});r.ok?toast("vLLM starting","ok"):(msg.className="msg err",msg.textContent=r.error||"load failed");
+    }else if(act==="vunload"){msg.className="msg work";msg.textContent="stopping vLLM...";await api("/api/vllm/unload",{model:id});toast("vLLM stopped","ok");
+    }else if(act==="vdelete"){
+      if(!confirm(`Delete ${id} and its files from WSL? This cannot be undone.`)){btn.disabled=false;return;}
+      msg.className="msg work";msg.textContent="deleting from WSL...";
+      const r=await api("/api/vllm/delete",{model:id});
+      r.ok?toast("Deleted","ok"):(msg.className="msg err",msg.textContent=r.error||"delete failed");
+      openId=null;
+    }
     await refresh(true);
   }catch(err){msg.className="msg err";msg.textContent=String(err);}
   btn.disabled=false;
@@ -178,6 +215,7 @@ let buildPoll=null;
 async function loadBuild(){
   const v=$("#view-build");setHTML(v,`<div class="skel">QUERYING GIT + GITHUB...</div>`);
   const b=await api("/api/build/info");
+  const vver=await api("/api/vllm/version");
   const cur=b.current||{},up=b.updates||{},flags=b.saved_flags&&Object.keys(b.saved_flags).length?b.saved_flags:b.recommended_flags||{};
   const behind=up.ok?up.behind:0;
   setHTML(v,`
@@ -199,9 +237,25 @@ async function loadBuild(){
       </div>
       <div class="note">Rebuilds llama.cpp with CMake. Prior binaries are backed up first. Takes several minutes; watch the log below.</div>
     </div>
-    <div class="card"><h3>Build Log</h3><div class="log" id="build-log">idle</div></div>`);
+    <div class="card"><h3>Build Log</h3><div class="log" id="build-log">idle</div></div>`
+    +`<div class="card"><h3>vLLM (pip package in WSL)</h3>
+      <div class="kv"><span class="k">installed</span><span class="v ${vver.installed&&vver.installed.present?'ok':'bad'}">${vver.installed&&vver.installed.present?"v"+esc(vver.installed.version):"not installed (see Setup)"}</span></div>
+      <div class="kv"><span class="k">latest on PyPI</span><span class="v">${esc(vver.latest||"?")}</span></div>
+      ${vver.installed&&vver.installed.present&&vver.latest&&vver.latest!==vver.installed.version?`<div class="actions"><button class="primary" id="btn-vllm-update">Update vLLM to ${esc(vver.latest)}</button><span class="msg" id="vllm-upd-msg"></span></div>`:`<div class="note">${vver.installed&&vver.installed.present?"vLLM is up to date.":"Install vLLM from the Setup tab first."}</div>`}
+      <div class="log" id="vllm-update-log" style="display:none">idle</div>
+    </div>`);
   $("#btn-build").onclick=startBuild;
   pollBuild();
+  const updBtn=$("#btn-vllm-update");
+  if(updBtn)updBtn.onclick=async()=>{
+    const msg=$("#vllm-upd-msg");msg.className="msg work";msg.textContent="starting update...";
+    const r=await api("/api/vllm/update");
+    if(r.started){toast("vLLM update started","ok");$("#vllm-update-log").style.display="";
+      const iv=setInterval(async()=>{const s=await api("/api/vllm/setup");
+        const l=$("#vllm-update-log");if(l){l.textContent=s.setup_log||"";l.scrollTop=l.scrollHeight;}
+        if(s.setup_job&&!s.setup_job.running){clearInterval(iv);msg.className="msg ok";msg.textContent="done";setTimeout(loadBuild,1200);}},2000);
+    }else{msg.textContent="a job is already running";}
+  };
 }
 async function startBuild(){
   const pull=$("#opt-pull").checked,msg=$("#build-msg");
@@ -223,10 +277,25 @@ async function pollBuild(){
   await tick();buildPoll=setInterval(tick,2000);
 }
 
+let vllmSetupPoll=null;
+function pollVllmSetup(){
+  clearInterval(vllmSetupPoll);
+  const log=$("#vllm-setup-log");if(log)log.style.display="";
+  const tick=async()=>{
+    const s=await api("/api/vllm/setup");
+    const l=$("#vllm-setup-log");if(l){l.textContent=s.setup_log||"idle";l.scrollTop=l.scrollHeight;}
+    const msg=$("#vllm-inst-msg");
+    if(s.setup_job&&s.setup_job.running){if(msg){msg.className="msg work";msg.textContent="installing...";}}
+    else if(s.setup_job&&s.setup_job.phase==="done"){if(msg){msg.className="msg ok";msg.textContent="installed";}clearInterval(vllmSetupPoll);toast("vLLM installed","ok");setTimeout(loadSetup,1200);}
+    else if(s.setup_job&&s.setup_job.phase==="failed"){if(msg){msg.className="msg err";msg.textContent="install failed - see log";}clearInterval(vllmSetupPoll);}
+  };
+  tick();vllmSetupPoll=setInterval(tick,2000);
+}
+
 /* ---------- setup tab ---------- */
 async function loadSetup(){
   const v=$("#view-setup");setHTML(v,`<div class="skel">PROBING SYSTEM...</div>`);
-  const [s,net]=await Promise.all([api("/api/setup"),api("/api/network")]);
+  const [s,net,vs]=await Promise.all([api("/api/setup"),api("/api/network"),api("/api/vllm/setup")]);
   const p=s.prereqs,hw=s.hardware;
   const toolRow=(name,t)=>`<div class="kv"><span class="k">${esc(name)}</span>
     <span class="v ${t.present?'ok':'bad'}">${t.present?esc(t.version||"present"):"MISSING"}
@@ -270,6 +339,19 @@ async function loadSetup(){
         <button class="ghost" id="btn-net-genkey" style="display:${net.host!=="127.0.0.1"?"":"none"}">Generate Key</button>
         <span class="msg" id="net-msg"></span>
       </div>
+    </div>`
+    +`<div class="card"><h3>vLLM Backend (WSL2)</h3>
+      <div class="kv"><span class="k">WSL2</span><span class="v ${vs.wsl.present?'ok':'bad'}">${vs.wsl.present?"installed":"NOT INSTALLED"}</span></div>
+      ${vs.wsl.present?`<div class="kv"><span class="k">distro</span><span class="v">
+        <select id="vllm-distro" style="background:#0a0d0e;border:1px solid var(--hair);color:var(--ink);font-family:var(--mono);font-size:12px;padding:6px">
+        ${(vs.distros||[]).map(d=>`<option value="${esc(d.name)}" ${d.name===vs.chosen?"selected":""}>${esc(d.name)} (${esc(d.state)})</option>`).join("")}
+        </select></span></div>
+      <div class="kv"><span class="k">GPU passthrough</span><span class="v ${vs.gpu.present?'ok':'bad'}">${vs.gpu.present?esc((vs.gpu.info||"").split("\n")[0]||"detected"):"NOT DETECTED (check NVIDIA driver)"}</span></div>
+      <div class="kv"><span class="k">vLLM</span><span class="v ${vs.vllm.present?'ok':'bad'}">${vs.vllm.present?"v"+esc(vs.vllm.version):"not installed"}</span></div>`
+      :`<div class="note">WSL2 is required to run vLLM. Install it (admin PowerShell): <b>wsl --install -d Ubuntu</b>, reboot, then reload this tab.</div>`}
+      ${vs.wsl.present&&!vs.vllm.present?`<div class="actions"><button class="primary" id="btn-vllm-install">Install vLLM (uv, no sudo)</button><span class="msg" id="vllm-inst-msg"></span></div>
+      <div class="note">Downloads uv + a standalone Python and installs vLLM into ~/.llamaforge/vllm-venv. Several GB; watch the log.</div>`:""}
+      <div class="log" id="vllm-setup-log" style="display:${(vs.setup_job&&vs.setup_job.running)?"":"none"}">${esc(vs.setup_log||"idle")}</div>
     </div>`);
   $$("[data-install]",v).forEach(b=>b.onclick=async()=>{b.disabled=true;b.textContent="installing...";
     const r=await api("/api/setup/install",{tool:b.dataset.install});toast(r.ok?"Installed":"Install failed",r.ok?"ok":"err");loadSetup();});
@@ -295,6 +377,15 @@ async function loadSetup(){
     if(r.ok){msg.className="msg ok";msg.textContent="applied";toast(lan?"LAN access enabled":"LAN access disabled","ok");setTimeout(loadSetup,1500);}
     else{msg.className="msg err";msg.textContent=r.error||"failed";}
   };
+  const distroSel=$("#vllm-distro");
+  if(distroSel)distroSel.onchange=()=>api("/api/config",{wsl_distro:distroSel.value}).then(()=>loadSetup());
+  const instBtn=$("#btn-vllm-install");
+  if(instBtn)instBtn.onclick=async()=>{
+    const msg=$("#vllm-inst-msg");msg.className="msg work";msg.textContent="starting install...";
+    const r=await api("/api/vllm/setup/install",{distro:distroSel?distroSel.value:undefined});
+    if(r.started){toast("vLLM install started","ok");pollVllmSetup();}else{msg.textContent="already running";}
+  };
+  if(vs.setup_job&&vs.setup_job.running)pollVllmSetup();
 }
 async function scanDrives(){
   const msg=$("#scan-msg");msg.className="msg work";msg.textContent="scanning all drives (may take a moment)...";
@@ -335,8 +426,12 @@ function fitBadge(fit){const [txt,cls]=FIT_LABEL[fit]||FIT_LABEL.unknown;
 function loadDiscover(){
   if(discoverLoaded)return; discoverLoaded=true;
   setHTML($("#view-discover"),`
-    <div class="card"><h3>Discover GGUF models on huggingface.co</h3>
+    <div class="card"><h3>Discover models on huggingface.co</h3>
       <div class="toolbar">
+        <select id="hub-mode" style="background:#0a0d0e;border:1px solid var(--hair);color:var(--ink);font-family:var(--mono);font-size:12px;padding:8px">
+          <option value="gguf">GGUF (llama.cpp)</option>
+          <option value="safetensors">safetensors (vLLM)</option>
+        </select>
         <input class="search" id="hub-q" placeholder="search models (e.g. qwen coder, gemma vision)... blank = most downloaded">
         <select id="hub-sort" style="background:#0a0d0e;border:1px solid var(--hair);color:var(--ink);font-family:var(--mono);font-size:12px;padding:8px">
           <option value="downloads">most downloaded</option>
@@ -359,10 +454,12 @@ function loadDiscover(){
       </div>
     </div>`);
   $("#hub-go").onclick=hubSearch;
+  $("#hub-mode").onchange=()=>hubSearch();
   $("#hub-q").addEventListener("keydown",e=>{if(e.key==="Enter")hubSearch();});
   hubSearch();
 }
 async function hubSearch(){
+  if($("#hub-mode")&&$("#hub-mode").value==="safetensors")return vllmHubSearch();
   const msg=$("#hub-msg");msg.className="msg work";msg.textContent="searching huggingface.co...";
   const r=await api("/api/hub/search",{query:$("#hub-q").value.trim(),sort:$("#hub-sort").value});
   if(r.error){msg.className="msg err";msg.textContent=r.error.slice(0,80);return;}
@@ -414,6 +511,66 @@ async function hubDownload(repo,path,shards,mmproj){
       $("#dl-add").onclick=async()=>{const m=$("#dl-msg");m.className="msg work";m.textContent="registering...";
         const rr=await api("/api/hub/add",{path:s.finished_path});
         if(rr.ok){m.className="msg ok";m.textContent="added: "+rr.added.join(", ");toast("Model added to registry","ok");refresh(true);}
+        else{m.className="msg err";m.textContent=rr.error||"failed";}};}
+    if(s.phase==="failed")clearInterval(dlPoll);
+  },1000);
+}
+const QUANT_BADGE={nvfp4:["NVFP4","var(--green)"],fp8:["FP8","var(--cyan)"],awq:["AWQ","var(--amber)"],gptq:["GPTQ","var(--amber)"],bf16:["BF16","var(--dim)"],fp16:["FP16","var(--dim)"]};
+const VFIT_LABEL={fits:["FITS VRAM","var(--green)"],tight:["TIGHT","var(--amber)"],wont:["WON'T FIT","var(--red)"],unknown:["?","var(--dim)"]};
+async function vllmHubSearch(){
+  const msg=$("#hub-msg");msg.className="msg work";msg.textContent="searching safetensors repos...";
+  const r=await api("/api/vllm/hub/search",{query:$("#hub-q").value.trim(),sort:$("#hub-sort").value});
+  if(r.error){msg.className="msg err";msg.textContent=r.error.slice(0,80);return;}
+  $("#hub-vram").textContent=(r.vram_mib/1024).toFixed(1);
+  msg.className="msg ok";msg.textContent=`${r.results.length} repos`;
+  setHTML($("#hub-results"),`<div class="list">${r.results.map(m=>`
+    <div class="row" data-repo="${esc(m.repo)}">
+      <div class="rhead vhub-repo" style="grid-template-columns:1fr auto auto auto">
+        <span class="mid">${esc(m.repo)}</span>
+        <span class="ctxpill">${esc((m.downloads||0).toLocaleString())} dl</span>
+        <span class="ctxpill" style="color:var(--cyan)">${esc(m.likes)} &hearts;</span>
+        <span class="chev">&#9654;</span>
+      </div>
+      <div class="edit"></div>
+    </div>`).join("")}</div>`);
+  $$("#hub-results .vhub-repo").forEach(h=>h.onclick=()=>vllmHubInfo(h.parentElement));
+}
+async function vllmHubInfo(row){
+  const open=row.classList.toggle("open");
+  if(!open)return;
+  const box=$(".edit",row);setHTML(box,`<div class="note">reading repo (summing shards, detecting quant)...</div>`);
+  const r=await api("/api/vllm/hub/info",{repo:row.dataset.repo});
+  if(r.error){setHTML(box,`<div class="note" style="color:var(--red)">${esc(r.error.slice(0,120))}</div>`);return;}
+  const [qtxt,qcol]=QUANT_BADGE[r.quant]||[r.quant.toUpperCase(),"var(--dim)"];
+  const [ftxt,fcol]=VFIT_LABEL[r.fit]||VFIT_LABEL.unknown;
+  const nvfp4Note=r.quant==="nvfp4"?`<div class="note" style="color:var(--green)">NVFP4 &mdash; native on your Blackwell GPUs</div>`:"";
+  setHTML(box,`
+    <div class="kv"><span class="k">weights size</span><span class="v">${esc((r.size_bytes/1e9).toFixed(1))} GB</span></div>
+    <div class="kv"><span class="k">quantization</span><span class="v"><span class="tag" style="color:${qcol};border-color:${qcol}">${qtxt}</span></span></div>
+    <div class="kv"><span class="k">VRAM fit</span><span class="v"><span class="tag" style="color:${fcol};border-color:${fcol}">${ftxt}</span></span></div>
+    ${nvfp4Note}
+    <div class="actions">
+      <button class="primary" data-vdl="${esc(row.dataset.repo)}" data-size="${r.size_bytes}" data-quant="${esc(r.quant)}" ${r.fit==="wont"?'title="larger than usable VRAM"':""}>Download to WSL</button>
+      <span class="msg" data-vmsg></span>
+    </div>`);
+  $(`[data-vdl]`,box).onclick=e=>vllmHubDownload(e.target.dataset.vdl,parseInt(e.target.dataset.size),e.target.dataset.quant);
+}
+async function vllmHubDownload(repo,sizeBytes,quant){
+  const r=await api("/api/vllm/hub/download",{repo,size_bytes:sizeBytes});
+  if(!r.started){toast("A download is already running","err");return;}
+  toast("Download started","ok");
+  $("#hub-dlcard").style.display="";$("#dl-done").style.display="none";
+  clearInterval(dlPoll);
+  dlPoll=setInterval(async()=>{
+    const s=await api("/api/vllm/hub/progress");
+    $("#dl-file").textContent=`${s.repo} (WSL cache)`;
+    const pct=s.total?Math.round(100*s.downloaded/s.total):0;
+    setHTML($("#dl-meter"),meter(s.downloaded,Math.max(s.total,1)));
+    $("#dl-prog").textContent=s.phase==="done"?"complete":s.phase==="failed"?("FAILED: "+(s.error||"").slice(0,80)):`${(s.downloaded/1e9).toFixed(2)} / ${(s.total/1e9).toFixed(2)} GB (${pct}%)`;
+    if(s.phase==="done"){clearInterval(dlPoll);$("#dl-done").style.display="";
+      $("#dl-add").onclick=async()=>{const m=$("#dl-msg");m.className="msg work";m.textContent="registering...";
+        const rr=await api("/api/vllm/hub/register",{repo,size_bytes:sizeBytes,quant});
+        if(rr.ok){m.className="msg ok";m.textContent="added: "+rr.added;toast("vLLM model registered","ok");refresh(true);}
         else{m.className="msg err";m.textContent=rr.error||"failed";}};}
     if(s.phase==="failed")clearInterval(dlPoll);
   },1000);
@@ -494,3 +651,13 @@ async function refreshRouterLog(){
 }
 setInterval(()=>{if($(".tab.active").dataset.tab==="models")refreshRouterLog();},3000);
 refreshRouterLog();
+
+async function refreshVllmLog(){
+  const el=$("#vllm-log");if(!el)return;
+  const s=await api("/api/vllm/log");
+  const wasBottom=el.scrollTop+el.clientHeight>=el.scrollHeight-20;
+  el.textContent=s.log||"idle";
+  if(wasBottom)el.scrollTop=el.scrollHeight;
+}
+setInterval(()=>{if($(".tab.active").dataset.tab==="models")refreshVllmLog();},3000);
+refreshVllmLog();

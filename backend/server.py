@@ -8,6 +8,7 @@ import json, os, subprocess, urllib.request, urllib.error
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import config, argspec, hardware, prereqs, scanner, hub, router_ctl, stats
+import wsl, vllm_ctl, vllm_registry, vllm_setup, vllm_job, vllm_hub, vllm_download
 from builder import BuildManager
 
 ROOT    = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -15,6 +16,35 @@ WEB     = os.path.join(ROOT, "web")
 LOGDIR  = os.path.join(ROOT, "logs")
 BUILDER = BuildManager(LOGDIR)
 DOWNLOADS = hub.DownloadManager()
+
+VLLM_SETUP_JOB = vllm_job.WslJob(LOGDIR, "vllm-setup.log")
+
+_VLLM = None
+def vllm_mgr():
+    """Lazily build the vLLM manager from current config."""
+    global _VLLM
+    c = cfg()
+    distro = c.get("wsl_distro") or wsl.default_distro()
+    if _VLLM is None:
+        _VLLM = vllm_ctl.Manager(
+            distro=distro, port=c.get("vllm_port", 8081),
+            venv="~/.llamaforge/vllm-venv", logdir=LOGDIR)
+        _VLLM.reconcile()
+    else:
+        _VLLM.distro = distro
+        _VLLM.port = c.get("vllm_port", 8081)
+    return _VLLM
+
+_VLLM_DL = None
+def vllm_dl():
+    global _VLLM_DL
+    c = cfg()
+    distro = c.get("wsl_distro") or wsl.default_distro()
+    if _VLLM_DL is None:
+        _VLLM_DL = vllm_download.Manager(distro)
+    else:
+        _VLLM_DL.distro = distro
+    return _VLLM_DL
 
 def _tail_file(path, n):
     if not os.path.exists(path):
@@ -27,6 +57,13 @@ def router_log_tail(n=400):
     out = _tail_file(os.path.join(LOGDIR, "router.out.log"), n)
     if not err and not out:
         return "(no router log yet - restart LlamaForge to start capturing router.err.log / router.out.log)"
+    return "".join(out) + ("\n--- stderr ---\n" if out and err else "") + "".join(err)
+
+def vllm_log_tail(n=400):
+    err = _tail_file(os.path.join(LOGDIR, "vllm.err.log"), n)
+    out = _tail_file(os.path.join(LOGDIR, "vllm.out.log"), n)
+    if not err and not out:
+        return "(no vLLM log yet - load a vLLM model to start capturing vllm.out/err.log)"
     return "".join(out) + ("\n--- stderr ---\n" if out and err else "") + "".join(err)
 
 def total_vram_mib():
@@ -82,6 +119,25 @@ def schema():
         _SCHEMA = argspec.build_schema(cfg()["server_bin"])
     return _SCHEMA
 
+_VLLM_SCHEMA = None
+def vllm_schema():
+    global _VLLM_SCHEMA
+    if _VLLM_SCHEMA is None:
+        import vllm_argspec
+        c = cfg()
+        distro = c.get("wsl_distro") or wsl.default_distro()
+        _VLLM_SCHEMA = vllm_argspec.build_schema(distro, "~/.llamaforge/vllm-venv")
+    return _VLLM_SCHEMA
+
+def vllm_save(model_id, settings, is_running, restart):
+    """Persist knob changes; restart the process if the model is loaded
+    (vLLM has no hot reload). Returns whether a restart was triggered."""
+    vllm_registry.set_settings(model_id, settings)
+    if is_running:
+        restart(model_id)
+        return True
+    return False
+
 # ---------- model list (router status + ini settings) ----------
 def model_state():
     st, data = router("/models")
@@ -117,6 +173,33 @@ def _eff(rm, glob, key, flag):
         return args[args.index(flag) + 1]
     return glob.get(key, "?")
 
+# ---------- unified model list (llama.cpp + vLLM) ----------
+STATE_MAP = {"ready": "loaded", "loading": "loading", "starting": "loading",
+             "failed": "offline", "stopped": "offline"}
+
+def merge_vllm_models(base, vllm_status, vllm_ids, router_port):
+    """Tag every existing (llama.cpp) row and append vLLM rows.
+    base is model_state()'s dict; vllm_status is Manager.status();
+    vllm_ids is vllm_registry.models()."""
+    llama_ep = f"http://127.0.0.1:{router_port}"
+    for m in base["models"]:
+        m["backend"] = "llamacpp"
+        if m.get("status") == "loaded":
+            m["endpoint"] = llama_ep
+    live = {i["model_id"]: i for i in vllm_status}
+    for mid in vllm_ids:
+        inst = live.get(mid)
+        status = STATE_MAP.get(inst["state"], "offline") if inst else "offline"
+        row = {"id": mid, "backend": "vllm", "status": status,
+               "failed": bool(inst and inst["state"] == "failed"),
+               "modalities": ["text"], "in_ini": True,
+               "settings": vllm_registry.load().get(mid, {}).get("settings", {}),
+               "eff_ctx": vllm_registry.effective_settings(mid).get("max-model-len", "?")}
+        if inst and status == "loaded":
+            row["endpoint"] = inst["endpoint"]
+        base["models"].append(row)
+    return base
+
 # ---------- HTTP ----------
 class H(BaseHTTPRequestHandler):
     def log_message(self, *a): pass
@@ -142,7 +225,10 @@ class H(BaseHTTPRequestHandler):
         if p in ("/", "/index.html"): return self._file("index.html", "text/html; charset=utf-8")
         if p == "/app.js":            return self._file("app.js", "application/javascript; charset=utf-8")
         if p == "/api/state":
-            s = model_state(); s["gpus"] = _gpu_telemetry(); s["config"] = cfg(); return self._send(200, s)
+            s = model_state()
+            mgr = vllm_mgr()
+            s = merge_vllm_models(s, mgr.status(), vllm_registry.models(), cfg()["router_port"])
+            s["gpus"] = _gpu_telemetry(); s["config"] = cfg(); return self._send(200, s)
         if p == "/api/schema":   return self._send(200, schema())
         if p == "/api/gpus":     return self._send(200, {"gpus": _gpu_telemetry()})
         if p == "/api/setup":
@@ -181,6 +267,26 @@ class H(BaseHTTPRequestHandler):
                 "lan_ip": router_ctl.lan_ip(),
                 "router_running": router_ctl.is_running(c["router_port"]),
             })
+        if p == "/api/vllm/log":
+            return self._send(200, {"log": vllm_log_tail(400)})
+        if p == "/api/vllm/setup":
+            c = cfg()
+            distro = c.get("wsl_distro") or wsl.default_distro()
+            s = vllm_setup.status(distro)
+            s["setup_job"] = VLLM_SETUP_JOB.progress()
+            s["setup_log"] = VLLM_SETUP_JOB.tail(300)
+            return self._send(200, s)
+        if p == "/api/vllm/schema":
+            return self._send(200, vllm_schema())
+        if p == "/api/vllm/version":
+            c = cfg()
+            distro = c.get("wsl_distro") or wsl.default_distro()
+            return self._send(200, {
+                "installed": vllm_setup._vllm_version(distro),
+                "latest": vllm_setup.latest_pypi_version(),
+            })
+        if p == "/api/vllm/hub/progress":
+            return self._send(200, vllm_dl().progress())
         return self._send(404, {"error": "not found"})
 
     def do_POST(self):
@@ -314,6 +420,88 @@ class H(BaseHTTPRequestHandler):
             ok, err = router_ctl.restart(c["server_bin"], c["models_ini"], c["router_port"],
                                           host, api_key, LOGDIR)
             return self._send(200 if ok else 500, {"ok": ok, "error": err, "host": host})
+
+        if p == "/api/vllm/load":
+            mid = body.get("model", "")
+            entry = vllm_registry.load().get(mid)
+            if not entry:
+                return self._send(400, {"error": f"unknown vLLM model: {mid}"})
+            ref = entry.get("wsl_path") or entry.get("repo") or mid
+            flags = vllm_ctl.settings_to_flags(vllm_registry.effective_settings(mid))
+            ok, err = vllm_mgr().start(mid, ref, flags)
+            return self._send(200 if ok else 400, {"ok": ok, "error": err})
+
+        if p == "/api/vllm/unload":
+            vllm_mgr().stop(body.get("model", ""))
+            return self._send(200, {"ok": True})
+
+        if p == "/api/vllm/setup/install":
+            c = cfg()
+            distro = body.get("distro") or c.get("wsl_distro") or wsl.default_distro()
+            if body.get("distro"):
+                c["wsl_distro"] = body["distro"]; config.save(c)
+            ok = VLLM_SETUP_JOB.start(vllm_setup.install_script(), distro)
+            return self._send(200, {"started": ok})
+
+        if p == "/api/vllm/save":
+            mid = body.get("model", "")
+            settings = body.get("settings", {})
+            mgr = vllm_mgr()
+            running = any(i["model_id"] == mid and i["state"] in ("ready", "loading")
+                          for i in mgr.status())
+            def _restart(m):
+                entry = vllm_registry.load().get(m, {})
+                ref = entry.get("wsl_path") or entry.get("repo") or m
+                mgr.stop(m)
+                flags = vllm_ctl.settings_to_flags(vllm_registry.effective_settings(m))
+                mgr.start(m, ref, flags)
+            restarted = vllm_save(mid, settings, running, _restart)
+            return self._send(200, {"ok": True, "restarted": restarted})
+
+        if p == "/api/vllm/update":
+            c = cfg()
+            distro = c.get("wsl_distro") or wsl.default_distro()
+            ok = VLLM_SETUP_JOB.start(vllm_setup.update_script(), distro)
+            return self._send(200, {"started": ok})
+
+        if p == "/api/vllm/hub/search":
+            try:
+                res = vllm_hub.search(body.get("query", ""), body.get("sort", "downloads"))
+                return self._send(200, {"results": res, "vram_mib": total_vram_mib()})
+            except Exception as e:
+                return self._send(200, {"error": str(e), "results": []})
+
+        if p == "/api/vllm/hub/info":
+            try:
+                return self._send(200, vllm_hub.repo_info(body.get("repo", ""), total_vram_mib()))
+            except Exception as e:
+                return self._send(200, {"error": str(e)})
+
+        if p == "/api/vllm/hub/download":
+            repo = body.get("repo", "")
+            info = {}
+            try:
+                info = vllm_hub.repo_info(repo, total_vram_mib())
+            except Exception:
+                pass
+            ok = vllm_dl().start(repo, int(body.get("size_bytes") or info.get("size_bytes") or 0))
+            return self._send(200, {"started": ok})
+
+        if p == "/api/vllm/hub/register":
+            repo = body.get("repo", "")
+            dl = vllm_dl()
+            vllm_registry.upsert(repo, {
+                "repo": repo, "wsl_path": dl.wsl_path(repo),
+                "size_bytes": int(body.get("size_bytes") or 0),
+                "quant": body.get("quant", "")})
+            return self._send(200, {"ok": True, "added": repo})
+
+        if p == "/api/vllm/delete":
+            repo = body.get("model", "")
+            ok, err = vllm_dl().delete(repo)
+            if ok:
+                vllm_registry.remove(repo)
+            return self._send(200 if ok else 500, {"ok": ok, "error": err})
 
         return self._send(404, {"error": "not found"})
 

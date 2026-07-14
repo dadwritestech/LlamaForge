@@ -25,6 +25,8 @@ jobs:
       # Backend is pure stdlib - nothing to install. Just prove it all compiles.
       - name: Byte-compile backend
         run: python -m compileall -q backend
+      - name: Run backend tests
+        run: python -m unittest discover -s tests -v
 
   web:
     name: web syntax

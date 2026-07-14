@@ -27,6 +27,16 @@ foreach ($p in $instances) {
   Write-Host "stopped model instance (pid $($p.Id))"
 }
 
+# 4. vLLM runs inside WSL - kill any `vllm serve` process there
+$distro = $cfg.wsl_distro
+try {
+  if ($distro) { wsl.exe -d $distro -- bash -lc "pkill -f 'vllm serve' 2>/dev/null; true" }
+  else         { wsl.exe -- bash -lc "pkill -f 'vllm serve' 2>/dev/null; true" }
+  Write-Host "stopped any vLLM serve process in WSL"
+} catch {
+  Write-Host "WSL not available or no vLLM running" -ForegroundColor DarkGray
+}
+
 if (-not $instances -and -not (Get-NetTCPConnection -LocalPort $cfg.router_port,$cfg.panel_port -State Listen -ErrorAction SilentlyContinue)) {
   Write-Host "nothing was running." -ForegroundColor DarkGray
 }

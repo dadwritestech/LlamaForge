@@ -59,6 +59,10 @@ h1 span{color:var(--amber)}
 .mid{font-weight:500;color:#e6eeef;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .tag{font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim);border:1px solid var(--hair);padding:2px 7px;margin-left:8px}
 .tag.vis{color:var(--cyan);border-color:#1c3b40}
+.tag.be-vllm{color:var(--green);border-color:#1c402c}
+.tag.be-llamacpp{color:var(--amber);border-color:var(--amber-dim)}
+.tag.ep{color:var(--cyan);border-color:#1c3b40;cursor:pointer}
+.tag.ep:hover{color:#fff;border-color:var(--cyan)}
 .ctxpill{font-size:11px;color:var(--amber);white-space:nowrap}.ctxpill .k{color:var(--dim)}
 .stat{font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--dim);min-width:74px;text-align:right}
 .stat.loaded{color:var(--green)}
@@ -132,6 +136,10 @@ button:disabled{opacity:.4;cursor:not-allowed}
     <details class="kgroup" style="margin-top:16px" id="router-log-details">
       <summary>Router Log (llama.cpp stdout/stderr)</summary>
       <div class="log" id="router-log" style="margin:0;border-top:1px solid var(--hair)">idle</div>
+    </details>
+    <details class="kgroup" style="margin-top:10px" id="vllm-log-details">
+      <summary>vLLM Log (WSL stdout/stderr)</summary>
+      <div class="log" id="vllm-log" style="margin:0;border-top:1px solid var(--hair)">idle</div>
     </details>
   </div>
   <div class="view" id="view-stats"><div class="skel">LOADING STATS...</div></div>
