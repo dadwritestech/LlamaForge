@@ -215,6 +215,7 @@ let buildPoll=null;
 async function loadBuild(){
   const v=$("#view-build");setHTML(v,`<div class="skel">QUERYING GIT + GITHUB...</div>`);
   const b=await api("/api/build/info");
+  const vver=await api("/api/vllm/version");
   const cur=b.current||{},up=b.updates||{},flags=b.saved_flags&&Object.keys(b.saved_flags).length?b.saved_flags:b.recommended_flags||{};
   const behind=up.ok?up.behind:0;
   setHTML(v,`
@@ -236,9 +237,25 @@ async function loadBuild(){
       </div>
       <div class="note">Rebuilds llama.cpp with CMake. Prior binaries are backed up first. Takes several minutes; watch the log below.</div>
     </div>
-    <div class="card"><h3>Build Log</h3><div class="log" id="build-log">idle</div></div>`);
+    <div class="card"><h3>Build Log</h3><div class="log" id="build-log">idle</div></div>`
+    +`<div class="card"><h3>vLLM (pip package in WSL)</h3>
+      <div class="kv"><span class="k">installed</span><span class="v ${vver.installed&&vver.installed.present?'ok':'bad'}">${vver.installed&&vver.installed.present?"v"+esc(vver.installed.version):"not installed (see Setup)"}</span></div>
+      <div class="kv"><span class="k">latest on PyPI</span><span class="v">${esc(vver.latest||"?")}</span></div>
+      ${vver.installed&&vver.installed.present&&vver.latest&&vver.latest!==vver.installed.version?`<div class="actions"><button class="primary" id="btn-vllm-update">Update vLLM to ${esc(vver.latest)}</button><span class="msg" id="vllm-upd-msg"></span></div>`:`<div class="note">${vver.installed&&vver.installed.present?"vLLM is up to date.":"Install vLLM from the Setup tab first."}</div>`}
+      <div class="log" id="vllm-update-log" style="display:none">idle</div>
+    </div>`);
   $("#btn-build").onclick=startBuild;
   pollBuild();
+  const updBtn=$("#btn-vllm-update");
+  if(updBtn)updBtn.onclick=async()=>{
+    const msg=$("#vllm-upd-msg");msg.className="msg work";msg.textContent="starting update...";
+    const r=await api("/api/vllm/update");
+    if(r.started){toast("vLLM update started","ok");$("#vllm-update-log").style.display="";
+      const iv=setInterval(async()=>{const s=await api("/api/vllm/setup");
+        const l=$("#vllm-update-log");if(l){l.textContent=s.setup_log||"";l.scrollTop=l.scrollHeight;}
+        if(s.setup_job&&!s.setup_job.running){clearInterval(iv);msg.className="msg ok";msg.textContent="done";setTimeout(loadBuild,1200);}},2000);
+    }else{msg.textContent="a job is already running";}
+  };
 }
 async function startBuild(){
   const pull=$("#opt-pull").checked,msg=$("#build-msg");
@@ -260,10 +277,25 @@ async function pollBuild(){
   await tick();buildPoll=setInterval(tick,2000);
 }
 
+let vllmSetupPoll=null;
+function pollVllmSetup(){
+  clearInterval(vllmSetupPoll);
+  const log=$("#vllm-setup-log");if(log)log.style.display="";
+  const tick=async()=>{
+    const s=await api("/api/vllm/setup");
+    const l=$("#vllm-setup-log");if(l){l.textContent=s.setup_log||"idle";l.scrollTop=l.scrollHeight;}
+    const msg=$("#vllm-inst-msg");
+    if(s.setup_job&&s.setup_job.running){if(msg){msg.className="msg work";msg.textContent="installing...";}}
+    else if(s.setup_job&&s.setup_job.phase==="done"){if(msg){msg.className="msg ok";msg.textContent="installed";}clearInterval(vllmSetupPoll);toast("vLLM installed","ok");setTimeout(loadSetup,1200);}
+    else if(s.setup_job&&s.setup_job.phase==="failed"){if(msg){msg.className="msg err";msg.textContent="install failed - see log";}clearInterval(vllmSetupPoll);}
+  };
+  tick();vllmSetupPoll=setInterval(tick,2000);
+}
+
 /* ---------- setup tab ---------- */
 async function loadSetup(){
   const v=$("#view-setup");setHTML(v,`<div class="skel">PROBING SYSTEM...</div>`);
-  const [s,net]=await Promise.all([api("/api/setup"),api("/api/network")]);
+  const [s,net,vs]=await Promise.all([api("/api/setup"),api("/api/network"),api("/api/vllm/setup")]);
   const p=s.prereqs,hw=s.hardware;
   const toolRow=(name,t)=>`<div class="kv"><span class="k">${esc(name)}</span>
     <span class="v ${t.present?'ok':'bad'}">${t.present?esc(t.version||"present"):"MISSING"}
@@ -307,6 +339,19 @@ async function loadSetup(){
         <button class="ghost" id="btn-net-genkey" style="display:${net.host!=="127.0.0.1"?"":"none"}">Generate Key</button>
         <span class="msg" id="net-msg"></span>
       </div>
+    </div>`
+    +`<div class="card"><h3>vLLM Backend (WSL2)</h3>
+      <div class="kv"><span class="k">WSL2</span><span class="v ${vs.wsl.present?'ok':'bad'}">${vs.wsl.present?"installed":"NOT INSTALLED"}</span></div>
+      ${vs.wsl.present?`<div class="kv"><span class="k">distro</span><span class="v">
+        <select id="vllm-distro" style="background:#0a0d0e;border:1px solid var(--hair);color:var(--ink);font-family:var(--mono);font-size:12px;padding:6px">
+        ${(vs.distros||[]).map(d=>`<option value="${esc(d.name)}" ${d.name===vs.chosen?"selected":""}>${esc(d.name)} (${esc(d.state)})</option>`).join("")}
+        </select></span></div>
+      <div class="kv"><span class="k">GPU passthrough</span><span class="v ${vs.gpu.present?'ok':'bad'}">${vs.gpu.present?esc((vs.gpu.info||"").split("\n")[0]||"detected"):"NOT DETECTED (check NVIDIA driver)"}</span></div>
+      <div class="kv"><span class="k">vLLM</span><span class="v ${vs.vllm.present?'ok':'bad'}">${vs.vllm.present?"v"+esc(vs.vllm.version):"not installed"}</span></div>`
+      :`<div class="note">WSL2 is required to run vLLM. Install it (admin PowerShell): <b>wsl --install -d Ubuntu</b>, reboot, then reload this tab.</div>`}
+      ${vs.wsl.present&&!vs.vllm.present?`<div class="actions"><button class="primary" id="btn-vllm-install">Install vLLM (uv, no sudo)</button><span class="msg" id="vllm-inst-msg"></span></div>
+      <div class="note">Downloads uv + a standalone Python and installs vLLM into ~/.llamaforge/vllm-venv. Several GB; watch the log.</div>`:""}
+      <div class="log" id="vllm-setup-log" style="display:${(vs.setup_job&&vs.setup_job.running)?"":"none"}">${esc(vs.setup_log||"idle")}</div>
     </div>`);
   $$("[data-install]",v).forEach(b=>b.onclick=async()=>{b.disabled=true;b.textContent="installing...";
     const r=await api("/api/setup/install",{tool:b.dataset.install});toast(r.ok?"Installed":"Install failed",r.ok?"ok":"err");loadSetup();});
@@ -332,6 +377,15 @@ async function loadSetup(){
     if(r.ok){msg.className="msg ok";msg.textContent="applied";toast(lan?"LAN access enabled":"LAN access disabled","ok");setTimeout(loadSetup,1500);}
     else{msg.className="msg err";msg.textContent=r.error||"failed";}
   };
+  const distroSel=$("#vllm-distro");
+  if(distroSel)distroSel.onchange=()=>api("/api/config",{wsl_distro:distroSel.value}).then(()=>loadSetup());
+  const instBtn=$("#btn-vllm-install");
+  if(instBtn)instBtn.onclick=async()=>{
+    const msg=$("#vllm-inst-msg");msg.className="msg work";msg.textContent="starting install...";
+    const r=await api("/api/vllm/setup/install",{distro:distroSel?distroSel.value:undefined});
+    if(r.started){toast("vLLM install started","ok");pollVllmSetup();}else{msg.textContent="already running";}
+  };
+  if(vs.setup_job&&vs.setup_job.running)pollVllmSetup();
 }
 async function scanDrives(){
   const msg=$("#scan-msg");msg.className="msg work";msg.textContent="scanning all drives (may take a moment)...";
