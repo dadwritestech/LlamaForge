@@ -108,6 +108,25 @@ def schema():
         _SCHEMA = argspec.build_schema(cfg()["server_bin"])
     return _SCHEMA
 
+_VLLM_SCHEMA = None
+def vllm_schema():
+    global _VLLM_SCHEMA
+    if _VLLM_SCHEMA is None:
+        import vllm_argspec
+        c = cfg()
+        distro = c.get("wsl_distro") or wsl.default_distro()
+        _VLLM_SCHEMA = vllm_argspec.build_schema(distro, "~/.llamaforge/vllm-venv")
+    return _VLLM_SCHEMA
+
+def vllm_save(model_id, settings, is_running, restart):
+    """Persist knob changes; restart the process if the model is loaded
+    (vLLM has no hot reload). Returns whether a restart was triggered."""
+    vllm_registry.set_settings(model_id, settings)
+    if is_running:
+        restart(model_id)
+        return True
+    return False
+
 # ---------- model list (router status + ini settings) ----------
 def model_state():
     st, data = router("/models")
@@ -246,6 +265,8 @@ class H(BaseHTTPRequestHandler):
             s["setup_job"] = VLLM_SETUP_JOB.progress()
             s["setup_log"] = VLLM_SETUP_JOB.tail(300)
             return self._send(200, s)
+        if p == "/api/vllm/schema":
+            return self._send(200, vllm_schema())
         if p == "/api/vllm/version":
             c = cfg()
             distro = c.get("wsl_distro") or wsl.default_distro()
@@ -408,6 +429,21 @@ class H(BaseHTTPRequestHandler):
                 c["wsl_distro"] = body["distro"]; config.save(c)
             ok = VLLM_SETUP_JOB.start(vllm_setup.install_script(), distro)
             return self._send(200, {"started": ok})
+
+        if p == "/api/vllm/save":
+            mid = body.get("model", "")
+            settings = body.get("settings", {})
+            mgr = vllm_mgr()
+            running = any(i["model_id"] == mid and i["state"] in ("ready", "loading")
+                          for i in mgr.status())
+            def _restart(m):
+                entry = vllm_registry.load().get(m, {})
+                ref = entry.get("wsl_path") or entry.get("repo") or m
+                mgr.stop(m)
+                flags = vllm_ctl.settings_to_flags(vllm_registry.effective_settings(m))
+                mgr.start(m, ref, flags)
+            restarted = vllm_save(mid, settings, running, _restart)
+            return self._send(200, {"ok": True, "restarted": restarted})
 
         if p == "/api/vllm/update":
             c = cfg()
