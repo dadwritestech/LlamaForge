@@ -8,7 +8,7 @@ import json, os, subprocess, urllib.request, urllib.error
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import config, argspec, hardware, prereqs, scanner, hub, router_ctl, stats
-import wsl, vllm_ctl, vllm_registry, vllm_setup, vllm_job
+import wsl, vllm_ctl, vllm_registry, vllm_setup, vllm_job, vllm_hub, vllm_download
 from builder import BuildManager
 
 ROOT    = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -34,6 +34,17 @@ def vllm_mgr():
         _VLLM.distro = distro
         _VLLM.port = c.get("vllm_port", 8081)
     return _VLLM
+
+_VLLM_DL = None
+def vllm_dl():
+    global _VLLM_DL
+    c = cfg()
+    distro = c.get("wsl_distro") or wsl.default_distro()
+    if _VLLM_DL is None:
+        _VLLM_DL = vllm_download.Manager(distro)
+    else:
+        _VLLM_DL.distro = distro
+    return _VLLM_DL
 
 def _tail_file(path, n):
     if not os.path.exists(path):
@@ -274,6 +285,8 @@ class H(BaseHTTPRequestHandler):
                 "installed": vllm_setup._vllm_version(distro),
                 "latest": vllm_setup.latest_pypi_version(),
             })
+        if p == "/api/vllm/hub/progress":
+            return self._send(200, vllm_dl().progress())
         return self._send(404, {"error": "not found"})
 
     def do_POST(self):
@@ -450,6 +463,45 @@ class H(BaseHTTPRequestHandler):
             distro = c.get("wsl_distro") or wsl.default_distro()
             ok = VLLM_SETUP_JOB.start(vllm_setup.update_script(), distro)
             return self._send(200, {"started": ok})
+
+        if p == "/api/vllm/hub/search":
+            try:
+                res = vllm_hub.search(body.get("query", ""), body.get("sort", "downloads"))
+                return self._send(200, {"results": res, "vram_mib": total_vram_mib()})
+            except Exception as e:
+                return self._send(200, {"error": str(e), "results": []})
+
+        if p == "/api/vllm/hub/info":
+            try:
+                return self._send(200, vllm_hub.repo_info(body.get("repo", ""), total_vram_mib()))
+            except Exception as e:
+                return self._send(200, {"error": str(e)})
+
+        if p == "/api/vllm/hub/download":
+            repo = body.get("repo", "")
+            info = {}
+            try:
+                info = vllm_hub.repo_info(repo, total_vram_mib())
+            except Exception:
+                pass
+            ok = vllm_dl().start(repo, int(body.get("size_bytes") or info.get("size_bytes") or 0))
+            return self._send(200, {"started": ok})
+
+        if p == "/api/vllm/hub/register":
+            repo = body.get("repo", "")
+            dl = vllm_dl()
+            vllm_registry.upsert(repo, {
+                "repo": repo, "wsl_path": dl.wsl_path(repo),
+                "size_bytes": int(body.get("size_bytes") or 0),
+                "quant": body.get("quant", "")})
+            return self._send(200, {"ok": True, "added": repo})
+
+        if p == "/api/vllm/delete":
+            repo = body.get("model", "")
+            ok, err = vllm_dl().delete(repo)
+            if ok:
+                vllm_registry.remove(repo)
+            return self._send(200 if ok else 500, {"ok": ok, "error": err})
 
         return self._send(404, {"error": "not found"})
 
