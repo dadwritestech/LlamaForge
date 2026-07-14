@@ -8,7 +8,7 @@ import json, os, subprocess, urllib.request, urllib.error
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import config, argspec, hardware, prereqs, scanner, hub, router_ctl, stats
-import wsl, vllm_ctl, vllm_registry
+import wsl, vllm_ctl, vllm_registry, vllm_setup, vllm_job
 from builder import BuildManager
 
 ROOT    = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -16,6 +16,8 @@ WEB     = os.path.join(ROOT, "web")
 LOGDIR  = os.path.join(ROOT, "logs")
 BUILDER = BuildManager(LOGDIR)
 DOWNLOADS = hub.DownloadManager()
+
+VLLM_SETUP_JOB = vllm_job.WslJob(LOGDIR, "vllm-setup.log")
 
 _VLLM = None
 def vllm_mgr():
@@ -237,6 +239,20 @@ class H(BaseHTTPRequestHandler):
             })
         if p == "/api/vllm/log":
             return self._send(200, {"log": vllm_log_tail(400)})
+        if p == "/api/vllm/setup":
+            c = cfg()
+            distro = c.get("wsl_distro") or wsl.default_distro()
+            s = vllm_setup.status(distro)
+            s["setup_job"] = VLLM_SETUP_JOB.progress()
+            s["setup_log"] = VLLM_SETUP_JOB.tail(300)
+            return self._send(200, s)
+        if p == "/api/vllm/version":
+            c = cfg()
+            distro = c.get("wsl_distro") or wsl.default_distro()
+            return self._send(200, {
+                "installed": vllm_setup._vllm_version(distro),
+                "latest": vllm_setup.latest_pypi_version(),
+            })
         return self._send(404, {"error": "not found"})
 
     def do_POST(self):
@@ -384,6 +400,20 @@ class H(BaseHTTPRequestHandler):
         if p == "/api/vllm/unload":
             vllm_mgr().stop(body.get("model", ""))
             return self._send(200, {"ok": True})
+
+        if p == "/api/vllm/setup/install":
+            c = cfg()
+            distro = body.get("distro") or c.get("wsl_distro") or wsl.default_distro()
+            if body.get("distro"):
+                c["wsl_distro"] = body["distro"]; config.save(c)
+            ok = VLLM_SETUP_JOB.start(vllm_setup.install_script(), distro)
+            return self._send(200, {"started": ok})
+
+        if p == "/api/vllm/update":
+            c = cfg()
+            distro = c.get("wsl_distro") or wsl.default_distro()
+            ok = VLLM_SETUP_JOB.start(vllm_setup.update_script(), distro)
+            return self._send(200, {"started": ok})
 
         return self._send(404, {"error": "not found"})
 
