@@ -426,8 +426,12 @@ function fitBadge(fit){const [txt,cls]=FIT_LABEL[fit]||FIT_LABEL.unknown;
 function loadDiscover(){
   if(discoverLoaded)return; discoverLoaded=true;
   setHTML($("#view-discover"),`
-    <div class="card"><h3>Discover GGUF models on huggingface.co</h3>
+    <div class="card"><h3>Discover models on huggingface.co</h3>
       <div class="toolbar">
+        <select id="hub-mode" style="background:#0a0d0e;border:1px solid var(--hair);color:var(--ink);font-family:var(--mono);font-size:12px;padding:8px">
+          <option value="gguf">GGUF (llama.cpp)</option>
+          <option value="safetensors">safetensors (vLLM)</option>
+        </select>
         <input class="search" id="hub-q" placeholder="search models (e.g. qwen coder, gemma vision)... blank = most downloaded">
         <select id="hub-sort" style="background:#0a0d0e;border:1px solid var(--hair);color:var(--ink);font-family:var(--mono);font-size:12px;padding:8px">
           <option value="downloads">most downloaded</option>
@@ -450,10 +454,12 @@ function loadDiscover(){
       </div>
     </div>`);
   $("#hub-go").onclick=hubSearch;
+  $("#hub-mode").onchange=()=>hubSearch();
   $("#hub-q").addEventListener("keydown",e=>{if(e.key==="Enter")hubSearch();});
   hubSearch();
 }
 async function hubSearch(){
+  if($("#hub-mode")&&$("#hub-mode").value==="safetensors")return vllmHubSearch();
   const msg=$("#hub-msg");msg.className="msg work";msg.textContent="searching huggingface.co...";
   const r=await api("/api/hub/search",{query:$("#hub-q").value.trim(),sort:$("#hub-sort").value});
   if(r.error){msg.className="msg err";msg.textContent=r.error.slice(0,80);return;}
@@ -505,6 +511,66 @@ async function hubDownload(repo,path,shards,mmproj){
       $("#dl-add").onclick=async()=>{const m=$("#dl-msg");m.className="msg work";m.textContent="registering...";
         const rr=await api("/api/hub/add",{path:s.finished_path});
         if(rr.ok){m.className="msg ok";m.textContent="added: "+rr.added.join(", ");toast("Model added to registry","ok");refresh(true);}
+        else{m.className="msg err";m.textContent=rr.error||"failed";}};}
+    if(s.phase==="failed")clearInterval(dlPoll);
+  },1000);
+}
+const QUANT_BADGE={nvfp4:["NVFP4","var(--green)"],fp8:["FP8","var(--cyan)"],awq:["AWQ","var(--amber)"],gptq:["GPTQ","var(--amber)"],bf16:["BF16","var(--dim)"],fp16:["FP16","var(--dim)"]};
+const VFIT_LABEL={fits:["FITS VRAM","var(--green)"],tight:["TIGHT","var(--amber)"],wont:["WON'T FIT","var(--red)"],unknown:["?","var(--dim)"]};
+async function vllmHubSearch(){
+  const msg=$("#hub-msg");msg.className="msg work";msg.textContent="searching safetensors repos...";
+  const r=await api("/api/vllm/hub/search",{query:$("#hub-q").value.trim(),sort:$("#hub-sort").value});
+  if(r.error){msg.className="msg err";msg.textContent=r.error.slice(0,80);return;}
+  $("#hub-vram").textContent=(r.vram_mib/1024).toFixed(1);
+  msg.className="msg ok";msg.textContent=`${r.results.length} repos`;
+  setHTML($("#hub-results"),`<div class="list">${r.results.map(m=>`
+    <div class="row" data-repo="${esc(m.repo)}">
+      <div class="rhead vhub-repo" style="grid-template-columns:1fr auto auto auto">
+        <span class="mid">${esc(m.repo)}</span>
+        <span class="ctxpill">${esc((m.downloads||0).toLocaleString())} dl</span>
+        <span class="ctxpill" style="color:var(--cyan)">${esc(m.likes)} &hearts;</span>
+        <span class="chev">&#9654;</span>
+      </div>
+      <div class="edit"></div>
+    </div>`).join("")}</div>`);
+  $$("#hub-results .vhub-repo").forEach(h=>h.onclick=()=>vllmHubInfo(h.parentElement));
+}
+async function vllmHubInfo(row){
+  const open=row.classList.toggle("open");
+  if(!open)return;
+  const box=$(".edit",row);setHTML(box,`<div class="note">reading repo (summing shards, detecting quant)...</div>`);
+  const r=await api("/api/vllm/hub/info",{repo:row.dataset.repo});
+  if(r.error){setHTML(box,`<div class="note" style="color:var(--red)">${esc(r.error.slice(0,120))}</div>`);return;}
+  const [qtxt,qcol]=QUANT_BADGE[r.quant]||[r.quant.toUpperCase(),"var(--dim)"];
+  const [ftxt,fcol]=VFIT_LABEL[r.fit]||VFIT_LABEL.unknown;
+  const nvfp4Note=r.quant==="nvfp4"?`<div class="note" style="color:var(--green)">NVFP4 &mdash; native on your Blackwell GPUs</div>`:"";
+  setHTML(box,`
+    <div class="kv"><span class="k">weights size</span><span class="v">${esc((r.size_bytes/1e9).toFixed(1))} GB</span></div>
+    <div class="kv"><span class="k">quantization</span><span class="v"><span class="tag" style="color:${qcol};border-color:${qcol}">${qtxt}</span></span></div>
+    <div class="kv"><span class="k">VRAM fit</span><span class="v"><span class="tag" style="color:${fcol};border-color:${fcol}">${ftxt}</span></span></div>
+    ${nvfp4Note}
+    <div class="actions">
+      <button class="primary" data-vdl="${esc(row.dataset.repo)}" data-size="${r.size_bytes}" data-quant="${esc(r.quant)}" ${r.fit==="wont"?'title="larger than usable VRAM"':""}>Download to WSL</button>
+      <span class="msg" data-vmsg></span>
+    </div>`);
+  $(`[data-vdl]`,box).onclick=e=>vllmHubDownload(e.target.dataset.vdl,parseInt(e.target.dataset.size),e.target.dataset.quant);
+}
+async function vllmHubDownload(repo,sizeBytes,quant){
+  const r=await api("/api/vllm/hub/download",{repo,size_bytes:sizeBytes});
+  if(!r.started){toast("A download is already running","err");return;}
+  toast("Download started","ok");
+  $("#hub-dlcard").style.display="";$("#dl-done").style.display="none";
+  clearInterval(dlPoll);
+  dlPoll=setInterval(async()=>{
+    const s=await api("/api/vllm/hub/progress");
+    $("#dl-file").textContent=`${s.repo} (WSL cache)`;
+    const pct=s.total?Math.round(100*s.downloaded/s.total):0;
+    setHTML($("#dl-meter"),meter(s.downloaded,Math.max(s.total,1)));
+    $("#dl-prog").textContent=s.phase==="done"?"complete":s.phase==="failed"?("FAILED: "+(s.error||"").slice(0,80)):`${(s.downloaded/1e9).toFixed(2)} / ${(s.total/1e9).toFixed(2)} GB (${pct}%)`;
+    if(s.phase==="done"){clearInterval(dlPoll);$("#dl-done").style.display="";
+      $("#dl-add").onclick=async()=>{const m=$("#dl-msg");m.className="msg work";m.textContent="registering...";
+        const rr=await api("/api/vllm/hub/register",{repo,size_bytes:sizeBytes,quant});
+        if(rr.ok){m.className="msg ok";m.textContent="added: "+rr.added;toast("vLLM model registered","ok");refresh(true);}
         else{m.className="msg err";m.textContent=rr.error||"failed";}};}
     if(s.phase==="failed")clearInterval(dlPoll);
   },1000);
