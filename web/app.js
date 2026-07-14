@@ -4,7 +4,7 @@
 const $=(s,e=document)=>e.querySelector(s), $$=(s,e=document)=>[...e.querySelectorAll(s)];
 const esc=v=>String(v==null?"":v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const setHTML=(el,h)=>{ if(el) el["inner"+"HTML"]=h; };   // escaped input only
-let STATE=null, SCHEMA=null, openId=null, onlySet=false, kquery="", mquery="", favOnly=false;
+let STATE=null, SCHEMA=null, VLLM_SCHEMA=null, vllmSchemaPending=false, openId=null, onlySet=false, kquery="", mquery="", favOnly=false;
 const favs=new Set(JSON.parse(localStorage.getItem("lf_favs")||"[]"));
 function saveFavs(){localStorage.setItem("lf_favs",JSON.stringify([...favs]));}
 function toggleFav(id){favs.has(id)?favs.delete(id):favs.add(id);saveFavs();renderModels();}
@@ -53,6 +53,7 @@ function knobField(m,k){
     ${k.desc?`<div class="hint" title="${esc(k.desc)}">${esc(k.desc)}</div>`:""}</div>`;
 }
 function editor(m){
+  if(m.backend==="vllm") return vllmEditor(m);
   if(!m.in_ini) return `<div class="note">Auto-discovered (not in models.ini) &mdash; add it via Setup &rarr; Scan Drives to tune it here.</div>`;
   if(!SCHEMA||!SCHEMA.groups) return `<div class="note">Loading knob schema...</div>`;
   const groups=SCHEMA.groups.map((g,gi)=>{
@@ -68,6 +69,25 @@ function editor(m){
       ${m.status==="loaded"||m.status==="loading"?`<button class="ghost" data-act="unload">${m.status==="loading"?"Cancel / Unload":"Unload"}</button>`:`<button data-act="load">Load</button>`}
       <span class="msg" data-msg></span>
     </div>${m.status==="loading"?`<div class="note">Still loading? Check the Router Log panel below the model list for the real llama.cpp output (crashes, out-of-memory, etc. show up there).</div>`:""}`;
+}
+function vllmEditor(m){
+  if(!VLLM_SCHEMA){ if(!vllmSchemaPending){vllmSchemaPending=true;api("/api/vllm/schema").then(s=>{VLLM_SCHEMA=s;vllmSchemaPending=false;renderModels();});} return `<div class="note">Loading vLLM knob schema...</div>`; }
+  if(VLLM_SCHEMA.error) return `<div class="note" style="color:var(--red)">vLLM knobs unavailable: ${esc(VLLM_SCHEMA.error)} &mdash; install vLLM from the Setup tab.</div>`;
+  const groups=VLLM_SCHEMA.groups.map((g,gi)=>{
+    const flds=g.knobs.map(k=>knobField(m,k)).join("");
+    return `<details class="kgroup" ${gi===0?"open":""}><summary>${esc(g.name)} &middot; ${g.knobs.length}</summary><div class="kgrid">${flds}</div></details>`;
+  }).join("");
+  return `<div class="toolbar">
+      <input class="search" placeholder="filter knobs (e.g. tensor, memory, quant)..." oninput="filterKnobs(this)">
+      <span class="chip ${onlySet?"on":""}" onclick="toggleOnlySet(this)">Only set</span>
+    </div>${groups}
+    <div class="actions">
+      <button class="primary" data-act="vsave">Save${m.status==="loaded"?" + Restart":""}</button>
+      ${m.status==="loaded"||m.status==="loading"?`<button class="ghost" data-act="vunload">${m.status==="loading"?"Cancel / Stop":"Stop"}</button>`:`<button data-act="vload">Load</button>`}
+      <button class="ghost" data-act="vdelete" title="remove model + delete its files from WSL">Delete</button>
+      <span class="msg" data-msg></span>
+    </div>
+    <div class="note">vLLM runs one model at a time inside WSL. Saving knobs on a loaded model restarts it (vLLM has no hot reload). Startup can take 1&ndash;5 minutes; watch the vLLM Log panel below.</div>`;
 }
 function applyKnobFilter(root){
   $$(".fld",root).forEach(f=>{
@@ -96,7 +116,7 @@ function renderModels(){
       <div class="rhead">
         <span class="led ${loaded?"loaded":""} ${m.failed?"failed":""}"></span>
         <span class="fav ${isFav?"on":""}" data-fav="${esc(m.id)}" title="${isFav?"unfavorite":"favorite"}">&starf;</span>
-        <span class="mid">${esc(m.id)}${vis?'<span class="tag vis">vision</span>':''}${!m.in_ini?'<span class="tag">auto</span>':''}</span>
+        <span class="mid">${esc(m.id)}<span class="tag be-${esc(m.backend||'llamacpp')}">${(m.backend==='vllm')?'vLLM':'llama.cpp'}</span>${vis?'<span class="tag vis">vision</span>':''}${!m.in_ini?'<span class="tag">auto</span>':''}${m.endpoint?`<span class="tag ep" data-ep="${esc(m.endpoint)}" title="click to copy endpoint">${esc(m.endpoint.replace('http://',''))}</span>`:''}</span>
         <span class="ctxpill"><span class="k">CTX</span> ${esc(m.eff_ctx)}</span>
         <span class="stat ${loaded?"loaded":""}" style="${stuckSecs>=20?"color:var(--red)":""}">${m.failed?"FAILED":esc(m.status)}${stuckSecs>=20?` (${stuckSecs}s, check log)`:""}</span>
         <span class="chev">&#9654;</span>
@@ -148,6 +168,8 @@ async function refresh(silent){
   catch(e){if(!silent)setHTML($("#list"),`<div class="skel" style="color:var(--red)">BACKEND UNREACHABLE</div>`);}
 }
 document.addEventListener("click",async e=>{
+  const epChip=e.target.closest("#view-models [data-ep]");
+  if(epChip){e.stopPropagation();navigator.clipboard.writeText(epChip.dataset.ep).then(()=>toast("Endpoint copied","ok"));return;}
   const favBtn=e.target.closest("#view-models [data-fav]");
   if(favBtn){e.stopPropagation();toggleFav(favBtn.dataset.fav);return;}
   const head=e.target.closest("#view-models .rhead");
@@ -167,7 +189,22 @@ document.addEventListener("click",async e=>{
       else{msg.className="msg err";msg.textContent=r.error||"failed";}
     }else if(act==="load"){msg.className="msg work";msg.textContent="loading (may take seconds)...";
       const r=await api("/api/load",{model:id});r.success?toast("Loaded","ok"):(msg.className="msg err",msg.textContent=(r.error&&r.error.message)||"load failed");
-    }else if(act==="unload"){msg.className="msg work";msg.textContent="unloading...";await api("/api/unload",{model:id});toast("Unloaded","ok");}
+    }else if(act==="unload"){msg.className="msg work";msg.textContent="unloading...";await api("/api/unload",{model:id});toast("Unloaded","ok");
+    }else if(act==="vsave"){
+      const settings={};$$("[data-k]",row).forEach(el=>settings[el.dataset.k]=el.value.trim());
+      msg.className="msg work";msg.textContent="saving vLLM knobs...";
+      const r=await api("/api/vllm/save",{model:id,settings});
+      msg.className="msg ok";msg.textContent=r.restarted?"saved - restarting":"saved";toast(r.restarted?"Saved & restarting":"Saved","ok");
+    }else if(act==="vload"){msg.className="msg work";msg.textContent="starting vLLM (1-5 min)...";
+      const r=await api("/api/vllm/load",{model:id});r.ok?toast("vLLM starting","ok"):(msg.className="msg err",msg.textContent=r.error||"load failed");
+    }else if(act==="vunload"){msg.className="msg work";msg.textContent="stopping vLLM...";await api("/api/vllm/unload",{model:id});toast("vLLM stopped","ok");
+    }else if(act==="vdelete"){
+      if(!confirm(`Delete ${id} and its files from WSL? This cannot be undone.`)){btn.disabled=false;return;}
+      msg.className="msg work";msg.textContent="deleting from WSL...";
+      const r=await api("/api/vllm/delete",{model:id});
+      r.ok?toast("Deleted","ok"):(msg.className="msg err",msg.textContent=r.error||"delete failed");
+      openId=null;
+    }
     await refresh(true);
   }catch(err){msg.className="msg err";msg.textContent=String(err);}
   btn.disabled=false;
@@ -494,3 +531,13 @@ async function refreshRouterLog(){
 }
 setInterval(()=>{if($(".tab.active").dataset.tab==="models")refreshRouterLog();},3000);
 refreshRouterLog();
+
+async function refreshVllmLog(){
+  const el=$("#vllm-log");if(!el)return;
+  const s=await api("/api/vllm/log");
+  const wasBottom=el.scrollTop+el.clientHeight>=el.scrollHeight-20;
+  el.textContent=s.log||"idle";
+  if(wasBottom)el.scrollTop=el.scrollHeight;
+}
+setInterval(()=>{if($(".tab.active").dataset.tab==="models")refreshVllmLog();},3000);
+refreshVllmLog();
