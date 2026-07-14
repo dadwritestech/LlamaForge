@@ -1,0 +1,23 @@
+usage: vllm serve [model_tag] [options]
+
+positional arguments:
+  model_tag             The model tag to serve
+
+options:
+  -h, --help            show this help message and exit
+  --host HOST           Host name. (default: None)
+  --port PORT           Port number. (default: 8000)
+  --tensor-parallel-size TENSOR_PARALLEL_SIZE, -tp TENSOR_PARALLEL_SIZE
+                        Number of tensor parallel replicas. (default: 1)
+  --gpu-memory-utilization GPU_MEMORY_UTILIZATION
+                        The fraction of GPU memory to be used for the model
+                        executor, from 0 to 1. (default: 0.9)
+  --max-model-len MAX_MODEL_LEN
+                        Model context length. (default: None)
+  --dtype {auto,half,float16,bfloat16,float,float32}
+                        Data type for model weights and activations. (default:
+                        auto)
+  --quantization {awq,fp8,gptq,nvfp4,None}, -q {awq,fp8,gptq,nvfp4,None}
+                        Method used to quantize the weights. (default: None)
+  --enforce-eager       Always use eager-mode PyTorch. (default: False)
+  --trust-remote-code   Trust remote code from HuggingFace. (default: False)
