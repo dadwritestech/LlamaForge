@@ -8,6 +8,8 @@
   "panel_port": 8090,
   "router_host": "127.0.0.1",
   "router_api_key": "",
+  "wsl_distro": "",
+  "vllm_port": 8081,
   "cmake_flags": {},
   "git_remote": "https://github.com/ggml-org/llama.cpp"
 }

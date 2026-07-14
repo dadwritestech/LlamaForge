@@ -20,6 +20,8 @@ DEFAULTS = {
     "panel_port":  8090,
     "router_host": "127.0.0.1",               # 127.0.0.1 = local only, 0.0.0.0 = reachable on the LAN
     "router_api_key": "",                     # required by clients when router_host != 127.0.0.1
+    "wsl_distro":  "",                        # WSL distro that runs vLLM ("" = auto-pick default)
+    "vllm_port":   8081,                      # port vLLM serves on (WSL localhost-forwarded to Windows)
     "cmake_flags": {},                       # persisted build flags (from hardware detect)
     "git_remote":  "https://github.com/ggml-org/llama.cpp",
 }
