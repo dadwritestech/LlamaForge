@@ -102,9 +102,13 @@ Small things that add up when you use it every day:
 
 ## Screenshots
 
-| Setup & hardware detection | Discover with VRAM-fit ratings |
+| Models — GGUF metadata, presets, per-model knobs, quick-load | Compare models side-by-side |
 |---|---|
-| ![Setup tab](docs/screenshot.png) | ![Discover tab](docs/screenshot-discover.png) |
+| ![Models tab](docs/screenshot-models.png) | ![Compare settings](docs/screenshot-compare.png) |
+
+| Discover with VRAM-fit ratings | Setup & hardware detection |
+|---|---|
+| ![Discover tab](docs/screenshot-discover.png) | ![Setup tab](docs/screenshot.png) |
 
 ## Quick start (new machine)
 
