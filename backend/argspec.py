@@ -136,12 +136,26 @@ def parse_help(text):
 
 def build_schema(server_bin):
     """Run the server's --help and return grouped, editable knobs."""
+    if not server_bin:
+        return {"error": "server_bin is not set in config.json", "groups": []}
     try:
-        out = subprocess.run([server_bin, "--help"], capture_output=True,
-                             text=True, timeout=20).stdout
+        # utf-8 explicitly: text=True alone decodes with the locale codepage on
+        # Windows (cp1252), which can blow up or mangle upstream help text.
+        r = subprocess.run([server_bin, "--help"], capture_output=True,
+                           text=True, encoding="utf-8", errors="replace",
+                           timeout=20)
     except Exception as e:
         return {"error": str(e), "groups": []}
+    # some builds/forks route usage through the log system -> stderr
+    out = r.stdout if r.stdout.strip() else r.stderr
+    if not out.strip():
+        return {"error": f"`{server_bin} --help` produced no output "
+                         f"(exit code {r.returncode}) - missing DLLs or wrong binary?",
+                "groups": []}
     items = [i for i in parse_help(out) if not i["reserved"]]
+    if not items:
+        return {"error": "could not parse any arguments from --help output "
+                         "(unrecognized help format?)", "groups": []}
     groups = {}
     for it in items:
         groups.setdefault(it["section"], []).append(it)

@@ -97,7 +97,9 @@ function modelMeta(m){
 function editor(m){
   if(m.backend==="vllm") return vllmEditor(m);
   if(!m.in_ini) return `<div class="note">Auto-discovered (not in models.ini) &mdash; add it via Setup &rarr; Scan Drives to tune it here.</div>`;
-  if(!SCHEMA||!SCHEMA.groups) return `<div class="note">Loading knob schema...</div>`;
+  if(!SCHEMA) return `<div class="note">Loading knob schema...</div>`;
+  if(SCHEMA.error) return `<div class="note" style="color:var(--red)">Could not read knobs from <code>llama-server --help</code>: ${esc(SCHEMA.error)}<br>Check <code>server_bin</code> in config.json - the schema is retried automatically once it's fixed.</div>`;
+  if(!SCHEMA.groups||!SCHEMA.groups.length) return `<div class="note">llama-server --help returned no tunable arguments.</div>`;
   const groups=SCHEMA.groups.map((g,gi)=>{
     const flds=g.knobs.map(k=>knobField(m,k)).join("");
     return `<details class="kgroup" ${gi===0?"open":""}><summary>${esc(g.name)} &middot; ${g.knobs.length}</summary><div class="kgrid">${flds}</div></details>`;
@@ -404,6 +406,8 @@ document.addEventListener("keydown",e=>{
 async function refresh(silent){
   try{
     const snap=silent?captureEditorState():null;
+    // PR #1: recover the knob schema without a reload once config.json is fixed
+    if(!SCHEMA||SCHEMA.error||!(SCHEMA.groups||[]).length) SCHEMA=await api("/api/schema");
     const s=await api("/api/state");STATE=s;renderGpus(s.gpus);renderModels();updateCmpRun();
     renderOnboarding(s);
     const plat=$("#platform");
