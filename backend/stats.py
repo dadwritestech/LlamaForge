@@ -7,7 +7,7 @@ router's `/metrics`, diffs the token counters, attributes the delta to the
 currently-loaded model (safe: the router runs with --models-max 1), and
 persists per-model + daily totals to stats.json. Pure stdlib.
 """
-import json, os, re, threading, time, urllib.request
+import json, os, re, threading, time, urllib.request, urllib.parse
 from datetime import date
 
 import config
@@ -111,16 +111,20 @@ class StatsTracker:
         with urllib.request.urlopen(self._base() + path, timeout=timeout) as r:
             return r.read().decode(errors="replace")
 
-    def _loaded_model(self):
+    def _router_state(self):
+        """(router_up, loaded_model_id). One /models call decides both: the
+        router is 'up' whenever /models answers, whether or not a model is
+        loaded. (Its /metrics is per-model and 400s without a model name, so
+        /metrics can't be used to judge liveness.)"""
         try:
             data = json.loads(self._get("/models"))
         except Exception:
-            return None
+            return (False, None)
         for m in data.get("data", []):
             mid = m.get("id")
             if mid and mid != "default" and m.get("status", {}).get("value") == "loaded":
-                return mid
-        return None
+                return (True, mid)
+        return (True, None)
 
     # ---------- accumulation (call under self.lock) ----------
     def _model(self, mid):
@@ -174,16 +178,28 @@ class StatsTracker:
         self._vprev_model = model
 
     def poll_once(self):
-        try:
-            metrics = _parse_metrics(self._get("/metrics"))
-        except Exception:
+        # One /models call tells us both whether the router is up and which
+        # model is loaded. The router's /metrics is per-model and 400s without
+        # a model name, so we must know the model before scraping it - scraping
+        # bare /metrics (the old bug) made every poll look like the router down.
+        up, model = self._router_state()
+        if not up:
             with self.lock:
                 self.live.update(router_up=False, prompt_per_sec=0.0,
-                                 gen_per_sec=0.0, requests_processing=0)
+                                 gen_per_sec=0.0, requests_processing=0,
+                                 loaded_model=None)
                 self._prev = None          # re-baseline on next good poll
+                self._poll_vllm()          # vLLM runs independently of this router
+                self._flush()
             return
 
-        model = self._loaded_model()
+        metrics = {}
+        if model:
+            try:
+                metrics = _parse_metrics(
+                    self._get("/metrics?model=" + urllib.parse.quote(model)))
+            except Exception:
+                metrics = {}
         p = metrics.get(M_PROMPT_TOTAL, 0.0)
         g = metrics.get(M_GEN_TOTAL, 0.0)
         with self.lock:
