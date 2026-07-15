@@ -419,6 +419,35 @@ async function checkMissing(){
 
 /* ---------- discover tab (HuggingFace) ---------- */
 let dlPoll=null, discoverLoaded=false;
+const PLAT_LABEL={windows:"WIN",linux:"LINUX",macos:"MAC"};
+function platTags(platforms){
+  if(!platforms||!platforms.length)return "";
+  const cur=STATE&&STATE.platform;
+  let s=platforms.map(p=>{
+    const here=p===cur;
+    return `<span class="tag" title="runs on ${esc(p)}${here?" (this machine)":""}" style="${here?"color:var(--amber);border-color:var(--amber)":""}">${PLAT_LABEL[p]||esc(p.toUpperCase())}</span>`;
+  }).join("");
+  if(cur&&!platforms.includes(cur))
+    s+=`<span class="tag" style="color:var(--red);border-color:var(--red)" title="this backend does not run on ${esc(cur)}">NOT ON ${PLAT_LABEL[cur]||esc(cur.toUpperCase())}</span>`;
+  return s;
+}
+function hubRow(m,installed,clickClass){
+  const inst=installed.has(m.repo);
+  return `<div class="row" data-repo="${esc(m.repo)}">
+    <div class="rhead ${clickClass}" style="grid-template-columns:1fr auto auto auto auto">
+      <span class="mid">${esc(m.repo)}
+        ${platTags(m.platforms)}
+        ${m.gated?'<span class="tag" style="color:var(--red);border-color:var(--red)" title="gated repo - requires accepting terms + an HF token; downloads from here will fail">GATED</span>':''}
+        ${inst?'<span class="tag" style="color:var(--green);border-color:var(--green)" title="already in your registry">INSTALLED</span>':''}
+      </span>
+      <span class="ctxpill"><span class="k">upd</span> ${esc(m.updated||"?")}</span>
+      <span class="ctxpill">${esc((m.downloads||0).toLocaleString())} dl</span>
+      <span class="ctxpill" style="color:var(--cyan)">${esc(m.likes)} &hearts;</span>
+      <span class="chev">&#9654;</span>
+    </div>
+    <div class="edit"></div>
+  </div>`;
+}
 const FIT_LABEL={fits:["FITS VRAM","ok"],tight:["TIGHT","work"],offload:["CPU OFFLOAD","err"],unknown:["?",""]};
 function fitBadge(fit){const [txt,cls]=FIT_LABEL[fit]||FIT_LABEL.unknown;
   const col=cls==="ok"?"var(--green)":cls==="work"?"var(--amber)":cls==="err"?"var(--red)":"var(--dim)";
@@ -465,16 +494,8 @@ async function hubSearch(){
   if(r.error){msg.className="msg err";msg.textContent=r.error.slice(0,80);return;}
   $("#hub-vram").textContent=(r.vram_mib/1024).toFixed(1);
   msg.className="msg ok";msg.textContent=`${r.results.length} repos`;
-  setHTML($("#hub-results"),`<div class="list">${r.results.map(m=>`
-    <div class="row" data-repo="${esc(m.repo)}">
-      <div class="rhead hub-repo" style="grid-template-columns:1fr auto auto auto">
-        <span class="mid">${esc(m.repo)}</span>
-        <span class="ctxpill">${esc((m.downloads||0).toLocaleString())} dl</span>
-        <span class="ctxpill" style="color:var(--cyan)">${esc(m.likes)} &hearts;</span>
-        <span class="chev">&#9654;</span>
-      </div>
-      <div class="edit"></div>
-    </div>`).join("")}</div>`);
+  const inst=new Set(r.installed||[]);
+  setHTML($("#hub-results"),`<div class="list">${r.results.map(m=>hubRow(m,inst,"hub-repo")).join("")}</div>`);
   $$("#hub-results .hub-repo").forEach(h=>h.onclick=()=>hubFiles(h.parentElement));
 }
 async function hubFiles(row){
@@ -523,16 +544,8 @@ async function vllmHubSearch(){
   if(r.error){msg.className="msg err";msg.textContent=r.error.slice(0,80);return;}
   $("#hub-vram").textContent=(r.vram_mib/1024).toFixed(1);
   msg.className="msg ok";msg.textContent=`${r.results.length} repos`;
-  setHTML($("#hub-results"),`<div class="list">${r.results.map(m=>`
-    <div class="row" data-repo="${esc(m.repo)}">
-      <div class="rhead vhub-repo" style="grid-template-columns:1fr auto auto auto">
-        <span class="mid">${esc(m.repo)}</span>
-        <span class="ctxpill">${esc((m.downloads||0).toLocaleString())} dl</span>
-        <span class="ctxpill" style="color:var(--cyan)">${esc(m.likes)} &hearts;</span>
-        <span class="chev">&#9654;</span>
-      </div>
-      <div class="edit"></div>
-    </div>`).join("")}</div>`);
+  const inst=new Set(r.installed||[]);
+  setHTML($("#hub-results"),`<div class="list">${r.results.map(m=>hubRow(m,inst,"vhub-repo")).join("")}</div>`);
   $$("#hub-results .vhub-repo").forEach(h=>h.onclick=()=>vllmHubInfo(h.parentElement));
 }
 async function vllmHubInfo(row){

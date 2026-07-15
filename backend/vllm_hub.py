@@ -19,7 +19,10 @@ def _get_json(url, timeout=25):
         return json.loads(r.read().decode())
 
 
-def search(query="", sort="downloads", limit=30):
+# vLLM needs Linux; LlamaForge drives it on Windows through WSL2. No macOS.
+PLATFORMS = ["windows", "linux"]
+
+def search(query="", sort="downloads", limit=50):
     """Search transformers-library repos (excludes GGUF-only repos)."""
     params = {"filter": "safetensors", "library": "transformers",
               "limit": str(limit), "direction": "-1", "sort": sort}
@@ -30,7 +33,9 @@ def search(query="", sort="downloads", limit=30):
     for m in _get_json(url):
         out.append({"repo": m.get("id", ""), "downloads": m.get("downloads", 0),
                     "likes": m.get("likes", 0),
-                    "updated": (m.get("lastModified") or "")[:10]})
+                    "updated": (m.get("lastModified") or "")[:10],
+                    "gated": bool(m.get("gated")),
+                    "platforms": PLATFORMS})
     return out
 
 

@@ -134,6 +134,19 @@ def vllm_schema():
         _VLLM_SCHEMA = vllm_argspec.build_schema(distro, "~/.llamaforge/vllm-venv")
     return _VLLM_SCHEMA
 
+def installed_repos(results, ini_sections, vllm_ids):
+    """Which Discover results are already on this machine. GGUF downloads land
+    in a '<org>--<name>' folder that models.ini paths retain; vLLM registry
+    keys are the repo ids themselves."""
+    blob = " ".join(kv.get("model", "") for kv in ini_sections.values())
+    vset = set(vllm_ids)
+    out = []
+    for r in results:
+        repo = r.get("repo", "")
+        if repo and (repo in vset or repo.replace("/", "--") in blob):
+            out.append(repo)
+    return out
+
 def vllm_save(model_id, settings, is_running, restart):
     """Persist knob changes; restart the process if the model is loaded
     (vLLM has no hot reload). Returns whether a restart was triggered."""
@@ -399,7 +412,10 @@ class H(BaseHTTPRequestHandler):
         if p == "/api/hub/search":
             try:
                 res = hub.search(body.get("query", ""), body.get("sort", "downloads"))
-                return self._send(200, {"results": res, "vram_mib": total_vram_mib()})
+                inst = installed_repos(res, config.read_sections(),
+                                       vllm_registry.models() if VLLM_SUPPORTED else [])
+                return self._send(200, {"results": res, "vram_mib": total_vram_mib(),
+                                        "installed": inst})
             except Exception as e:
                 return self._send(200, {"error": str(e), "results": []})
 
@@ -501,7 +517,9 @@ class H(BaseHTTPRequestHandler):
         if p == "/api/vllm/hub/search":
             try:
                 res = vllm_hub.search(body.get("query", ""), body.get("sort", "downloads"))
-                return self._send(200, {"results": res, "vram_mib": total_vram_mib()})
+                inst = installed_repos(res, {}, vllm_registry.models())
+                return self._send(200, {"results": res, "vram_mib": total_vram_mib(),
+                                        "installed": inst})
             except Exception as e:
                 return self._send(200, {"error": str(e), "results": []})
 
