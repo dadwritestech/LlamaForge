@@ -20,10 +20,12 @@ PLATFORMS = ["windows", "linux", "macos"]
 
 def search(query="", sort="downloads", limit=50):
     """Search GGUF repos. sort: downloads | lastModified | likes."""
-    params = {"filter": "gguf", "limit": str(limit), "direction": "-1", "sort": sort}
+    params = {"filter": "gguf", "limit": str(limit), "direction": "-1", "sort": sort,
+              # the list API omits lastModified/gated unless asked explicitly
+              "expand[]": ["downloads", "likes", "lastModified", "gated"]}
     if query:
         params["search"] = query
-    url = f"{HF}/api/models?{urllib.parse.urlencode(params)}"
+    url = f"{HF}/api/models?{urllib.parse.urlencode(params, doseq=True)}"
     out = []
     for m in _get_json(url):
         out.append({

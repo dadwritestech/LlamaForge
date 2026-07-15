@@ -473,7 +473,7 @@ function hubRow(m,installed,clickClass){
         ${m.gated?'<span class="tag" style="color:var(--red);border-color:var(--red)" title="gated repo - requires accepting terms + an HF token; downloads from here will fail">GATED</span>':''}
         ${inst?'<span class="tag" style="color:var(--green);border-color:var(--green)" title="already in your registry">INSTALLED</span>':''}
       </span>
-      <span class="ctxpill"><span class="k">upd</span> ${esc(m.updated||"?")}</span>
+      ${m.updated?`<span class="ctxpill"><span class="k">upd</span> ${esc(m.updated)}</span>`:""}
       <span class="ctxpill">${esc((m.downloads||0).toLocaleString())} dl</span>
       <span class="ctxpill" style="color:var(--cyan)">${esc(m.likes)} &hearts;</span>
       <span class="chev">&#9654;</span>
