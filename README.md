@@ -46,11 +46,59 @@ LlamaForge trades that for direct, per-model control over the real llama.cpp ser
 
 | Tab | What it does |
 |-----|--------------|
-| **Models** | Every model on your machine in one list with live GPU VRAM/util/temp meters (used **and** free). Expand a model to edit all **~220 llama.cpp knobs** (context, KV-cache type, speculative decoding, tensor split, sampling, rope, ...), grouped and searchable, with the file path and on-disk size shown. Save hot-reloads with no restart; load/unload in a click. `/` jumps to the filter; edits flag as unsaved until you save. |
-| **Stats** | Per-model usage tracked from the router's own metrics: tokens processed, average generation speed (tok/s), run counts, time loaded, and a stacked prompt/generated activity chart (14- or 30-day). Live throughput while a model runs. Resettable. |
-| **Discover** | Search **huggingface.co** for GGUF models (newest / most downloaded / most liked). Every quant is rated against your total VRAM - **FITS / TIGHT / CPU OFFLOAD** - before you download, and each result is tagged with the platforms it runs on plus **GATED** and **INSTALLED** badges. One click streams the download (multi-shard + vision mmproj handled) with live speed/ETA and a cancel button, then registers it in your registry. |
-| **Build / Update** | Shows your current llama.cpp commit, checks GitHub for how far behind you are (cached, so opening the tab doesn't re-hit GitHub every time — with a manual **Check GitHub now**), and rebuilds via CMake with flags **auto-detected for your CPU/GPU/Apple Silicon** (CUDA arch, AVX-512, quantized-KV flash attention, or Metal). Prior binaries are backed up; the build streams live and reports its duration. |
-| **Setup** | Checks prerequisites (Git, CMake, Ninja, Python, C++ compiler, CUDA), installs missing ones **with your permission** (winget/choco on Windows, Homebrew on macOS; exact commands shown on Linux — the dashboard never runs `sudo`) or links official downloads. Detects hardware and scans your drives (or `$HOME` + mounts) for existing GGUF models. **Check for deleted models** prunes registry entries whose file has since been removed from disk. |
+| **Models** | Every model on your machine in one list with live GPU VRAM/util/temp meters (used **and** free). Expand a model to edit all **~220 llama.cpp knobs** (context, KV-cache type, speculative decoding, tensor split, sampling, rope, ...), grouped and searchable, with the file path, on-disk size, and a **GGUF metadata card** (architecture, parameters, quantization, trained context, layers, attention heads, rope). Save hot-reloads with no restart; **quick-load/unload right from the row header**, with load requests **queued** so a second load waits its turn. A failed load shows the **real error inline with a suggested fix** instead of making you scroll the log. Save any knob set as a **named preset** and apply it to any model in one click, **compare** 2–3 models side-by-side to see what differs, and copy a ready-to-paste **curl / OpenAI-client / JSON** snippet per model. A full **keyboard map** drives the tab, and the expanded row + unsaved edits persist across reloads. |
+| **Stats** | Per-model usage tracked from the router's own metrics: tokens processed, average generation speed (tok/s), run counts, time loaded, and a stacked prompt/generated activity chart (14- or 30-day). Live throughput while a model runs. Resettable. (Totals are per-model across all clients — per-request/per-IP isn't shown because clients hit the router directly, so the dashboard never sees individual request origins.) |
+| **Discover** | Search **huggingface.co** for **GGUF** (llama.cpp) or **safetensors** (vLLM) models (newest / most downloaded / most liked). Every quant is rated against your total VRAM - **FITS / TIGHT / CPU OFFLOAD** - before you download, and each result is tagged with the platforms it runs on plus **GATED** and **INSTALLED** badges. One click streams the download (multi-shard + vision mmproj handled) with live speed/ETA, **pause/resume** (large downloads resume via HTTP range instead of restarting from zero) and cancel, then registers it in your registry. |
+| **Build / Update** | Shows your current llama.cpp commit, checks GitHub for how far behind you are (cached, so opening the tab doesn't re-hit GitHub every time — with a manual **Check GitHub now**), and rebuilds via CMake with flags **auto-detected for your CPU/GPU/Apple Silicon** (CUDA arch, AVX-512, quantized-KV flash attention, or Metal). Prior binaries are backed up; the build streams live and reports its duration. Also tracks the installed **vLLM** version against PyPI and updates it in place. |
+| **Setup** | Checks prerequisites (Git, CMake, Ninja, Python, C++ compiler, CUDA), installs missing ones **with your permission** (winget/choco on Windows, Homebrew on macOS; exact commands shown on Linux — the dashboard never runs `sudo`) or links official downloads. Detects hardware and scans your drives (or `$HOME` + mounts) for existing GGUF models. **Check for deleted models** prunes registry entries whose file has since been removed from disk. Installs the **vLLM** backend into WSL2 (Windows), and lets you pick a **favourite model to auto-load on launch**. |
+
+## Two engines: llama.cpp + vLLM
+
+LlamaForge is a llama.cpp control panel first, but it can also drive **[vLLM](https://github.com/vllm-project/vllm)** as a second backend for full-precision / safetensors models (FP16, BF16, AWQ, GPTQ, FP8, NVFP4). Both engines share the same Models list, Discover tab, and stats — each row is tagged **llama.cpp** or **vLLM**.
+
+- **Windows:** vLLM runs inside **WSL2** with GPU passthrough. Install it from the **Setup** tab (uv + a standalone Python into `~/.llamaforge/vllm-venv`, no `sudo`); the dashboard bridges WSL's localhost port back to Windows. vLLM runs one model at a time and has no hot reload, so saving knobs on a loaded model restarts it — startup can take 1–5 minutes; watch the **vLLM Log** panel.
+- **Linux / macOS:** vLLM is a Windows/WSL2 feature; its tab and Discover's safetensors mode are hidden automatically. llama.cpp (CUDA/CPU on Linux, Metal on Apple Silicon) is the engine there.
+
+Everything you download for vLLM lands in the WSL model cache and is registered like any other model. If you only ever want llama.cpp, you can ignore vLLM entirely — nothing about it is installed unless you ask.
+
+## Cross-platform
+
+The same dashboard runs everywhere; only the launcher scripts differ.
+
+| | Windows | Linux | macOS (Apple Silicon) |
+|---|---|---|---|
+| llama.cpp | CUDA / CPU | CUDA / CPU | Metal |
+| vLLM | via WSL2 | — | — |
+| bootstrap | `bootstrap.ps1` | `bootstrap.sh` | `bootstrap.sh` |
+| daily run | `LlamaForge.vbs` | `./run.sh` | `./run.sh` |
+| package manager (Setup tab) | winget / choco | apt / dnf / pacman *(commands shown, never auto-`sudo`)* | Homebrew |
+
+## Quality-of-life
+
+Small things that add up when you use it every day:
+
+- **Quick-load** — load/unload from the row header without expanding; a **load queue** serializes multiple loads instead of erroring.
+- **Named presets** — save a knob set ("coding", "creative", "fast") and apply it to any model in a click.
+- **Inline failure diagnosis** — a failed load parses the router log and shows the real error plus a concrete suggested fix (e.g. "lower n-gpu-layers from 99").
+- **GGUF metadata card** — architecture, parameter size, quant, trained context, layers, heads, and rope, read straight from the file header.
+- **Compare** — pick 2–3 models and see their settings side-by-side with the differences highlighted.
+- **Client config** — one click gives you a copy-paste `curl`, OpenAI-client env vars, and a test JSON payload wired to that model's endpoint and API key.
+- **Download pause/resume** — a 25 GB download that gets interrupted resumes from where it stopped via an HTTP range request.
+- **Auto-load on launch** — pick a favourite model in Setup and it loads itself once the router is ready.
+- **Persistent UI** — the expanded row, unsaved edits, favourites, and last Discover search all survive tab switches and reloads.
+- **Optional system tray** — a tray icon showing the loaded-model count and a quick "Open dashboard" (Windows/Linux; `pip install pystray pillow` to enable — without it LlamaForge stays pure-stdlib).
+
+### Keyboard shortcuts (Models tab)
+
+| Key | Action |
+|-----|--------|
+| `1`–`5` | switch tabs (Models / Stats / Discover / Build / Setup) |
+| `/` | focus the model filter (`Esc` clears it) |
+| `↑` / `↓` or `k` / `j` | move the row selection |
+| `Enter` | expand / collapse the selected row |
+| `L` / `U` | load / unload the selected model |
+| `S` | save the open model's knobs |
+| `Esc` | close an open dialog |
 
 ## Screenshots
 
@@ -111,6 +159,10 @@ powershell -ExecutionPolicy Bypass -File stop.ps1   # Windows
   supported everywhere)
 - Everything else (Git, CMake, Ninja, C++ compiler, CUDA) is detected and can be
   installed from the Setup tab where a package manager allows it
+- **vLLM backend (optional, Windows):** WSL2 with GPU passthrough — installed from
+  the Setup tab
+- **System tray (optional):** `pip install pystray pillow`; without it the tray is
+  simply skipped and the backend stays pure-stdlib
 
 ## Configuration
 
@@ -126,6 +178,13 @@ All machine-specific paths live in `config.json` (see `config.example.json`):
 | `router_port` / `panel_port` | ports for llama.cpp and the dashboard |
 | `router_host` | `127.0.0.1` (default, local only) or `0.0.0.0` (reachable on your LAN) |
 | `router_api_key` | key clients send as `Authorization: Bearer <key>`; strongly recommended (and enforceable) whenever `router_host` isn't `127.0.0.1` |
+| `auto_load_model` | model id to load automatically once the router is ready on launch (`""` = none) |
+| `presets` | named knob sets applied from the Models tab, e.g. `{"coding": {"temp": "0.2"}}` |
+| `wsl_distro` | WSL distro that runs vLLM (`""` = auto-pick the default) — Windows only |
+| `vllm_port` | port vLLM serves on inside WSL, forwarded to Windows localhost |
+
+Most of these are managed from the dashboard (Setup, Build, and the Models tab), so
+you rarely edit `config.json` by hand.
 
 By default everything binds to `127.0.0.1` only. The Setup tab has a **Network
 Access** panel to opt into serving the llama.cpp API/chat UI to other devices on
@@ -154,7 +213,8 @@ by hand always win.
 ## Roadmap
 
 Linux/macOS support and a **vLLM** backend (via WSL2 on Windows) have landed as
-early previews; ik-llama and named launch profiles are next. See
+early previews, along with named **knob presets** (a step toward full launch
+profiles); ik-llama and engine+model launch profiles are next. See
 [ROADMAP.md](ROADMAP.md) for what's shipped, in progress, and planned — it's an
 early preview, so priorities follow feedback.
 

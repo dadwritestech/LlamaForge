@@ -91,6 +91,79 @@ def context_length(path):
         return None
 
 
+# general.file_type is an LLAMA_FTYPE enum; map the common quant tiers to labels.
+_FTYPE = {
+    0: "F32", 1: "F16", 2: "Q4_0", 3: "Q4_1", 7: "Q8_0", 8: "Q5_0", 9: "Q5_1",
+    10: "Q2_K", 11: "Q3_K_S", 12: "Q3_K_M", 13: "Q3_K_L", 14: "Q4_K_S",
+    15: "Q4_K_M", 16: "Q5_K_S", 17: "Q5_K_M", 18: "Q6_K", 19: "IQ2_XXS",
+    20: "IQ2_XS", 21: "Q2_K_S", 22: "IQ3_XS", 23: "IQ3_XXS", 24: "IQ1_S",
+    25: "IQ4_NL", 26: "IQ3_S", 27: "IQ3_M", 28: "IQ2_S", 29: "IQ2_M",
+    30: "IQ4_XS", 31: "IQ1_M", 32: "BF16", 36: "TQ1_0", 37: "TQ2_0",
+}
+
+# Strings worth decoding by exact key; every other string (chat_template, the
+# tokenizer vocab, etc.) is skipped so we never pull KBs/MBs off disk.
+_META_STR_KEYS = {"general.architecture", "general.name", "general.size_label",
+                  "general.basename", "general.finetune"}
+_META_STR_SUFFIX = (".rope.scaling.type",)   # e.g. llama.rope.scaling.type = "yarn"
+
+
+def _read_header_kv(f, n_kv):
+    """Collect scalar KVs (all cheap) + a small allowlist of strings into a dict.
+    Arrays and unlisted strings are seeked past, never materialized."""
+    kv = {}
+    for _ in range(n_kv):
+        key = _read_str(f)
+        vt = _u32(f)
+        if vt in _SCALAR_SZ:                 # int/float/bool: 1-8 bytes, always keep
+            kv[key] = _read_scalar(f, vt)
+        elif vt == _STRING:
+            if key in _META_STR_KEYS or key.endswith(_META_STR_SUFFIX):
+                kv[key] = _read_str(f)
+            else:
+                _skip_str(f)
+        else:
+            _skip_value(f, vt)
+    return kv
+
+
+def metadata(path):
+    """Human-facing GGUF header facts for the model card, or None if unreadable.
+    Only keys actually present are returned (missing fields are omitted)."""
+    try:
+        with open(path, "rb") as f:
+            if _rd(f, 4) != b"GGUF":
+                return None
+            if _u32(f) < 2:
+                return None
+            _u64(f)                            # tensor count (unused)
+            n_kv = _u64(f)
+            if n_kv > 1_000_000:
+                return None
+            kv = _read_header_kv(f, n_kv)
+    except Exception:
+        return None
+    arch = kv.get("general.architecture")
+    def a(suffix):
+        return kv.get(f"{arch}.{suffix}") if arch else None
+    ft = kv.get("general.file_type")
+    out = {
+        "architecture":     arch,
+        "name":             kv.get("general.name"),
+        "size_label":       kv.get("general.size_label"),
+        "quantization":     _FTYPE.get(int(ft)) if isinstance(ft, (int, float)) else None,
+        "context_length":   a("context_length"),
+        "embedding_length": a("embedding_length"),
+        "block_count":      a("block_count"),
+        "head_count":       a("attention.head_count"),
+        "vocab_size":       a("vocab_size"),
+        "expert_count":     a("expert_count"),
+        "rope_freq_base":   a("rope.freq_base"),
+        "rope_scaling":     a("rope.scaling.type"),
+    }
+    return {k: v for k, v in out.items() if v is not None}
+
+
 def default_ctx(path):
     """Per-model ctx-size override for a GGUF at `path`.
 

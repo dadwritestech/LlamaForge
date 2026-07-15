@@ -9,6 +9,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import config, argspec, hardware, osplat, prereqs, scanner, hub, router_ctl, stats
 import wsl, vllm_ctl, vllm_registry, vllm_setup, vllm_job, vllm_hub, vllm_download
+import gguf, diag
 
 # vLLM is managed through WSL2, so the whole vLLM surface is Windows-only.
 VLLM_SUPPORTED = osplat.IS_WIN
@@ -346,6 +347,19 @@ class H(BaseHTTPRequestHandler):
             })
         if p == "/api/vllm/hub/progress":
             return self._send(200, vllm_dl().progress())
+        if p == "/api/model/metadata":
+            mid = qs.get("model", [""])[0]
+            sect = config.read_sections().get(mid, {})
+            mpath = sect.get("model")
+            meta = gguf.metadata(mpath) if mpath else None
+            return self._send(200, {"metadata": meta or {}})
+        if p == "/api/model/diag":
+            mid = qs.get("model", [""])[0]
+            ini = config.read_sections()
+            merged = dict(ini.get("*", {})); merged.update(ini.get(mid, {}))
+            return self._send(200, {"diag": diag.diagnose(router_log_tail(120), merged)})
+        if p == "/api/presets":
+            return self._send(200, {"presets": config.get_presets()})
         return self._send(404, {"error": "not found"})
 
     def do_POST(self):
@@ -375,6 +389,39 @@ class H(BaseHTTPRequestHandler):
         if p == "/api/unload":
             code, res = router("/models/unload", "POST", {"model": body.get("model")})
             return self._send(200 if code == 200 else 400, res)
+        if p == "/api/unload_all":
+            st, data = router("/models")
+            loaded = [m["id"] for m in data.get("data", [])
+                      if st == 200 and m.get("id") != "default"
+                      and m.get("status", {}).get("value") in ("loaded", "loading")]
+            for mid in loaded:
+                router("/models/unload", "POST", {"model": mid})
+            return self._send(200, {"ok": True, "unloaded": loaded})
+
+        if p == "/api/presets/save":
+            try:
+                presets = config.save_preset(body.get("name", ""), body.get("settings", {}))
+            except ValueError as e:
+                return self._send(400, {"error": str(e)})
+            return self._send(200, {"ok": True, "presets": presets})
+        if p == "/api/presets/delete":
+            return self._send(200, {"ok": config.delete_preset(body.get("name", ""))})
+        if p == "/api/presets/apply":
+            mid = body.get("model", ""); name = body.get("name", "")
+            preset = config.get_presets().get(name)
+            if preset is None:
+                return self._send(400, {"error": f"unknown preset: {name}"})
+            # apply exactly like /api/save so a loaded model reloads with the knobs
+            clean = {k: (None if str(v).strip() == "" else str(v).strip())
+                     for k, v in preset.items()}
+            config.set_keys(mid, clean)
+            st, data = router("/models")
+            running = any(m["id"] == mid and m["status"]["value"] == "loaded"
+                          for m in data.get("data", [])) if st == 200 else False
+            if running:
+                router("/models/unload", "POST", {"model": mid})
+            router("/models?reload=1")
+            return self._send(200, {"ok": True, "applied": list(clean), "was_running": running})
 
         if p == "/api/build/start":
             c = cfg()
@@ -453,6 +500,10 @@ class H(BaseHTTPRequestHandler):
 
         if p == "/api/hub/cancel":
             return self._send(200, {"ok": DOWNLOADS.cancel()})
+        if p == "/api/hub/pause":
+            return self._send(200, {"ok": DOWNLOADS.pause()})
+        if p == "/api/hub/resume":
+            return self._send(200, {"ok": DOWNLOADS.resume()})
 
         if p == "/api/hub/add":
             # register a finished download in models.ini
@@ -578,8 +629,30 @@ class H(BaseHTTPRequestHandler):
 
         return self._send(404, {"error": "not found"})
 
+def _tray_counts():
+    """(loaded, total) model counts for the optional tray tooltip."""
+    st, data = router("/models", timeout=3)
+    rows = [m for m in data.get("data", []) if m.get("id") != "default"] if st == 200 else []
+    loaded = sum(1 for m in rows if m.get("status", {}).get("value") == "loaded")
+    return loaded, len(rows)
+
+def _auto_load(model_id):
+    """Load a favourite model once the router answers /models. Runs in the
+    background so a slow/absent router never delays the dashboard."""
+    import time
+    for _ in range(60):                       # wait up to ~60s for the router
+        st, data = router("/models", timeout=3)
+        if st == 200:
+            known = {m.get("id") for m in data.get("data", [])}
+            if model_id not in known and model_id not in config.read_sections():
+                return                          # unknown model id - nothing to load
+            router("/models/load", "POST", {"model": model_id})
+            return
+        time.sleep(1)
+
 def main():
-    port = cfg()["panel_port"]
+    c = cfg()
+    port = c["panel_port"]
     print(f"LlamaForge -> http://127.0.0.1:{port}")
     try:                    # backfill ctx-size defaults, then nudge the router
         if config.apply_ctx_defaults().get("changed"):
@@ -587,6 +660,16 @@ def main():
     except Exception:
         pass
     stats.TRACKER.start()   # background usage poller
+    try:                    # optional tray icon (no-op unless pystray+pillow present)
+        import tray
+        if tray.available():
+            tray.start(port, _tray_counts)
+    except Exception:
+        pass
+    if c.get("auto_load_model"):
+        import threading
+        threading.Thread(target=_auto_load, args=(c["auto_load_model"],),
+                         daemon=True, name="auto-load").start()
     ThreadingHTTPServer(("127.0.0.1", port), H).serve_forever()
 
 if __name__ == "__main__":

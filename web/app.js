@@ -4,7 +4,15 @@
 const $=(s,e=document)=>e.querySelector(s), $$=(s,e=document)=>[...e.querySelectorAll(s)];
 const esc=v=>String(v==null?"":v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const setHTML=(el,h)=>{ if(el) el["inner"+"HTML"]=h; };   // escaped input only
-let STATE=null, SCHEMA=null, VLLM_SCHEMA=null, vllmSchemaPending=false, openId=null, onlySet=false, kquery="", mquery="", favOnly=false;
+let STATE=null, SCHEMA=null, VLLM_SCHEMA=null, vllmSchemaPending=false, openId=localStorage.getItem("lf_openid")||null, onlySet=false, kquery="", mquery="", favOnly=false;
+// #4 persist which row is expanded across polls/reloads/tab switches
+function setOpenId(id){openId=id;if(id)localStorage.setItem("lf_openid",id);else localStorage.removeItem("lf_openid");}
+let selId=null;               // #10 keyboard-selected row
+let compareMode=false;        // #8 compare-pick mode
+const cmpSet=new Set();       // #8 selected model ids to compare
+const diagCache={};           // #2 failure diagnosis per model id
+const metaCache={};           // #11 GGUF metadata per model id
+const loadQ=[]; let loadBusy=false;   // #14 sequential load queue
 const favs=new Set(JSON.parse(localStorage.getItem("lf_favs")||"[]"));
 function saveFavs(){localStorage.setItem("lf_favs",JSON.stringify([...favs]));}
 function toggleFav(id){favs.has(id)?favs.delete(id):favs.add(id);saveFavs();renderModels();}
@@ -94,13 +102,14 @@ function editor(m){
     const flds=g.knobs.map(k=>knobField(m,k)).join("");
     return `<details class="kgroup" ${gi===0?"open":""}><summary>${esc(g.name)} &middot; ${g.knobs.length}</summary><div class="kgrid">${flds}</div></details>`;
   }).join("");
-  return `${modelMeta(m)}<div class="toolbar">
+  return `${diagBlock(m)}${metaBlock(m)}${modelMeta(m)}${presetBar(m)}<div class="toolbar">
       <input class="search" placeholder="filter knobs (e.g. cache, rope, temp)..." oninput="filterKnobs(this)">
       <span class="chip ${onlySet?"on":""}" onclick="toggleOnlySet(this)">Only set</span>
     </div>${groups}
     <div class="actions">
       <button class="primary" data-act="save">Save + Reload</button>
       ${m.status==="loaded"||m.status==="loading"?`<button class="ghost" data-act="unload">${m.status==="loading"?"Cancel / Unload":"Unload"}</button>`:`<button data-act="load">Load</button>`}
+      <button class="ghost" data-act="client">Client config</button>
       <span class="msg" data-msg></span>
     </div>${m.status==="loading"?`<div class="note">Still loading? Check the Router Log panel below the model list for the real llama.cpp output (crashes, out-of-memory, etc. show up there).</div>`:""}`;
 }
@@ -111,13 +120,14 @@ function vllmEditor(m){
     const flds=g.knobs.map(k=>knobField(m,k)).join("");
     return `<details class="kgroup" ${gi===0?"open":""}><summary>${esc(g.name)} &middot; ${g.knobs.length}</summary><div class="kgrid">${flds}</div></details>`;
   }).join("");
-  return `${modelMeta(m)}<div class="toolbar">
+  return `${diagBlock(m)}${modelMeta(m)}<div class="toolbar">
       <input class="search" placeholder="filter knobs (e.g. tensor, memory, quant)..." oninput="filterKnobs(this)">
       <span class="chip ${onlySet?"on":""}" onclick="toggleOnlySet(this)">Only set</span>
     </div>${groups}
     <div class="actions">
       <button class="primary" data-act="vsave">Save${m.status==="loaded"?" + Restart":""}</button>
       ${m.status==="loaded"||m.status==="loading"?`<button class="ghost" data-act="vunload">${m.status==="loading"?"Cancel / Stop":"Stop"}</button>`:`<button data-act="vload">Load</button>`}
+      <button class="ghost" data-act="client">Client config</button>
       <button class="ghost" data-act="vdelete" title="remove model + delete its files from WSL">Delete</button>
       <span class="msg" data-msg></span>
     </div>
@@ -138,28 +148,186 @@ function loadingSecs(m){
   if(!loadingSince[m.id])loadingSince[m.id]=Date.now();
   return Math.round((Date.now()-loadingSince[m.id])/1000);
 }
+function shownModels(){
+  return STATE.models.filter(m=>(!mquery||m.id.toLowerCase().includes(mquery))&&(!favOnly||favs.has(m.id)))
+    .sort((a,b)=>(favs.has(b.id)?1:0)-(favs.has(a.id)?1:0));
+}
 function renderModels(){
   const all=STATE.models;
-  const ms=all.filter(m=>(!mquery||m.id.toLowerCase().includes(mquery))&&(!favOnly||favs.has(m.id)))
-    .sort((a,b)=>(favs.has(b.id)?1:0)-(favs.has(a.id)?1:0));
+  const ms=shownModels();
   const nLoaded=all.filter(m=>m.status==="loaded").length;
   $("#count").textContent=`${nLoaded} LOADED / ${all.length} TOTAL`+(ms.length!==all.length?` · ${ms.length} shown`:"");
   document.title=nLoaded?`▸${nLoaded} LLAMAFORGE`:"LLAMAFORGE";
+  const cols=compareMode?"16px 14px 18px 1fr auto auto auto auto":"14px 18px 1fr auto auto auto auto";
   setHTML($("#list"),ms.map(m=>{
     const vis=m.modalities.includes("image"),loaded=m.status==="loaded",isFav=favs.has(m.id);
     const stuckSecs=loadingSecs(m);
-    return `<div class="row ${m.id===openId?"open":""}" data-id="${esc(m.id)}">
-      <div class="rhead">
+    return `<div class="row ${m.id===openId?"open":""} ${m.id===selId?"sel":""}" data-id="${esc(m.id)}">
+      <div class="rhead" style="grid-template-columns:${cols}">
+        ${compareMode?`<input type="checkbox" class="cmp" data-cmp="${esc(m.id)}" ${cmpSet.has(m.id)?"checked":""} title="pick to compare">`:""}
         <span class="led ${loaded?"loaded":""} ${m.failed?"failed":""}"></span>
         <span class="fav ${isFav?"on":""}" data-fav="${esc(m.id)}" title="${isFav?"unfavorite":"favorite"}">&starf;</span>
         <span class="mid">${esc(m.id)}<span class="tag be-${esc(m.backend||'llamacpp')}">${(m.backend==='vllm')?'vLLM':'llama.cpp'}</span>${vis?'<span class="tag vis">vision</span>':''}${!m.in_ini?'<span class="tag">auto</span>':''}${m.endpoint?`<span class="tag ep" data-ep="${esc(m.endpoint)}" title="click to copy endpoint">${esc(m.endpoint.replace('http://',''))}</span>`:''}</span>
         <span class="ctxpill"><span class="k">CTX</span> ${esc(m.eff_ctx)}</span>
         <span class="stat ${loaded?"loaded":""}" style="${stuckSecs>=20?"color:var(--red)":""}">${m.failed?"FAILED":esc(m.status)}${stuckSecs>=20?` (${stuckSecs}s, check log)`:""}</span>
+        ${quickBtn(m)}
         <span class="chev">&#9654;</span>
       </div>
       <div class="edit">${m.id===openId?editor(m):""}</div>
     </div>`;
   }).join("")||`<div class="skel">NO MODELS MATCH</div>`);
+}
+/* ---------- quick-load + sequential queue (#3, #14) ---------- */
+function quickBtn(m){
+  const q=loadQ.findIndex(j=>j.id===m.id);
+  if(q>=0)return `<span class="qbadge">QUEUED #${q+1}</span>`;
+  if(m.status==="loading")return `<button class="qbtn stop" data-quick="stop" data-qid="${esc(m.id)}">Cancel</button>`;
+  if(m.status==="loaded")return `<button class="qbtn stop" data-quick="unload" data-qid="${esc(m.id)}">Unload</button>`;
+  return `<button class="qbtn load" data-quick="load" data-qid="${esc(m.id)}">Load</button>`;
+}
+function beOf(id){const m=STATE&&STATE.models.find(x=>x.id===id);return m?(m.backend||"llamacpp"):"llamacpp";}
+function enqueueLoad(id){
+  if(loadQ.some(j=>j.id===id)||loadBusy&&loadQ[0]&&loadQ[0].id===id)return;
+  delete diagCache[id];                 // a retry should re-diagnose, not show stale error
+  loadQ.push({id});
+  toast(loadBusy?`Queued #${loadQ.length}`:"Loading...","ok");
+  renderModels();processQ();
+}
+async function processQ(){
+  if(loadBusy||!loadQ.length)return;
+  loadBusy=true;
+  const job=loadQ[0];
+  try{await api(beOf(job.id)==="vllm"?"/api/vllm/load":"/api/load",{model:job.id});}catch(e){}
+  loadQ.shift();loadBusy=false;
+  await refresh(true);
+  processQ();
+}
+async function quickAction(act,id){
+  const be=beOf(id);
+  if(act==="load"){enqueueLoad(id);return;}
+  if(act==="unload"){await api(be==="vllm"?"/api/vllm/unload":"/api/unload",{model:id});toast("Unloaded","ok");await refresh(true);return;}
+  if(act==="stop"){
+    const qi=loadQ.findIndex(j=>j.id===id);      // still queued -> just drop it
+    if(qi>0){loadQ.splice(qi,1);renderModels();return;}
+    await api(be==="vllm"?"/api/vllm/unload":"/api/unload",{model:id});toast("Cancelled","ok");await refresh(true);
+  }
+}
+/* ---------- bulk operations (#6) ---------- */
+async function unloadAll(){
+  loadQ.length=0;
+  const r=await api("/api/unload_all",{});
+  toast(`Unloaded ${(r.unloaded||[]).length}`,"ok");
+  await refresh(true);
+}
+/* ---------- compare (#8) ---------- */
+function toggleCompare(el){
+  compareMode=!compareMode;el.classList.toggle("on",compareMode);
+  if(!compareMode)cmpSet.clear();
+  updateCmpRun();renderModels();
+}
+function updateCmpRun(){
+  const run=$("#cmp-run");if(!run)return;
+  const n=$("#cmp-n");if(n)n.textContent=cmpSet.size;
+  run.style.display=(compareMode&&cmpSet.size>=2)?"":"none";
+}
+function openCompare(){
+  const models=[...cmpSet].map(id=>STATE.models.find(x=>x.id===id)).filter(Boolean);
+  if(models.length<2){toast("Pick at least 2 models","err");return;}
+  const keys=[...new Set(models.flatMap(m=>Object.keys(m.settings||{})))].sort();
+  const head=`<tr><th>knob</th>${models.map(m=>`<th>${esc(m.id)}</th>`).join("")}</tr>`;
+  const rows=keys.map(k=>{
+    const vals=models.map(m=>(m.settings||{})[k]);
+    const diff=new Set(vals.map(v=>v==null?"":String(v))).size>1;
+    return `<tr><td class="kname">${esc(k)}</td>${vals.map(v=>`<td class="${diff?"diff":""}">${v==null?`<span style="color:var(--dim)">inherit</span>`:`<span class="mono">${esc(v)}</span>`}</td>`).join("")}</tr>`;
+  }).join("");
+  showModal("Compare settings",keys.length?`<table class="cmptbl">${head}${rows}</table>
+    <div class="note">Highlighted cells differ across the selected models. "inherit" = not set for that model (falls back to the global [*] default).</div>`
+    :`<div class="note">The selected models have no per-model knobs set - they all inherit the global defaults.</div>`);
+}
+/* ---------- modal (#1, #8) ---------- */
+function closeModal(){setHTML($("#modal-root"),"");}
+function showModal(title,inner){
+  setHTML($("#modal-root"),`<div class="modal-bg"><div class="modal">
+    <span class="mclose" data-mclose>&times;</span><h3>${esc(title)}</h3>${inner}</div></div>`);
+}
+/* ---------- copy client config (#1) ---------- */
+function endpointFor(m){
+  if(m.endpoint)return m.endpoint;
+  const c=(STATE&&STATE.config)||{};
+  const host=(c.router_host&&c.router_host!=="0.0.0.0")?c.router_host:"127.0.0.1";
+  return `http://${host}:${c.router_port||8080}`;
+}
+function openClientConfig(id){
+  const m=STATE.models.find(x=>x.id===id);if(!m)return;
+  const base=endpointFor(m), key=((STATE.config||{}).router_api_key)||"";
+  const auth=key?` \\\n  -H "Authorization: Bearer ${key}"`:"";
+  const curl=`curl ${base}/v1/chat/completions \\\n  -H "Content-Type: application/json"${auth} \\\n  -d '{"model":"${id}","messages":[{"role":"user","content":"Hello"}]}'`;
+  const envs=`OPENAI_BASE_URL=${base}/v1\nOPENAI_API_KEY=${key||"not-required"}\n# model id: ${id}`;
+  const payload=JSON.stringify({model:id,messages:[{role:"user",content:"Hello"}],stream:false},null,2);
+  const snip=(label,text)=>`<div class="slabel">${esc(label)}</div><div class="snip"><button class="qbtn scopy" data-copytext="${esc(text)}">Copy</button>${esc(text)}</div>`;
+  showModal("Client config - "+id,
+    `<div class="note">This endpoint is OpenAI-compatible. ${key?"An API key is set and included below.":"No API key is set."}${m.status!=="loaded"?" <b style=\"color:var(--amber)\">Model isn't loaded - load it before sending requests.</b>":""}</div>`
+    +snip("curl",curl)+snip("OpenAI client (environment)",envs)+snip("Test JSON payload",payload));
+}
+/* ---------- presets (#5) ---------- */
+function presetBar(m){
+  const P=(STATE&&STATE.config&&STATE.config.presets)||{};
+  const chips=Object.keys(P).map(n=>`<span class="pchip" data-preset-apply="${esc(n)}" data-preset-model="${esc(m.id)}" title="apply preset to this model">${esc(n)}<span class="px" data-preset-del="${esc(n)}" title="delete preset">&times;</span></span>`).join("");
+  return `<div class="presetbar">
+    <span style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim)">Presets</span>
+    ${chips||'<span class="note" style="margin:0">none saved yet</span>'}
+    <button class="qbtn" data-preset-save="${esc(m.id)}" title="save this model's set knobs as a named preset">Save current +</button>
+  </div>`;
+}
+async function applyPreset(model,name){
+  const r=await api("/api/presets/apply",{model,name});
+  if(r.ok){toast(`Applied "${name}"`,"ok");delete diagCache[model];await refresh(true);}
+  else toast(r.error||"apply failed","err");
+}
+async function savePresetFrom(model){
+  const row=$(`.row[data-id="${CSS.escape(model)}"]`);if(!row)return;
+  const settings={};$$("[data-k]",row).forEach(el=>{const v=el.value.trim();if(v!=="")settings[el.dataset.k]=v;});
+  if(!Object.keys(settings).length){toast("No knobs set to save","err");return;}
+  const name=prompt("Preset name (e.g. coding, creative, fast):");
+  if(!name||!name.trim())return;
+  const r=await api("/api/presets/save",{name:name.trim(),settings});
+  if(r.ok){toast(`Saved preset "${name.trim()}"`,"ok");await refresh(true);}
+  else toast(r.error||"save failed","err");
+}
+/* ---------- GGUF metadata card (#11) ---------- */
+function metaBlock(m){
+  if(m.backend==="vllm"||!m.in_ini)return "";
+  const meta=metaCache[m.id];
+  if(meta===undefined){setTimeout(()=>fetchMeta(m.id),0);return `<div class="metacard"><div class="m"><span class="mv">reading GGUF header...</span></div></div>`;}
+  if(!meta||!Object.keys(meta).length)return "";
+  const row=(k,v)=>v==null?"":`<div class="m"><div class="mk">${esc(k)}</div><div class="mv">${esc(v)}</div></div>`;
+  return `<div class="metacard">${row("architecture",meta.architecture)}${row("parameters",meta.size_label)}${row("quantization",meta.quantization)}${row("trained ctx",meta.context_length)}${row("embedding",meta.embedding_length)}${row("layers",meta.block_count)}${row("attn heads",meta.head_count)}${row("vocab",meta.vocab_size)}${row("experts",meta.expert_count)}${row("rope base",meta.rope_freq_base)}${row("rope scaling",meta.rope_scaling)}</div>`;
+}
+async function fetchMeta(id){
+  try{const r=await api("/api/model/metadata?model="+encodeURIComponent(id));metaCache[id]=r.metadata||{};}
+  catch(e){metaCache[id]={};}
+  if(openId===id)renderModels();
+}
+/* ---------- inline load-failure diagnosis (#2) ---------- */
+function diagBlock(m){
+  if(!m.failed)return "";
+  const d=diagCache[m.id];
+  if(d===undefined){setTimeout(()=>fetchDiag(m.id),0);return `<div class="faildiag"><div class="ferr">reading the router log...</div></div>`;}
+  if(!d)return `<div class="faildiag"><div class="ffix">Load failed, but no specific cause was found in the router log - see the Router Log panel below.</div></div>`;
+  return `<div class="faildiag"><div class="ferr">${esc(d.error)}</div><div class="ffix"><b>Suggested fix:</b> ${esc(d.suggestion)}</div></div>`;
+}
+async function fetchDiag(id){
+  try{const r=await api("/api/model/diag?model="+encodeURIComponent(id));diagCache[id]=r.diag||null;}
+  catch(e){diagCache[id]=null;}
+  if(openId===id)renderModels();
+}
+/* ---------- keyboard navigation (#10) ---------- */
+function moveSel(delta){
+  const ms=shownModels();if(!ms.length)return;
+  let i=ms.findIndex(m=>m.id===selId);
+  i=i<0?(delta>0?0:ms.length-1):Math.min(ms.length-1,Math.max(0,i+delta));
+  selId=ms[i].id;renderModels();
+  const row=$(`.row[data-id="${CSS.escape(selId)}"]`);if(row)row.scrollIntoView({block:"nearest"});
 }
 function captureEditorState(){
   if(!openId)return null;
@@ -208,19 +376,35 @@ document.addEventListener("input",e=>{
   const msg=$("[data-msg]",row);
   if(msg){msg.className="msg work";msg.textContent="unsaved changes";}
 });
-// "/" jumps to the model filter; Esc clears it
+// keyboard map (#10): 1-5 tabs, / search, j/k or arrows navigate, Enter expand,
+// L load, U unload, S save the open model. Esc closes a modal / clears search.
 document.addEventListener("keydown",e=>{
-  const typing=/INPUT|SELECT|TEXTAREA/.test((document.activeElement||{}).tagName||"");
-  if(e.key==="/"&&!typing&&$(".tab.active").dataset.tab==="models"){
-    e.preventDefault();const inp=$("#model-search");if(inp)inp.focus();
-  }else if(e.key==="Escape"&&document.activeElement===$("#model-search")){
-    const inp=$("#model-search");inp.value="";mquery="";renderModels();inp.blur();
+  const tag=(document.activeElement||{}).tagName||"";
+  const typing=/INPUT|SELECT|TEXTAREA/.test(tag);
+  if(e.key==="Escape"&&$("#modal-root").children.length){closeModal();return;}
+  if(typing){
+    if(e.key==="Escape"&&document.activeElement===$("#model-search")){
+      const inp=$("#model-search");inp.value="";mquery="";renderModels();inp.blur();
+    }
+    return;
   }
+  if(e.metaKey||e.ctrlKey||e.altKey)return;
+  if(/^[1-5]$/.test(e.key)){switchTab(["models","stats","discover","build","setup"][+e.key-1]);return;}
+  if($(".tab.active").dataset.tab!=="models"||!STATE)return;
+  if(e.key==="/"){e.preventDefault();const inp=$("#model-search");if(inp)inp.focus();return;}
+  if(e.key==="ArrowDown"||e.key==="j"){e.preventDefault();moveSel(1);return;}
+  if(e.key==="ArrowUp"||e.key==="k"){e.preventDefault();moveSel(-1);return;}
+  if(!selId)return;
+  const m=STATE.models.find(x=>x.id===selId);if(!m)return;
+  if(e.key==="Enter"){e.preventDefault();setOpenId(openId===selId?null:selId);renderModels();return;}
+  if(e.key==="l"||e.key==="L"){if(m.status!=="loaded")quickAction("load",selId);return;}
+  if(e.key==="u"||e.key==="U"){if(m.status==="loaded"||m.status==="loading")quickAction("unload",selId);return;}
+  if(e.key==="s"||e.key==="S"){if(openId===selId){const b=$(`.row[data-id="${CSS.escape(selId)}"] button[data-act="save"]`)||$(`.row[data-id="${CSS.escape(selId)}"] button[data-act="vsave"]`);if(b)b.click();}return;}
 });
 async function refresh(silent){
   try{
     const snap=silent?captureEditorState():null;
-    const s=await api("/api/state");STATE=s;renderGpus(s.gpus);renderModels();
+    const s=await api("/api/state");STATE=s;renderGpus(s.gpus);renderModels();updateCmpRun();
     renderOnboarding(s);
     const plat=$("#platform");
     if(plat&&s.platform)plat.textContent=" · "+s.platform;
@@ -237,9 +421,30 @@ document.addEventListener("click",async e=>{
   if(epChip){e.stopPropagation();navigator.clipboard.writeText(epChip.dataset.ep).then(()=>toast("Endpoint copied","ok"));return;}
   const favBtn=e.target.closest("#view-models [data-fav]");
   if(favBtn){e.stopPropagation();toggleFav(favBtn.dataset.fav);return;}
+  // modal controls (client config / compare)
+  if(e.target.closest("[data-mclose]")||(e.target.classList&&e.target.classList.contains("modal-bg"))){closeModal();return;}
+  const scopy=e.target.closest("[data-copytext]");
+  if(scopy){e.stopPropagation();navigator.clipboard.writeText(scopy.dataset.copytext).then(()=>toast("Copied to clipboard","ok"));return;}
+  // compare-pick checkbox (#8)
+  const cmpBox=e.target.closest("[data-cmp]");
+  if(cmpBox){const id=cmpBox.dataset.cmp;
+    if(cmpBox.checked){if(cmpSet.size>=3&&!cmpSet.has(id)){cmpBox.checked=false;toast("Compare up to 3 at once","err");return;}cmpSet.add(id);}
+    else cmpSet.delete(id);
+    updateCmpRun();return;}
+  // quick load/unload in the row header (#3)
+  const quick=e.target.closest("#view-models [data-quick]");
+  if(quick){e.stopPropagation();quickAction(quick.dataset.quick,quick.dataset.qid);return;}
+  // presets (#5)
+  const pApply=e.target.closest("[data-preset-apply]");
+  if(pApply){e.stopPropagation();
+    const pdel=e.target.closest("[data-preset-del]");
+    if(pdel){await api("/api/presets/delete",{name:pdel.dataset.presetDel});toast("Preset deleted","ok");await refresh(true);return;}
+    await applyPreset(pApply.dataset.presetModel,pApply.dataset.presetApply);return;}
+  const pSave=e.target.closest("[data-preset-save]");
+  if(pSave){e.stopPropagation();await savePresetFrom(pSave.dataset.presetSave);return;}
   const head=e.target.closest("#view-models .rhead");
-  if(head&&!e.target.closest("button")){
-    const id=head.parentElement.dataset.id;openId=(openId===id)?null:id;kquery="";renderModels();return;
+  if(head&&!e.target.closest("button,input")){
+    const id=head.parentElement.dataset.id;setOpenId(openId===id?null:id);selId=id;kquery="";renderModels();return;
   }
   const btn=e.target.closest("#view-models button[data-act]");
   if(!btn)return;
@@ -255,6 +460,7 @@ document.addEventListener("click",async e=>{
     }else if(act==="load"){msg.className="msg work";msg.textContent="loading (may take seconds)...";
       const r=await api("/api/load",{model:id});r.success?toast("Loaded","ok"):(msg.className="msg err",msg.textContent=(r.error&&r.error.message)||"load failed");
     }else if(act==="unload"){msg.className="msg work";msg.textContent="unloading...";await api("/api/unload",{model:id});toast("Unloaded","ok");
+    }else if(act==="client"){openClientConfig(id);btn.disabled=false;return;
     }else if(act==="vsave"){
       const settings={};$$("[data-k]",row).forEach(el=>settings[el.dataset.k]=el.value.trim());
       msg.className="msg work";msg.textContent="saving vLLM knobs...";
@@ -268,7 +474,7 @@ document.addEventListener("click",async e=>{
       msg.className="msg work";msg.textContent="deleting from WSL...";
       const r=await api("/api/vllm/delete",{model:id});
       r.ok?toast("Deleted","ok"):(msg.className="msg err",msg.textContent=r.error||"delete failed");
-      openId=null;
+      setOpenId(null);
     }
     await refresh(true);
   }catch(err){msg.className="msg err";msg.textContent=String(err);}
@@ -399,6 +605,14 @@ async function loadSetup(){
       <div id="scan-out"></div>
       <div id="missing-out"></div>
     </div>
+    <div class="card"><h3>Startup</h3>
+      <div class="kv"><span class="k">auto-load a model on launch</span>
+        <span class="v"><select id="auto-load" style="background:#0a0d0e;border:1px solid var(--hair);color:var(--ink);font-family:var(--mono);font-size:12px;padding:6px">
+          <option value="">none</option>
+          ${((STATE&&STATE.models)||[]).map(m=>`<option value="${esc(m.id)}" ${((STATE.config||{}).auto_load_model===m.id)?"selected":""}>${esc(m.id)}</option>`).join("")}
+        </select></span></div>
+      <div class="note">The selected model loads automatically once the router is ready after launch &mdash; handy for always-on setups. An optional tray icon (loaded-model count, quick open) is available if you <b>pip install pystray pillow</b>; without them LlamaForge stays pure-stdlib.</div>
+    </div>
     <div class="card"><h3>Network Access</h3>
       <div class="kv"><span class="k">router status</span><span class="v ${net.router_running?'ok':'bad'}">${net.router_running?"running":"not running"}</span></div>
       <div class="kv"><span class="k">currently bound to</span><span class="v">${esc(net.host)}:${esc(net.port)}${net.host!=="127.0.0.1"?" (LAN-accessible)":" (local only)"}</span></div>
@@ -436,6 +650,8 @@ async function loadSetup(){
     const r=await api("/api/setup/install",{tool:b.dataset.install});toast(r.ok?"Installed":"Install failed",r.ok?"ok":"err");loadSetup();});
   $("#btn-scan").onclick=scanDrives;
   $("#btn-missing").onclick=checkMissing;
+  const autoSel=$("#auto-load");
+  if(autoSel)autoSel.onchange=async()=>{await api("/api/config",{auto_load_model:autoSel.value});toast(autoSel.value?`Auto-load: ${autoSel.value}`:"Auto-load disabled","ok");};
   $("#net-lan").onchange=e=>{
     $("#net-keyrow").style.display=e.target.checked?"":"none";
     $("#btn-net-genkey").style.display=e.target.checked?"":"none";
@@ -570,6 +786,8 @@ function loadDiscover(){
       <div class="meter" style="margin-top:8px" id="dl-meter"></div>
       <div class="kv"><span class="k">progress</span><span class="v" id="dl-prog">-</span></div>
       <div class="actions" id="dl-run" style="display:none">
+        <button class="ghost" id="dl-pause">Pause</button>
+        <button class="ghost" id="dl-resume" style="display:none">Resume</button>
         <button class="ghost" id="dl-cancel">Cancel download</button>
       </div>
       <div class="actions" id="dl-done" style="display:none">
@@ -577,6 +795,8 @@ function loadDiscover(){
       </div>
     </div>`);
   $("#dl-cancel").onclick=async()=>{const r=await api("/api/hub/cancel",{});toast(r.ok?"Cancelling...":"No download running",r.ok?"ok":"err");};
+  $("#dl-pause").onclick=async()=>{const r=await api("/api/hub/pause",{});toast(r.ok?"Pausing...":"No download running",r.ok?"ok":"err");};
+  $("#dl-resume").onclick=async()=>{const r=await api("/api/hub/resume",{});if(r.ok){toast("Resuming download","ok");ggufDlPoll();}else toast("Nothing to resume","err");};
   // vLLM (safetensors) is Windows/WSL-only; drop the mode on other platforms
   if(STATE&&STATE.vllm_supported===false){
     const opt=$('#hub-mode option[value="safetensors"]');
@@ -630,14 +850,23 @@ async function hubDownload(repo,path,shards,mmproj){
   toast("Download started","ok");
   $("#hub-dlcard").style.display="";$("#dl-done").style.display="none";
   $("#dl-run").style.display="";dlPrev=null;
+  ggufDlPoll();
+}
+// GGUF download progress loop, shared by a fresh download and by Resume (#7).
+function ggufDlPoll(){
+  $("#hub-dlcard").style.display="";$("#dl-run").style.display="";dlPrev=null;
   clearInterval(dlPoll);
   dlPoll=setInterval(async()=>{
     const s=await api("/api/hub/progress");
     $("#dl-file").textContent=`${s.repo} :: ${s.file||"-"} (${s.done_files+1 > s.total_files ? s.total_files : s.done_files+1}/${s.total_files})`;
     const pct=s.total?Math.round(100*s.downloaded/s.total):0;
     setHTML($("#dl-meter"),meter(s.downloaded,Math.max(s.total,1)));
-    $("#dl-prog").textContent=s.phase==="done"?"complete":s.phase==="failed"?("FAILED: "+s.error.slice(0,80)):s.phase==="cancelled"?"cancelled":`${(s.downloaded/1e9).toFixed(2)} / ${(s.total/1e9).toFixed(2)} GB (${pct}%)${dlSpeed(s)}`;
-    if(s.phase!=="downloading"&&s.phase!=="starting")$("#dl-run").style.display="none";
+    $("#dl-prog").textContent=s.phase==="done"?"complete":s.phase==="failed"?("FAILED: "+s.error.slice(0,80)):s.phase==="cancelled"?"cancelled":s.phase==="paused"?`paused at ${(s.downloaded/1e9).toFixed(2)} / ${(s.total/1e9).toFixed(2)} GB (${pct}%)`:`${(s.downloaded/1e9).toFixed(2)} / ${(s.total/1e9).toFixed(2)} GB (${pct}%)${dlSpeed(s)}`;
+    const active=s.phase==="downloading"||s.phase==="starting";
+    $("#dl-run").style.display=(active||s.phase==="paused")?"":"none";
+    $("#dl-pause").style.display=active?"":"none";
+    $("#dl-resume").style.display=s.phase==="paused"?"":"none";
+    if(s.phase==="paused"){clearInterval(dlPoll);}
     if(s.phase==="cancelled"){clearInterval(dlPoll);toast("Download cancelled","ok");}
     if(s.phase==="done"){clearInterval(dlPoll);$("#dl-done").style.display="";
       $("#dl-add").onclick=async()=>{const m=$("#dl-msg");m.className="msg work";m.textContent="registering...";
@@ -758,6 +987,7 @@ async function loadStats(silent){
       :`<div class="note">No usage recorded yet - load a model and run some inference.</div>`}
     </div>
     <div class="card"><h3>Per-model Usage</h3>
+      <div class="note" style="margin:0 0 6px">Usage is scraped from the router's own metrics and totalled per model across all clients. Per-client / per-IP breakdown isn't available: clients hit the llama.cpp router directly, so the dashboard never sees individual request origins.</div>
       ${rows.length?`<div class="toolbar" style="margin:6px 0 0">
         ${Object.keys(SORT_COLS).map(c=>`<span class="chip ${statsSort===c?"on":""}" onclick="sortStats('${c}')">${SORT_COLS[c]}</span>`).join("")}
         <span class="chip" onclick="resetStats()" style="margin-left:auto;color:var(--red);border-color:var(--red)" title="zero all usage statistics">Reset stats</span>
