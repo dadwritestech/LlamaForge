@@ -11,3 +11,6 @@ llama.cpp/
 
 # local editor / agent tooling config
 .claude/
+
+# agent design/plan artifacts (superpowers) - keep internal, don't publish
+docs/superpowers/
