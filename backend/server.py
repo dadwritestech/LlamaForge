@@ -454,6 +454,10 @@ class H(BaseHTTPRequestHandler):
             router("/models?reload=1")
             return self._send(200, {"ok": True, "added": [e["id"] for e in entries]})
 
+        if p == "/api/stats/reset":
+            stats.TRACKER.reset()
+            return self._send(200, {"ok": True})
+
         if p == "/api/config":
             c = cfg(); c.update(body or {}); config.save(c)
             return self._send(200, {"ok": True, "config": c})

@@ -590,8 +590,13 @@ async function vllmHubDownload(repo,sizeBytes,quant){
 }
 
 /* ---------- stats tab ---------- */
-let statsSort="tokens";
-const SORT_COLS={tokens:"Total",prompt:"Prompt",generated:"Gen",runs:"Runs",loaded_secs:"Loaded"};
+let statsSort="tokens", statsRange=14;
+const SORT_COLS={tokens:"Total",prompt:"Prompt",generated:"Gen",avg_tps:"Tok/s",runs:"Runs",loaded_secs:"Loaded"};
+function setStatsRange(n){statsRange=n;loadStats(true);}
+async function resetStats(){
+  if(!confirm("Reset ALL usage statistics? Per-model and daily history will be zeroed. This cannot be undone."))return;
+  await api("/api/stats/reset",{});toast("Stats reset","ok");loadStats(true);
+}
 function fmtNum(n){n=Number(n)||0;return n>=1e9?(n/1e9).toFixed(2)+"B":n>=1e6?(n/1e6).toFixed(2)+"M":n>=1e3?(n/1e3).toFixed(1)+"k":String(Math.round(n));}
 function fmtDur(s){s=Math.round(Number(s)||0);const h=Math.floor(s/3600),m=Math.floor(s%3600/60);return h?`${h}h ${m}m`:m?`${m}m`:`${s}s`;}
 function fmtAgo(ts){if(!ts)return "never";const d=Date.now()/1000-ts;return d<60?"just now":d<3600?Math.floor(d/60)+"m ago":d<86400?Math.floor(d/3600)+"h ago":Math.floor(d/86400)+"d ago";}
@@ -606,7 +611,8 @@ async function loadStats(silent){
   if(!s||s.error||!Array.isArray(s.per_model)){if(!silent)setHTML(v,`<div class="skel" style="color:var(--red)">BACKEND UNREACHABLE</div>`);return;}
   const t=s.totals,live=s.live;
   const rows=[...s.per_model].sort((a,b)=>(b[statsSort]||0)-(a[statsSort]||0));
-  const maxDaily=Math.max(1,...s.daily.map(d=>d.prompt+d.generated));
+  const daily=s.daily.slice(-statsRange);
+  const maxDaily=Math.max(1,...daily.map(d=>d.prompt+d.generated));
   setHTML(v,`
     <div class="gpus" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr))">
       ${statCard("Tokens processed",fmtNum(t.tokens))}
@@ -622,24 +628,34 @@ async function loadStats(silent){
       <div class="kv"><span class="k">prompt eval</span><span class="v">${(live.prompt_per_sec||0).toFixed(1)} tok/s</span></div>
       <div class="kv"><span class="k">active requests</span><span class="v">${esc(live.requests_processing)}</span></div>
     </div>
-    <div class="card"><h3>Activity${s.daily.length?` (last ${s.daily.length} days)`:""}</h3>
-      ${s.daily.length?`<div style="display:flex;align-items:flex-end;gap:4px;height:120px;margin-top:10px">
-        ${s.daily.map(d=>{const tot=d.prompt+d.generated,h=Math.round(100*tot/maxDaily);
-          return `<div title="${esc(d.date)} &middot; ${fmtNum(tot)} tokens" style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;height:100%">
-            <div style="height:${h}%;min-height:${tot?2:0}px;background:var(--amber);box-shadow:0 0 6px var(--amber-dim)"></div></div>`;}).join("")}
+    <div class="card"><h3>Activity${daily.length?` (last ${daily.length} days)`:""}
+        <span style="float:right">
+          <span class="chip ${statsRange===14?"on":""}" onclick="setStatsRange(14)">14d</span>
+          <span class="chip ${statsRange===30?"on":""}" onclick="setStatsRange(30)">30d</span>
+        </span></h3>
+      ${daily.length?`<div style="display:flex;align-items:flex-end;gap:4px;height:120px;margin-top:10px">
+        ${daily.map(d=>{const hp=Math.round(100*d.prompt/maxDaily),hg=Math.round(100*d.generated/maxDaily);
+          return `<div title="${esc(d.date)} &middot; ${fmtNum(d.generated)} generated + ${fmtNum(d.prompt)} prompt" style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;height:100%">
+            <div style="height:${hg}%;min-height:${d.generated?2:0}px;background:var(--amber);box-shadow:0 0 6px var(--amber-dim)"></div>
+            <div style="height:${hp}%;min-height:${d.prompt?2:0}px;background:var(--cyan);opacity:.55"></div></div>`;}).join("")}
       </div>
-      <div style="display:flex;justify-content:space-between;margin-top:6px;color:var(--dim);font-size:9px"><span>${esc(s.daily[0].date)}</span><span>${esc(s.daily[s.daily.length-1].date)}</span></div>`
+      <div style="display:flex;justify-content:space-between;margin-top:6px;color:var(--dim);font-size:9px">
+        <span>${esc(daily[0].date)}</span>
+        <span><span style="color:var(--amber)">&#9632;</span> generated &nbsp;<span style="color:var(--cyan)">&#9632;</span> prompt</span>
+        <span>${esc(daily[daily.length-1].date)}</span></div>`
       :`<div class="note">No usage recorded yet - load a model and run some inference.</div>`}
     </div>
     <div class="card"><h3>Per-model Usage</h3>
       ${rows.length?`<div class="toolbar" style="margin:6px 0 0">
         ${Object.keys(SORT_COLS).map(c=>`<span class="chip ${statsSort===c?"on":""}" onclick="sortStats('${c}')">${SORT_COLS[c]}</span>`).join("")}
+        <span class="chip" onclick="resetStats()" style="margin-left:auto;color:var(--red);border-color:var(--red)" title="zero all usage statistics">Reset stats</span>
       </div>
       <div class="list" style="margin-top:12px">${rows.map(m=>`
-        <div class="row"><div class="rhead" style="cursor:default;grid-template-columns:9px 1fr auto auto auto auto">
+        <div class="row"><div class="rhead" style="cursor:default;grid-template-columns:9px 1fr auto auto auto auto auto">
           <span class="led ${live.loaded_model===m.id?"loaded":""}"></span>
           <span class="mid">${esc(m.id)}</span>
           <span class="ctxpill" title="prompt ${fmtNum(m.prompt)} + generated ${fmtNum(m.generated)}">${fmtNum(m.tokens)} tok</span>
+          <span class="stat" title="average generation speed while active">${m.avg_tps?m.avg_tps+" tok/s":"-"}</span>
           <span class="stat">${fmtNum(m.runs)} runs</span>
           <span class="stat">${fmtDur(m.loaded_secs)}</span>
           <span class="stat">${fmtAgo(m.last_used)}</span>

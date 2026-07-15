@@ -36,7 +36,7 @@ def vllm_token_totals(metrics):
 
 POLL_SECS  = 5       # how often we scrape the router
 FLUSH_SECS = 15      # min interval between stats.json writes
-DAILY_KEEP = 30      # retain ~a month of daily buckets (UI shows last 14)
+DAILY_KEEP = 30      # retain ~a month of daily buckets (UI toggles 14/30 days)
 
 _METRIC_RE = re.compile(r"^([a-zA-Z_:][\w:]*)(\{[^}]*\})?\s+([0-9eE.+-]+)\s*$")
 
@@ -125,12 +125,15 @@ class StatsTracker:
     # ---------- accumulation (call under self.lock) ----------
     def _model(self, mid):
         return self.data["models"].setdefault(
-            mid, {"prompt": 0, "generated": 0, "loaded_secs": 0, "runs": 0, "last_used": 0})
+            mid, {"prompt": 0, "generated": 0, "loaded_secs": 0, "gen_secs": 0,
+                  "runs": 0, "last_used": 0})
 
     def _record_tokens(self, mid, dp, dg):
         m = self._model(mid)
         m["prompt"] += int(dp)
         m["generated"] += int(dg)
+        if dg > 0:   # generation was active this poll window -> feeds avg tok/s
+            m["gen_secs"] = m.get("gen_secs", 0) + POLL_SECS
         m["last_used"] = time.time()
         day = self.data["daily"].setdefault(date.today().isoformat(),
                                             {"prompt": 0, "generated": 0})
@@ -225,6 +228,14 @@ class StatsTracker:
         threading.Thread(target=self.run_forever, daemon=True, name="stats-poller").start()
 
     # ---------- read side (for the API) ----------
+    def reset(self):
+        """Zero the whole store (user-initiated from the Stats tab)."""
+        with self.lock:
+            self.data = _empty()
+            self._prev = self._vprev = None
+            self._dirty = True
+            self._flush(force=True)
+
     def summary(self):
         with self.lock:
             models = self.data["models"]
@@ -233,6 +244,10 @@ class StatsTracker:
                 "prompt": m["prompt"], "generated": m["generated"],
                 "tokens": m["prompt"] + m["generated"],
                 "loaded_secs": m["loaded_secs"], "runs": m["runs"],
+                # avg generation speed over windows where generation was active;
+                # gen_secs is missing in stats.json files written before v2
+                "avg_tps": round(m["generated"] / m["gen_secs"], 1)
+                           if m.get("gen_secs") else 0,
                 "last_used": m["last_used"],
             } for mid, m in models.items()]
             per_model.sort(key=lambda x: x["tokens"], reverse=True)
@@ -240,7 +255,7 @@ class StatsTracker:
             tot_g = sum(m["generated"] for m in models.values())
             tot_secs = sum(m["loaded_secs"] for m in models.values())
             most = per_model[0]["id"] if per_model and per_model[0]["tokens"] > 0 else None
-            daily = [{"date": d, **v} for d, v in sorted(self.data["daily"].items())][-14:]
+            daily = [{"date": d, **v} for d, v in sorted(self.data["daily"].items())][-DAILY_KEEP:]
             return {
                 "totals": {
                     "prompt": tot_p, "generated": tot_g, "tokens": tot_p + tot_g,
