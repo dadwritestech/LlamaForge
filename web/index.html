@@ -113,7 +113,7 @@ button:disabled{opacity:.4;cursor:not-allowed}
       <div class="logo"></div>
       <div>
         <h1>LLAMA<span>FORGE</span></h1>
-        <div class="sub"><span class="pulse"></span>a control panel for llama.cpp</div>
+        <div class="sub"><span class="pulse"></span>a control panel for llama.cpp<span id="platform"></span></div>
       </div>
     </div>
     <div class="sub" id="clock"></div>
@@ -126,6 +126,7 @@ button:disabled{opacity:.4;cursor:not-allowed}
     <div class="tab" data-tab="setup">Setup</div>
   </div>
   <div class="view active" id="view-models">
+    <div id="onboard"></div>
     <div class="gpus" id="gpus"></div>
     <div class="tbl-head"><h2>Model Registry</h2><div class="count" id="count">--</div></div>
     <div class="toolbar">

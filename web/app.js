@@ -17,6 +17,7 @@ async function api(path,body){
 }
 function toast(m,c=""){const t=$("#toast");t.textContent=m;t.className="show "+c;clearTimeout(t._t);t._t=setTimeout(()=>t.className="",2600);}
 
+function switchTab(name){const t=$(`.tab[data-tab="${name}"]`);if(t)t.click();}
 $$(".tab").forEach(t=>t.onclick=()=>{
   $$(".tab").forEach(x=>x.classList.remove("active"));t.classList.add("active");
   $$(".view").forEach(v=>v.classList.remove("active"));$("#view-"+t.dataset.tab).classList.add("active");
@@ -25,6 +26,32 @@ $$(".tab").forEach(t=>t.onclick=()=>{
   if(t.dataset.tab==="discover")loadDiscover();
   if(t.dataset.tab==="stats")loadStats();
 });
+
+/* ---------- onboarding (getting-started checklist) ---------- */
+function renderOnboarding(s){
+  const el=$("#onboard");if(!el)return;
+  const ob=s.onboarding||{};
+  const anyLoaded=s.models.some(m=>m.status==="loaded");
+  const steps=[
+    {done:ob.server_bin_ok,label:"Build llama.cpp",hint:"Setup tab checks prerequisites; Build tab compiles with flags auto-detected for your hardware.",tab:"build",btn:"Open Build"},
+    {done:ob.model_count>0,label:"Get models",hint:"Discover downloads from huggingface.co with VRAM-fit ratings, or scan your drives from Setup.",tab:"discover",btn:"Open Discover"},
+    {done:anyLoaded,label:"Load a model",hint:"Expand a model below, tune knobs if you like, and hit Load. Chat + API live on the router port.",tab:"models",btn:""},
+  ];
+  // once every step has been completed once, stay hidden for good (a later
+  // unload shouldn't resurrect the checklist)
+  if(steps.every(x=>x.done))localStorage.setItem("lf_onboard_done","1");
+  if(localStorage.getItem("lf_onboard_done")){el.style.display="none";return;}
+  el.style.display="";
+  setHTML(el,`<div class="card" style="border-color:var(--amber)"><h3>Getting Started</h3>
+    ${steps.map((st,i)=>`<div class="kv"><span class="k">
+      <span style="color:${st.done?"var(--green)":"var(--dim)"}">${st.done?"&#10003;":"&#9675;"}</span>
+      ${i+1}. ${esc(st.label)}</span>
+      <span class="v" style="text-align:right">${st.done?'<span style="color:var(--green)">done</span>':
+        (st.btn?`<button data-goto="${st.tab}" style="padding:4px 10px">${esc(st.btn)}</button>`:'<span style="color:var(--dim)">below &darr;</span>')}</span></div>
+      ${st.done?"":`<div class="note" style="margin:2px 0 8px">${esc(st.hint)}</div>`}`).join("")}
+  </div>`);
+  $$("[data-goto]",el).forEach(b=>b.onclick=()=>switchTab(b.dataset.goto));
+}
 
 /* ---------- models ---------- */
 function meter(u,tot){const N=28,on=Math.round(N*u/Math.max(tot,1));let s="";for(let i=0;i<N;i++){s+=`<div class="seg ${i<on?(i/N>.85?'hot':'on'):''}"></div>`;}return s;}
@@ -163,6 +190,11 @@ async function refresh(silent){
   try{
     const snap=silent?captureEditorState():null;
     const s=await api("/api/state");STATE=s;renderGpus(s.gpus);renderModels();
+    renderOnboarding(s);
+    const plat=$("#platform");
+    if(plat&&s.platform)plat.textContent=" · "+s.platform;
+    const vlog=$("#vllm-log-details");
+    if(vlog&&s.vllm_supported===false)vlog.style.display="none";
     restoreEditorState(snap);
   }
   catch(e){if(!silent)setHTML($("#list"),`<div class="skel" style="color:var(--red)">BACKEND UNREACHABLE</div>`);}
@@ -238,12 +270,12 @@ async function loadBuild(){
       <div class="note">Rebuilds llama.cpp with CMake. Prior binaries are backed up first. Takes several minutes; watch the log below.</div>
     </div>
     <div class="card"><h3>Build Log</h3><div class="log" id="build-log">idle</div></div>`
-    +`<div class="card"><h3>vLLM (pip package in WSL)</h3>
+    +(vver.error?"":`<div class="card"><h3>vLLM (pip package in WSL)</h3>
       <div class="kv"><span class="k">installed</span><span class="v ${vver.installed&&vver.installed.present?'ok':'bad'}">${vver.installed&&vver.installed.present?"v"+esc(vver.installed.version):"not installed (see Setup)"}</span></div>
       <div class="kv"><span class="k">latest on PyPI</span><span class="v">${esc(vver.latest||"?")}</span></div>
       ${vver.installed&&vver.installed.present&&vver.latest&&vver.latest!==vver.installed.version?`<div class="actions"><button class="primary" id="btn-vllm-update">Update vLLM to ${esc(vver.latest)}</button><span class="msg" id="vllm-upd-msg"></span></div>`:`<div class="note">${vver.installed&&vver.installed.present?"vLLM is up to date.":"Install vLLM from the Setup tab first."}</div>`}
       <div class="log" id="vllm-update-log" style="display:none">idle</div>
-    </div>`);
+    </div>`));
   $("#btn-build").onclick=startBuild;
   pollBuild();
   const updBtn=$("#btn-vllm-update");
@@ -299,15 +331,16 @@ async function loadSetup(){
   const p=s.prereqs,hw=s.hardware;
   const toolRow=(name,t)=>`<div class="kv"><span class="k">${esc(name)}</span>
     <span class="v ${t.present?'ok':'bad'}">${t.present?esc(t.version||"present"):"MISSING"}
-    ${!t.present&&t.winget?` <button data-install="${esc(name)}" style="padding:3px 8px;margin-left:8px">Install</button>`:""}</span></div>`;
+    ${!t.present&&t.installable?` <button data-install="${esc(name)}" style="padding:3px 8px;margin-left:8px">Install</button>`:""}
+    ${!t.present&&!t.installable&&t.hint?`<div class="note" style="margin-top:4px">${esc(t.hint)}</div>`:""}</span></div>`;
   const gpuLines=(hw.gpus||[]).map(g=>`<div class="kv"><span class="k">GPU ${esc(g.index)}</span><span class="v">${esc(g.name)} &middot; cc ${esc(g.compute_cap||"?")}</span></div>`).join("");
   setHTML(v,`
     <div class="card"><h3>Prerequisites</h3>
       ${Object.entries(p.tools).map(([n,t])=>toolRow(n,t)).join("")}
-      <div class="kv"><span class="k">MSVC (C++ compiler)</span><span class="v ${p.msvc.present?'ok':'bad'}">${p.msvc.present?"present":"MISSING"}</span></div>
-      <div class="kv"><span class="k">CUDA toolkit</span><span class="v ${p.cuda.present?'ok':'bad'}">${p.cuda.present?esc(p.cuda.version||"present"):"not found (CPU build only)"}</span></div>
-      <div class="kv"><span class="k">installers</span><span class="v">${(p.installers.winget?"winget ":"")+(p.installers.choco?"choco":"")||"none"}</span></div>
-      <div class="note">Missing prerequisites can be installed with your permission (winget/choco). MSVC &amp; CUDA are large; if auto-install is unavailable the tool links to the official downloads.</div>
+      <div class="kv"><span class="k">${esc(p.msvc.label||"C++ compiler")}</span><span class="v ${p.msvc.present?'ok':'bad'}">${p.msvc.present?"present":"MISSING"+(p.msvc.url?" &mdash; "+esc(p.msvc.url):"")}</span></div>
+      ${p.cuda.applicable===false?"":`<div class="kv"><span class="k">CUDA toolkit</span><span class="v ${p.cuda.present?'ok':'bad'}">${p.cuda.present?esc(p.cuda.version||"present"):"not found (CPU build only)"}</span></div>`}
+      <div class="kv"><span class="k">installers</span><span class="v">${esc(Object.keys(p.installers||{}).filter(k=>p.installers[k]).join(" ")||"none")}</span></div>
+      <div class="note">Missing prerequisites can be installed with your permission where a package manager allows it (winget/choco/brew). On Linux the exact install command is shown instead &mdash; the dashboard never runs sudo.</div>
     </div>
     <div class="card"><h3>Detected Hardware</h3>
       <div class="kv"><span class="k">CPU</span><span class="v">${esc(hw.cpu.name||"?")} (${esc(hw.cpu.cores||"?")}c/${esc(hw.cpu.threads||"?")}t)</span></div>
@@ -340,7 +373,7 @@ async function loadSetup(){
         <span class="msg" id="net-msg"></span>
       </div>
     </div>`
-    +`<div class="card"><h3>vLLM Backend (WSL2)</h3>
+    +(vs.supported===false?"":`<div class="card"><h3>vLLM Backend (WSL2)</h3>
       <div class="kv"><span class="k">WSL2</span><span class="v ${vs.wsl.present?'ok':'bad'}">${vs.wsl.present?"installed":"NOT INSTALLED"}</span></div>
       ${vs.wsl.present?`<div class="kv"><span class="k">distro</span><span class="v">
         <select id="vllm-distro" style="background:#0a0d0e;border:1px solid var(--hair);color:var(--ink);font-family:var(--mono);font-size:12px;padding:6px">
@@ -352,7 +385,7 @@ async function loadSetup(){
       ${vs.wsl.present&&!vs.vllm.present?`<div class="actions"><button class="primary" id="btn-vllm-install">Install vLLM (uv, no sudo)</button><span class="msg" id="vllm-inst-msg"></span></div>
       <div class="note">Downloads uv + a standalone Python and installs vLLM into ~/.llamaforge/vllm-venv. Several GB; watch the log.</div>`:""}
       <div class="log" id="vllm-setup-log" style="display:${(vs.setup_job&&vs.setup_job.running)?"":"none"}">${esc(vs.setup_log||"idle")}</div>
-    </div>`);
+    </div>`));
   $$("[data-install]",v).forEach(b=>b.onclick=async()=>{b.disabled=true;b.textContent="installing...";
     const r=await api("/api/setup/install",{tool:b.dataset.install});toast(r.ok?"Installed":"Install failed",r.ok?"ok":"err");loadSetup();});
   $("#btn-scan").onclick=scanDrives;
@@ -482,6 +515,11 @@ function loadDiscover(){
         <button class="primary" id="dl-add">Add to my models</button><span class="msg" id="dl-msg"></span>
       </div>
     </div>`);
+  // vLLM (safetensors) is Windows/WSL-only; drop the mode on other platforms
+  if(STATE&&STATE.vllm_supported===false){
+    const opt=$('#hub-mode option[value="safetensors"]');
+    if(opt)opt.remove();
+  }
   $("#hub-go").onclick=hubSearch;
   $("#hub-mode").onchange=()=>hubSearch();
   $("#hub-q").addEventListener("keydown",e=>{if(e.key==="Enter")hubSearch();});

@@ -4,7 +4,7 @@
 
 <p align="center">
   <a href="https://github.com/ggml-org/llama.cpp"><img alt="powered by llama.cpp" src="https://img.shields.io/badge/powered%20by-llama.cpp-ffb000?style=flat-square&labelColor=0f1315"></a>
-  <img alt="platform" src="https://img.shields.io/badge/platform-Windows%2010%2F11-3fd7e6?style=flat-square&labelColor=0f1315">
+  <img alt="platform" src="https://img.shields.io/badge/platform-Windows%20%C2%B7%20Linux%20%C2%B7%20macOS-3fd7e6?style=flat-square&labelColor=0f1315">
   <img alt="python" src="https://img.shields.io/badge/python-3.10%2B%20%C2%B7%20zero%20deps-39d98a?style=flat-square&labelColor=0f1315">
   <a href="LICENSE"><img alt="license" src="https://img.shields.io/badge/license-MIT-c8d2d4?style=flat-square&labelColor=0f1315"></a>
   <img alt="status" src="https://img.shields.io/badge/status-early%20preview-ff5c57?style=flat-square&labelColor=0f1315">
@@ -30,8 +30,10 @@ of hand-editing `models.ini` and long `llama-server` command lines.
 **Who it's for:** people who want llama.cpp's speed and control but would rather not
 memorize flags, edit config files by hand, or babysit build commands. It assumes
 you're comfortable running a setup script once and building llama.cpp for your
-machine — both guided from the dashboard, on Windows with an NVIDIA GPU (CPU-only
-works too). **Looking for something else?** If you want a zero-config, double-click
+machine — both guided from the dashboard. Windows with an NVIDIA GPU is the
+primary target (CPU-only works too); **Linux** (NVIDIA/CPU) and **macOS**
+(Apple Silicon, Metal) are supported as an early preview — same dashboard,
+`bootstrap.sh` instead of `bootstrap.ps1`. **Looking for something else?** If you want a zero-config, double-click
 installer with no compile step, [LM Studio](https://lmstudio.ai),
 [Ollama](https://ollama.com), or [Jan](https://jan.ai) will get you running faster —
 LlamaForge trades that for direct, per-model control over the real llama.cpp server.
@@ -57,10 +59,20 @@ LlamaForge trades that for direct, per-model control over the real llama.cpp ser
 
 ## Quick start (new machine)
 
+**Windows**
+
 ```powershell
 git clone https://github.com/dadwritestech/LlamaForge
 cd LlamaForge
 powershell -ExecutionPolicy Bypass -File bootstrap.ps1
+```
+
+**Linux / macOS**
+
+```bash
+git clone https://github.com/dadwritestech/LlamaForge
+cd LlamaForge
+./bootstrap.sh        # then ./run.sh daily, ./stop.sh to shut down
 ```
 
 `bootstrap.ps1` ensures Python + Git (asking before installing anything), fetches
