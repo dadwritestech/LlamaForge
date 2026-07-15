@@ -42,6 +42,10 @@ LlamaForge trades that for direct, per-model control over the real llama.cpp ser
 > All inference, model support, and performance come from llama.cpp (MIT, (c) The ggml
 > authors). See [NOTICE](NOTICE). Please support the upstream project.
 
+<p align="center">
+  <img src="docs/demo.gif" alt="LlamaForge demo — model list, GGUF metadata + presets, side-by-side compare, and copy-paste client config" width="100%">
+</p>
+
 ## Features
 
 | Tab | What it does |
