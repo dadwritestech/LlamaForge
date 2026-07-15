@@ -1,9 +1,12 @@
 """Detect CPU/GPU and recommend CMake build flags + runtime defaults.
 
-Windows-focused (this build target). NVIDIA CUDA is the primary accelerator;
-falls back to a CPU-only build when no supported GPU is found.
+Windows + Linux: NVIDIA CUDA is the primary accelerator, CPU-only fallback.
+macOS: Apple Silicon unified memory with a Metal build (no CUDA).
+Platform branching lives in osplat; this module just asks it.
 """
 import re, subprocess
+
+import osplat
 
 def _run(cmd, timeout=10):
     try:
@@ -13,6 +16,8 @@ def _run(cmd, timeout=10):
 
 # Compute-capability -> CUDA arch number used by CMAKE_CUDA_ARCHITECTURES
 def detect_gpus():
+    if osplat.IS_MAC:
+        return []                       # no NVIDIA on Apple Silicon; Metal instead
     out = _run(["nvidia-smi",
                 "--query-gpu=index,name,memory.total,compute_cap",
                 "--format=csv,noheader,nounits"])
@@ -26,7 +31,7 @@ def detect_gpus():
                          "compute_cap": cc})
     return gpus
 
-def detect_cpu():
+def _detect_cpu_windows():
     # wmic is removed on recent Windows 11; use PowerShell CIM.
     out = _run(["powershell", "-NoProfile", "-Command",
                 "$c=Get-CimInstance Win32_Processor|Select-Object -First 1;"
@@ -42,11 +47,30 @@ def detect_cpu():
     info["avx512_hint"] = any(x in n for x in ["ryzen 7 9", "ryzen 9 9", "ryzen 7 7", "ryzen 9 7", "xeon", "threadripper"])
     return info
 
+def detect_cpu():
+    if osplat.IS_LINUX:
+        c = osplat.linux_cpu()
+        return {"name": c["name"], "cores": c["cores"], "threads": c["threads"],
+                "avx512_hint": c["avx512"]}      # real flag, not a name heuristic
+    if osplat.IS_MAC:
+        c = osplat.mac_cpu()
+        return {"name": c["name"], "cores": c["cores"], "threads": c["threads"],
+                "avx512_hint": False}
+    return _detect_cpu_windows()
+
 def recommend(gpus=None, cpu=None):
     """Return {cmake_flags:{...}, notes:[...], runtime:{...}} for this machine."""
     gpus = detect_gpus() if gpus is None else gpus
     cpu  = detect_cpu()  if cpu  is None else cpu
     flags, notes = {}, []
+
+    if osplat.IS_MAC:
+        flags["GGML_METAL"] = "ON"
+        notes.append("Apple Silicon detected - Metal build (uses unified memory as VRAM).")
+        runtime = {"n-gpu-layers": "99", "flash-attn": "on"}
+        flags["GGML_NATIVE"] = "ON"
+        return {"cmake_flags": flags, "notes": notes, "runtime": runtime,
+                "gpus": gpus, "cpu": cpu}
 
     if gpus:
         archs = sorted({g["compute_cap"].replace(".", "") for g in gpus if g["compute_cap"]})

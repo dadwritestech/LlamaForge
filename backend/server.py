@@ -7,8 +7,11 @@ detection, and drive scanning. Pure Python stdlib.
 import json, os, subprocess, urllib.request, urllib.error
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-import config, argspec, hardware, prereqs, scanner, hub, router_ctl, stats
+import config, argspec, hardware, osplat, prereqs, scanner, hub, router_ctl, stats
 import wsl, vllm_ctl, vllm_registry, vllm_setup, vllm_job, vllm_hub, vllm_download
+
+# vLLM is managed through WSL2, so the whole vLLM surface is Windows-only.
+VLLM_SUPPORTED = osplat.IS_WIN
 from builder import BuildManager
 
 ROOT    = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -98,6 +101,8 @@ def gpus():
     return hardware.detect_gpus_verbose() if hasattr(hardware, "detect_gpus_verbose") else _gpu_telemetry()
 
 def _gpu_telemetry():
+    if osplat.IS_MAC:
+        return osplat.mac_gpu_telemetry()
     try:
         out = subprocess.check_output(
             ["nvidia-smi",
@@ -128,6 +133,19 @@ def vllm_schema():
         distro = c.get("wsl_distro") or wsl.default_distro()
         _VLLM_SCHEMA = vllm_argspec.build_schema(distro, "~/.llamaforge/vllm-venv")
     return _VLLM_SCHEMA
+
+def installed_repos(results, ini_sections, vllm_ids):
+    """Which Discover results are already on this machine. GGUF downloads land
+    in a '<org>--<name>' folder that models.ini paths retain; vLLM registry
+    keys are the repo ids themselves."""
+    blob = " ".join(kv.get("model", "") for kv in ini_sections.values())
+    vset = set(vllm_ids)
+    out = []
+    for r in results:
+        repo = r.get("repo", "")
+        if repo and (repo in vset or repo.replace("/", "--") in blob):
+            out.append(repo)
+    return out
 
 def vllm_save(model_id, settings, is_running, restart):
     """Persist knob changes; restart the process if the model is loaded
@@ -220,15 +238,41 @@ class H(BaseHTTPRequestHandler):
         with open(path, "rb") as f:
             self._send(200, f.read(), ctype)
 
+    def _vllm_gate(self, p):
+        """vLLM rides on WSL2; short-circuit its routes on Linux/macOS."""
+        if p.startswith("/api/vllm/") and not VLLM_SUPPORTED:
+            if p == "/api/vllm/setup":   # the Setup tab probes this one
+                self._send(200, {"supported": False, "wsl": {"present": False},
+                                 "distros": [], "gpu": {"present": False},
+                                 "vllm": {"present": False, "version": ""},
+                                 "setup_job": {"running": False}, "setup_log": ""})
+            else:
+                self._send(400, {"error": "vLLM backend requires Windows + WSL2"})
+            return True
+        return False
+
     def do_GET(self):
         p = self.path.split("?")[0]
+        if self._vllm_gate(p):
+            return
         if p in ("/", "/index.html"): return self._file("index.html", "text/html; charset=utf-8")
         if p == "/app.js":            return self._file("app.js", "application/javascript; charset=utf-8")
         if p == "/api/state":
             s = model_state()
-            mgr = vllm_mgr()
-            s = merge_vllm_models(s, mgr.status(), vllm_registry.models(), cfg()["router_port"])
-            s["gpus"] = _gpu_telemetry(); s["config"] = cfg(); return self._send(200, s)
+            c = cfg()
+            if VLLM_SUPPORTED:
+                mgr = vllm_mgr()
+                s = merge_vllm_models(s, mgr.status(), vllm_registry.models(), c["router_port"])
+            else:   # still tags llama.cpp rows with backend + endpoint
+                s = merge_vllm_models(s, [], [], c["router_port"])
+            s["gpus"] = _gpu_telemetry(); s["config"] = c
+            s["platform"] = osplat.current()
+            s["vllm_supported"] = VLLM_SUPPORTED
+            s["onboarding"] = {
+                "server_bin_ok": bool(c.get("server_bin")) and os.path.exists(c["server_bin"]),
+                "model_count": len(s["models"]),
+            }
+            return self._send(200, s)
         if p == "/api/schema":   return self._send(200, schema())
         if p == "/api/gpus":     return self._send(200, {"gpus": _gpu_telemetry()})
         if p == "/api/setup":
@@ -273,6 +317,7 @@ class H(BaseHTTPRequestHandler):
             c = cfg()
             distro = c.get("wsl_distro") or wsl.default_distro()
             s = vllm_setup.status(distro)
+            s["supported"] = True
             s["setup_job"] = VLLM_SETUP_JOB.progress()
             s["setup_log"] = VLLM_SETUP_JOB.tail(300)
             return self._send(200, s)
@@ -293,6 +338,8 @@ class H(BaseHTTPRequestHandler):
         n = int(self.headers.get("Content-Length", 0))
         body = json.loads(self.rfile.read(n) or "{}") if n else {}
         p = self.path.split("?")[0]
+        if self._vllm_gate(p):
+            return
 
         if p == "/api/save":
             mid = body.get("model"); updates = body.get("settings", {})
@@ -365,7 +412,10 @@ class H(BaseHTTPRequestHandler):
         if p == "/api/hub/search":
             try:
                 res = hub.search(body.get("query", ""), body.get("sort", "downloads"))
-                return self._send(200, {"results": res, "vram_mib": total_vram_mib()})
+                inst = installed_repos(res, config.read_sections(),
+                                       vllm_registry.models() if VLLM_SUPPORTED else [])
+                return self._send(200, {"results": res, "vram_mib": total_vram_mib(),
+                                        "installed": inst})
             except Exception as e:
                 return self._send(200, {"error": str(e), "results": []})
 
@@ -403,6 +453,10 @@ class H(BaseHTTPRequestHandler):
             config.apply_ctx_defaults()
             router("/models?reload=1")
             return self._send(200, {"ok": True, "added": [e["id"] for e in entries]})
+
+        if p == "/api/stats/reset":
+            stats.TRACKER.reset()
+            return self._send(200, {"ok": True})
 
         if p == "/api/config":
             c = cfg(); c.update(body or {}); config.save(c)
@@ -467,7 +521,9 @@ class H(BaseHTTPRequestHandler):
         if p == "/api/vllm/hub/search":
             try:
                 res = vllm_hub.search(body.get("query", ""), body.get("sort", "downloads"))
-                return self._send(200, {"results": res, "vram_mib": total_vram_mib()})
+                inst = installed_repos(res, {}, vllm_registry.models())
+                return self._send(200, {"results": res, "vram_mib": total_vram_mib(),
+                                        "installed": inst})
             except Exception as e:
                 return self._send(200, {"error": str(e), "results": []})
 

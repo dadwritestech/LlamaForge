@@ -12,7 +12,9 @@ Rules:
 import os, re
 from collections import defaultdict
 
-def list_drives():
+import osplat
+
+def _windows_drives():
     import string, ctypes
     drives = []
     bitmask = ctypes.windll.kernel32.GetLogicalDrives()
@@ -24,12 +26,26 @@ def list_drives():
                 drives.append(root)
     return drives
 
+def posix_roots(home, extra_candidates, isdir=os.path.isdir):
+    """Home dir plus whichever common mount points exist. Pure for tests."""
+    roots = [home]
+    for c in extra_candidates:
+        if isdir(c):
+            roots.append(c)
+    return roots
+
+def list_drives():
+    if osplat.IS_WIN:
+        return _windows_drives()
+    extra = ["/Volumes"] if osplat.IS_MAC else ["/mnt", "/media", "/srv", "/data"]
+    return posix_roots(os.path.expanduser("~"), extra)
+
 def find_ggufs(roots, min_mb=50):
     hits = []
     for root in roots:
         for dirpath, dirnames, files in os.walk(root):
-            low = dirpath.lower()
-            if "$recycle.bin" in low or "\\.git" in low:
+            low = dirpath.lower().replace("\\", "/")
+            if "$recycle.bin" in low or "/.git" in low or "/.trash" in low or "/proc" == low[:5]:
                 dirnames[:] = []
                 continue
             for fn in files:

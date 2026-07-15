@@ -15,12 +15,17 @@ def _get_json(url, timeout=25):
     with urllib.request.urlopen(req, timeout=timeout) as r:
         return json.loads(r.read().decode())
 
-def search(query="", sort="downloads", limit=30):
+# GGUF runs everywhere llama.cpp builds.
+PLATFORMS = ["windows", "linux", "macos"]
+
+def search(query="", sort="downloads", limit=50):
     """Search GGUF repos. sort: downloads | lastModified | likes."""
-    params = {"filter": "gguf", "limit": str(limit), "direction": "-1", "sort": sort}
+    params = {"filter": "gguf", "limit": str(limit), "direction": "-1", "sort": sort,
+              # the list API omits lastModified/gated unless asked explicitly
+              "expand[]": ["downloads", "likes", "lastModified", "gated"]}
     if query:
         params["search"] = query
-    url = f"{HF}/api/models?{urllib.parse.urlencode(params)}"
+    url = f"{HF}/api/models?{urllib.parse.urlencode(params, doseq=True)}"
     out = []
     for m in _get_json(url):
         out.append({
@@ -28,6 +33,8 @@ def search(query="", sort="downloads", limit=30):
             "downloads": m.get("downloads", 0),
             "likes": m.get("likes", 0),
             "updated": (m.get("lastModified") or "")[:10],
+            "gated": bool(m.get("gated")),   # "auto"/"manual" -> needs an HF token
+            "platforms": PLATFORMS,
         })
     return out
 

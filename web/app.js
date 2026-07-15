@@ -17,6 +17,7 @@ async function api(path,body){
 }
 function toast(m,c=""){const t=$("#toast");t.textContent=m;t.className="show "+c;clearTimeout(t._t);t._t=setTimeout(()=>t.className="",2600);}
 
+function switchTab(name){const t=$(`.tab[data-tab="${name}"]`);if(t)t.click();}
 $$(".tab").forEach(t=>t.onclick=()=>{
   $$(".tab").forEach(x=>x.classList.remove("active"));t.classList.add("active");
   $$(".view").forEach(v=>v.classList.remove("active"));$("#view-"+t.dataset.tab).classList.add("active");
@@ -25,6 +26,32 @@ $$(".tab").forEach(t=>t.onclick=()=>{
   if(t.dataset.tab==="discover")loadDiscover();
   if(t.dataset.tab==="stats")loadStats();
 });
+
+/* ---------- onboarding (getting-started checklist) ---------- */
+function renderOnboarding(s){
+  const el=$("#onboard");if(!el)return;
+  const ob=s.onboarding||{};
+  const anyLoaded=s.models.some(m=>m.status==="loaded");
+  const steps=[
+    {done:ob.server_bin_ok,label:"Build llama.cpp",hint:"Setup tab checks prerequisites; Build tab compiles with flags auto-detected for your hardware.",tab:"build",btn:"Open Build"},
+    {done:ob.model_count>0,label:"Get models",hint:"Discover downloads from huggingface.co with VRAM-fit ratings, or scan your drives from Setup.",tab:"discover",btn:"Open Discover"},
+    {done:anyLoaded,label:"Load a model",hint:"Expand a model below, tune knobs if you like, and hit Load. Chat + API live on the router port.",tab:"models",btn:""},
+  ];
+  // once every step has been completed once, stay hidden for good (a later
+  // unload shouldn't resurrect the checklist)
+  if(steps.every(x=>x.done))localStorage.setItem("lf_onboard_done","1");
+  if(localStorage.getItem("lf_onboard_done")){el.style.display="none";return;}
+  el.style.display="";
+  setHTML(el,`<div class="card" style="border-color:var(--amber)"><h3>Getting Started</h3>
+    ${steps.map((st,i)=>`<div class="kv"><span class="k">
+      <span style="color:${st.done?"var(--green)":"var(--dim)"}">${st.done?"&#10003;":"&#9675;"}</span>
+      ${i+1}. ${esc(st.label)}</span>
+      <span class="v" style="text-align:right">${st.done?'<span style="color:var(--green)">done</span>':
+        (st.btn?`<button data-goto="${st.tab}" style="padding:4px 10px">${esc(st.btn)}</button>`:'<span style="color:var(--dim)">below &darr;</span>')}</span></div>
+      ${st.done?"":`<div class="note" style="margin:2px 0 8px">${esc(st.hint)}</div>`}`).join("")}
+  </div>`);
+  $$("[data-goto]",el).forEach(b=>b.onclick=()=>switchTab(b.dataset.goto));
+}
 
 /* ---------- models ---------- */
 function meter(u,tot){const N=28,on=Math.round(N*u/Math.max(tot,1));let s="";for(let i=0;i<N;i++){s+=`<div class="seg ${i<on?(i/N>.85?'hot':'on'):''}"></div>`;}return s;}
@@ -163,6 +190,11 @@ async function refresh(silent){
   try{
     const snap=silent?captureEditorState():null;
     const s=await api("/api/state");STATE=s;renderGpus(s.gpus);renderModels();
+    renderOnboarding(s);
+    const plat=$("#platform");
+    if(plat&&s.platform)plat.textContent=" · "+s.platform;
+    const vlog=$("#vllm-log-details");
+    if(vlog&&s.vllm_supported===false)vlog.style.display="none";
     restoreEditorState(snap);
   }
   catch(e){if(!silent)setHTML($("#list"),`<div class="skel" style="color:var(--red)">BACKEND UNREACHABLE</div>`);}
@@ -238,12 +270,12 @@ async function loadBuild(){
       <div class="note">Rebuilds llama.cpp with CMake. Prior binaries are backed up first. Takes several minutes; watch the log below.</div>
     </div>
     <div class="card"><h3>Build Log</h3><div class="log" id="build-log">idle</div></div>`
-    +`<div class="card"><h3>vLLM (pip package in WSL)</h3>
+    +(vver.error?"":`<div class="card"><h3>vLLM (pip package in WSL)</h3>
       <div class="kv"><span class="k">installed</span><span class="v ${vver.installed&&vver.installed.present?'ok':'bad'}">${vver.installed&&vver.installed.present?"v"+esc(vver.installed.version):"not installed (see Setup)"}</span></div>
       <div class="kv"><span class="k">latest on PyPI</span><span class="v">${esc(vver.latest||"?")}</span></div>
       ${vver.installed&&vver.installed.present&&vver.latest&&vver.latest!==vver.installed.version?`<div class="actions"><button class="primary" id="btn-vllm-update">Update vLLM to ${esc(vver.latest)}</button><span class="msg" id="vllm-upd-msg"></span></div>`:`<div class="note">${vver.installed&&vver.installed.present?"vLLM is up to date.":"Install vLLM from the Setup tab first."}</div>`}
       <div class="log" id="vllm-update-log" style="display:none">idle</div>
-    </div>`);
+    </div>`));
   $("#btn-build").onclick=startBuild;
   pollBuild();
   const updBtn=$("#btn-vllm-update");
@@ -299,15 +331,16 @@ async function loadSetup(){
   const p=s.prereqs,hw=s.hardware;
   const toolRow=(name,t)=>`<div class="kv"><span class="k">${esc(name)}</span>
     <span class="v ${t.present?'ok':'bad'}">${t.present?esc(t.version||"present"):"MISSING"}
-    ${!t.present&&t.winget?` <button data-install="${esc(name)}" style="padding:3px 8px;margin-left:8px">Install</button>`:""}</span></div>`;
+    ${!t.present&&t.installable?` <button data-install="${esc(name)}" style="padding:3px 8px;margin-left:8px">Install</button>`:""}
+    ${!t.present&&!t.installable&&t.hint?`<div class="note" style="margin-top:4px">${esc(t.hint)}</div>`:""}</span></div>`;
   const gpuLines=(hw.gpus||[]).map(g=>`<div class="kv"><span class="k">GPU ${esc(g.index)}</span><span class="v">${esc(g.name)} &middot; cc ${esc(g.compute_cap||"?")}</span></div>`).join("");
   setHTML(v,`
     <div class="card"><h3>Prerequisites</h3>
       ${Object.entries(p.tools).map(([n,t])=>toolRow(n,t)).join("")}
-      <div class="kv"><span class="k">MSVC (C++ compiler)</span><span class="v ${p.msvc.present?'ok':'bad'}">${p.msvc.present?"present":"MISSING"}</span></div>
-      <div class="kv"><span class="k">CUDA toolkit</span><span class="v ${p.cuda.present?'ok':'bad'}">${p.cuda.present?esc(p.cuda.version||"present"):"not found (CPU build only)"}</span></div>
-      <div class="kv"><span class="k">installers</span><span class="v">${(p.installers.winget?"winget ":"")+(p.installers.choco?"choco":"")||"none"}</span></div>
-      <div class="note">Missing prerequisites can be installed with your permission (winget/choco). MSVC &amp; CUDA are large; if auto-install is unavailable the tool links to the official downloads.</div>
+      <div class="kv"><span class="k">${esc(p.msvc.label||"C++ compiler")}</span><span class="v ${p.msvc.present?'ok':'bad'}">${p.msvc.present?"present":"MISSING"+(p.msvc.url?" &mdash; "+esc(p.msvc.url):"")}</span></div>
+      ${p.cuda.applicable===false?"":`<div class="kv"><span class="k">CUDA toolkit</span><span class="v ${p.cuda.present?'ok':'bad'}">${p.cuda.present?esc(p.cuda.version||"present"):"not found (CPU build only)"}</span></div>`}
+      <div class="kv"><span class="k">installers</span><span class="v">${esc(Object.keys(p.installers||{}).filter(k=>p.installers[k]).join(" ")||"none")}</span></div>
+      <div class="note">Missing prerequisites can be installed with your permission where a package manager allows it (winget/choco/brew). On Linux the exact install command is shown instead &mdash; the dashboard never runs sudo.</div>
     </div>
     <div class="card"><h3>Detected Hardware</h3>
       <div class="kv"><span class="k">CPU</span><span class="v">${esc(hw.cpu.name||"?")} (${esc(hw.cpu.cores||"?")}c/${esc(hw.cpu.threads||"?")}t)</span></div>
@@ -340,7 +373,7 @@ async function loadSetup(){
         <span class="msg" id="net-msg"></span>
       </div>
     </div>`
-    +`<div class="card"><h3>vLLM Backend (WSL2)</h3>
+    +(vs.supported===false?"":`<div class="card"><h3>vLLM Backend (WSL2)</h3>
       <div class="kv"><span class="k">WSL2</span><span class="v ${vs.wsl.present?'ok':'bad'}">${vs.wsl.present?"installed":"NOT INSTALLED"}</span></div>
       ${vs.wsl.present?`<div class="kv"><span class="k">distro</span><span class="v">
         <select id="vllm-distro" style="background:#0a0d0e;border:1px solid var(--hair);color:var(--ink);font-family:var(--mono);font-size:12px;padding:6px">
@@ -352,7 +385,7 @@ async function loadSetup(){
       ${vs.wsl.present&&!vs.vllm.present?`<div class="actions"><button class="primary" id="btn-vllm-install">Install vLLM (uv, no sudo)</button><span class="msg" id="vllm-inst-msg"></span></div>
       <div class="note">Downloads uv + a standalone Python and installs vLLM into ~/.llamaforge/vllm-venv. Several GB; watch the log.</div>`:""}
       <div class="log" id="vllm-setup-log" style="display:${(vs.setup_job&&vs.setup_job.running)?"":"none"}">${esc(vs.setup_log||"idle")}</div>
-    </div>`);
+    </div>`));
   $$("[data-install]",v).forEach(b=>b.onclick=async()=>{b.disabled=true;b.textContent="installing...";
     const r=await api("/api/setup/install",{tool:b.dataset.install});toast(r.ok?"Installed":"Install failed",r.ok?"ok":"err");loadSetup();});
   $("#btn-scan").onclick=scanDrives;
@@ -419,6 +452,35 @@ async function checkMissing(){
 
 /* ---------- discover tab (HuggingFace) ---------- */
 let dlPoll=null, discoverLoaded=false;
+const PLAT_LABEL={windows:"WIN",linux:"LINUX",macos:"MAC"};
+function platTags(platforms){
+  if(!platforms||!platforms.length)return "";
+  const cur=STATE&&STATE.platform;
+  let s=platforms.map(p=>{
+    const here=p===cur;
+    return `<span class="tag" title="runs on ${esc(p)}${here?" (this machine)":""}" style="${here?"color:var(--amber);border-color:var(--amber)":""}">${PLAT_LABEL[p]||esc(p.toUpperCase())}</span>`;
+  }).join("");
+  if(cur&&!platforms.includes(cur))
+    s+=`<span class="tag" style="color:var(--red);border-color:var(--red)" title="this backend does not run on ${esc(cur)}">NOT ON ${PLAT_LABEL[cur]||esc(cur.toUpperCase())}</span>`;
+  return s;
+}
+function hubRow(m,installed,clickClass){
+  const inst=installed.has(m.repo);
+  return `<div class="row" data-repo="${esc(m.repo)}">
+    <div class="rhead ${clickClass}" style="grid-template-columns:1fr auto auto auto auto">
+      <span class="mid">${esc(m.repo)}
+        ${platTags(m.platforms)}
+        ${m.gated?'<span class="tag" style="color:var(--red);border-color:var(--red)" title="gated repo - requires accepting terms + an HF token; downloads from here will fail">GATED</span>':''}
+        ${inst?'<span class="tag" style="color:var(--green);border-color:var(--green)" title="already in your registry">INSTALLED</span>':''}
+      </span>
+      ${m.updated?`<span class="ctxpill"><span class="k">upd</span> ${esc(m.updated)}</span>`:""}
+      <span class="ctxpill">${esc((m.downloads||0).toLocaleString())} dl</span>
+      <span class="ctxpill" style="color:var(--cyan)">${esc(m.likes)} &hearts;</span>
+      <span class="chev">&#9654;</span>
+    </div>
+    <div class="edit"></div>
+  </div>`;
+}
 const FIT_LABEL={fits:["FITS VRAM","ok"],tight:["TIGHT","work"],offload:["CPU OFFLOAD","err"],unknown:["?",""]};
 function fitBadge(fit){const [txt,cls]=FIT_LABEL[fit]||FIT_LABEL.unknown;
   const col=cls==="ok"?"var(--green)":cls==="work"?"var(--amber)":cls==="err"?"var(--red)":"var(--dim)";
@@ -453,6 +515,11 @@ function loadDiscover(){
         <button class="primary" id="dl-add">Add to my models</button><span class="msg" id="dl-msg"></span>
       </div>
     </div>`);
+  // vLLM (safetensors) is Windows/WSL-only; drop the mode on other platforms
+  if(STATE&&STATE.vllm_supported===false){
+    const opt=$('#hub-mode option[value="safetensors"]');
+    if(opt)opt.remove();
+  }
   $("#hub-go").onclick=hubSearch;
   $("#hub-mode").onchange=()=>hubSearch();
   $("#hub-q").addEventListener("keydown",e=>{if(e.key==="Enter")hubSearch();});
@@ -465,16 +532,8 @@ async function hubSearch(){
   if(r.error){msg.className="msg err";msg.textContent=r.error.slice(0,80);return;}
   $("#hub-vram").textContent=(r.vram_mib/1024).toFixed(1);
   msg.className="msg ok";msg.textContent=`${r.results.length} repos`;
-  setHTML($("#hub-results"),`<div class="list">${r.results.map(m=>`
-    <div class="row" data-repo="${esc(m.repo)}">
-      <div class="rhead hub-repo" style="grid-template-columns:1fr auto auto auto">
-        <span class="mid">${esc(m.repo)}</span>
-        <span class="ctxpill">${esc((m.downloads||0).toLocaleString())} dl</span>
-        <span class="ctxpill" style="color:var(--cyan)">${esc(m.likes)} &hearts;</span>
-        <span class="chev">&#9654;</span>
-      </div>
-      <div class="edit"></div>
-    </div>`).join("")}</div>`);
+  const inst=new Set(r.installed||[]);
+  setHTML($("#hub-results"),`<div class="list">${r.results.map(m=>hubRow(m,inst,"hub-repo")).join("")}</div>`);
   $$("#hub-results .hub-repo").forEach(h=>h.onclick=()=>hubFiles(h.parentElement));
 }
 async function hubFiles(row){
@@ -523,16 +582,8 @@ async function vllmHubSearch(){
   if(r.error){msg.className="msg err";msg.textContent=r.error.slice(0,80);return;}
   $("#hub-vram").textContent=(r.vram_mib/1024).toFixed(1);
   msg.className="msg ok";msg.textContent=`${r.results.length} repos`;
-  setHTML($("#hub-results"),`<div class="list">${r.results.map(m=>`
-    <div class="row" data-repo="${esc(m.repo)}">
-      <div class="rhead vhub-repo" style="grid-template-columns:1fr auto auto auto">
-        <span class="mid">${esc(m.repo)}</span>
-        <span class="ctxpill">${esc((m.downloads||0).toLocaleString())} dl</span>
-        <span class="ctxpill" style="color:var(--cyan)">${esc(m.likes)} &hearts;</span>
-        <span class="chev">&#9654;</span>
-      </div>
-      <div class="edit"></div>
-    </div>`).join("")}</div>`);
+  const inst=new Set(r.installed||[]);
+  setHTML($("#hub-results"),`<div class="list">${r.results.map(m=>hubRow(m,inst,"vhub-repo")).join("")}</div>`);
   $$("#hub-results .vhub-repo").forEach(h=>h.onclick=()=>vllmHubInfo(h.parentElement));
 }
 async function vllmHubInfo(row){
@@ -577,8 +628,13 @@ async function vllmHubDownload(repo,sizeBytes,quant){
 }
 
 /* ---------- stats tab ---------- */
-let statsSort="tokens";
-const SORT_COLS={tokens:"Total",prompt:"Prompt",generated:"Gen",runs:"Runs",loaded_secs:"Loaded"};
+let statsSort="tokens", statsRange=14;
+const SORT_COLS={tokens:"Total",prompt:"Prompt",generated:"Gen",avg_tps:"Tok/s",runs:"Runs",loaded_secs:"Loaded"};
+function setStatsRange(n){statsRange=n;loadStats(true);}
+async function resetStats(){
+  if(!confirm("Reset ALL usage statistics? Per-model and daily history will be zeroed. This cannot be undone."))return;
+  await api("/api/stats/reset",{});toast("Stats reset","ok");loadStats(true);
+}
 function fmtNum(n){n=Number(n)||0;return n>=1e9?(n/1e9).toFixed(2)+"B":n>=1e6?(n/1e6).toFixed(2)+"M":n>=1e3?(n/1e3).toFixed(1)+"k":String(Math.round(n));}
 function fmtDur(s){s=Math.round(Number(s)||0);const h=Math.floor(s/3600),m=Math.floor(s%3600/60);return h?`${h}h ${m}m`:m?`${m}m`:`${s}s`;}
 function fmtAgo(ts){if(!ts)return "never";const d=Date.now()/1000-ts;return d<60?"just now":d<3600?Math.floor(d/60)+"m ago":d<86400?Math.floor(d/3600)+"h ago":Math.floor(d/86400)+"d ago";}
@@ -593,7 +649,8 @@ async function loadStats(silent){
   if(!s||s.error||!Array.isArray(s.per_model)){if(!silent)setHTML(v,`<div class="skel" style="color:var(--red)">BACKEND UNREACHABLE</div>`);return;}
   const t=s.totals,live=s.live;
   const rows=[...s.per_model].sort((a,b)=>(b[statsSort]||0)-(a[statsSort]||0));
-  const maxDaily=Math.max(1,...s.daily.map(d=>d.prompt+d.generated));
+  const daily=s.daily.slice(-statsRange);
+  const maxDaily=Math.max(1,...daily.map(d=>d.prompt+d.generated));
   setHTML(v,`
     <div class="gpus" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr))">
       ${statCard("Tokens processed",fmtNum(t.tokens))}
@@ -609,24 +666,34 @@ async function loadStats(silent){
       <div class="kv"><span class="k">prompt eval</span><span class="v">${(live.prompt_per_sec||0).toFixed(1)} tok/s</span></div>
       <div class="kv"><span class="k">active requests</span><span class="v">${esc(live.requests_processing)}</span></div>
     </div>
-    <div class="card"><h3>Activity${s.daily.length?` (last ${s.daily.length} days)`:""}</h3>
-      ${s.daily.length?`<div style="display:flex;align-items:flex-end;gap:4px;height:120px;margin-top:10px">
-        ${s.daily.map(d=>{const tot=d.prompt+d.generated,h=Math.round(100*tot/maxDaily);
-          return `<div title="${esc(d.date)} &middot; ${fmtNum(tot)} tokens" style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;height:100%">
-            <div style="height:${h}%;min-height:${tot?2:0}px;background:var(--amber);box-shadow:0 0 6px var(--amber-dim)"></div></div>`;}).join("")}
+    <div class="card"><h3>Activity${daily.length?` (last ${daily.length} days)`:""}
+        <span style="float:right">
+          <span class="chip ${statsRange===14?"on":""}" onclick="setStatsRange(14)">14d</span>
+          <span class="chip ${statsRange===30?"on":""}" onclick="setStatsRange(30)">30d</span>
+        </span></h3>
+      ${daily.length?`<div style="display:flex;align-items:flex-end;gap:4px;height:120px;margin-top:10px">
+        ${daily.map(d=>{const hp=Math.round(100*d.prompt/maxDaily),hg=Math.round(100*d.generated/maxDaily);
+          return `<div title="${esc(d.date)} &middot; ${fmtNum(d.generated)} generated + ${fmtNum(d.prompt)} prompt" style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;height:100%">
+            <div style="height:${hg}%;min-height:${d.generated?2:0}px;background:var(--amber);box-shadow:0 0 6px var(--amber-dim)"></div>
+            <div style="height:${hp}%;min-height:${d.prompt?2:0}px;background:var(--cyan);opacity:.55"></div></div>`;}).join("")}
       </div>
-      <div style="display:flex;justify-content:space-between;margin-top:6px;color:var(--dim);font-size:9px"><span>${esc(s.daily[0].date)}</span><span>${esc(s.daily[s.daily.length-1].date)}</span></div>`
+      <div style="display:flex;justify-content:space-between;margin-top:6px;color:var(--dim);font-size:9px">
+        <span>${esc(daily[0].date)}</span>
+        <span><span style="color:var(--amber)">&#9632;</span> generated &nbsp;<span style="color:var(--cyan)">&#9632;</span> prompt</span>
+        <span>${esc(daily[daily.length-1].date)}</span></div>`
       :`<div class="note">No usage recorded yet - load a model and run some inference.</div>`}
     </div>
     <div class="card"><h3>Per-model Usage</h3>
       ${rows.length?`<div class="toolbar" style="margin:6px 0 0">
         ${Object.keys(SORT_COLS).map(c=>`<span class="chip ${statsSort===c?"on":""}" onclick="sortStats('${c}')">${SORT_COLS[c]}</span>`).join("")}
+        <span class="chip" onclick="resetStats()" style="margin-left:auto;color:var(--red);border-color:var(--red)" title="zero all usage statistics">Reset stats</span>
       </div>
       <div class="list" style="margin-top:12px">${rows.map(m=>`
-        <div class="row"><div class="rhead" style="cursor:default;grid-template-columns:9px 1fr auto auto auto auto">
+        <div class="row"><div class="rhead" style="cursor:default;grid-template-columns:9px 1fr auto auto auto auto auto">
           <span class="led ${live.loaded_model===m.id?"loaded":""}"></span>
           <span class="mid">${esc(m.id)}</span>
           <span class="ctxpill" title="prompt ${fmtNum(m.prompt)} + generated ${fmtNum(m.generated)}">${fmtNum(m.tokens)} tok</span>
+          <span class="stat" title="average generation speed while active">${m.avg_tps?m.avg_tps+" tok/s":"-"}</span>
           <span class="stat">${fmtNum(m.runs)} runs</span>
           <span class="stat">${fmtDur(m.loaded_secs)}</span>
           <span class="stat">${fmtAgo(m.last_used)}</span>

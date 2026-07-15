@@ -17,7 +17,15 @@ gets built next.
   write sane per-model context sizes.
 - **Setup** — detect/install prereqs (winget/choco), scan drives for GGUFs, and
   prune registry entries whose files were deleted.
-- **Usage stats** and optional **LAN sharing** with an API-key toggle.
+- **Usage stats** — per-model tokens, runs, average tok/s, daily activity —
+  and optional **LAN sharing** with an API-key toggle.
+- **Linux & macOS (early preview)** — `bootstrap.sh` / `run.sh` / `stop.sh`,
+  portable process control and drive scanning, Metal build flags and
+  unified-memory VRAM-fit ratings on Apple Silicon, package-manager-aware
+  Setup (brew; exact install hints on Linux). The vLLM backend remains
+  Windows/WSL2-only for now.
+- **Discover platform tags** — every result shows which OSes its backend runs
+  on, plus GATED and INSTALLED badges.
 - **Agent-friendly API** — OpenAI-compatible endpoint plus load/unload so agents
   can swap models on demand.
 
@@ -38,10 +46,8 @@ gets built next.
   swap. Its flag set still parses from `--help`, so per-model tuning comes along.
 - **Named launch profiles** — save a *model + engine + settings* combo and launch
   it in one click.
-- **Linux support** — the most-requested item. Today's Windows-specific bits
-  (process control, drive scanning, winget/choco installs) need portable
-  equivalents. It's a real port, not a flag flip, but it's genuinely wanted.
-- **macOS support** — Metal builds and Apple-silicon VRAM-fit ratings.
+- **Linux/macOS hardening** — the port shipped as an early preview; next is
+  CI coverage on ubuntu/macos runners and native (non-WSL) vLLM on Linux.
 
 ## Under consideration
 
