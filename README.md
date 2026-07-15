@@ -46,10 +46,11 @@ LlamaForge trades that for direct, per-model control over the real llama.cpp ser
 
 | Tab | What it does |
 |-----|--------------|
-| **Models** | Every model on your machine in one list with live GPU VRAM/util/temp meters. Expand a model to edit all **~220 llama.cpp knobs** (context, KV-cache type, speculative decoding, tensor split, sampling, rope, ...), grouped and searchable. Save hot-reloads with no restart; load/unload in a click. |
-| **Discover** | Search **huggingface.co** for GGUF models (newest / most downloaded / most liked). Every quant is rated against your total VRAM - **FITS / TIGHT / CPU OFFLOAD** - before you download. One click streams the download (multi-shard + vision mmproj handled) and registers it in your registry. |
-| **Build / Update** | Shows your current llama.cpp commit, checks GitHub for how far behind you are, and rebuilds via CMake with flags **auto-detected for your CPU/GPU** (CUDA arch, AVX-512, quantized-KV flash attention). Prior binaries are backed up; the build streams live. |
-| **Setup** | Checks prerequisites (Git, CMake, Ninja, Python, MSVC, CUDA), installs missing ones **with your permission** (winget/choco) or links official downloads. Detects hardware and scans all drives for existing GGUF models. **Check for deleted models** prunes registry entries whose file has since been removed from disk. |
+| **Models** | Every model on your machine in one list with live GPU VRAM/util/temp meters (used **and** free). Expand a model to edit all **~220 llama.cpp knobs** (context, KV-cache type, speculative decoding, tensor split, sampling, rope, ...), grouped and searchable, with the file path and on-disk size shown. Save hot-reloads with no restart; load/unload in a click. `/` jumps to the filter; edits flag as unsaved until you save. |
+| **Stats** | Per-model usage tracked from the router's own metrics: tokens processed, average generation speed (tok/s), run counts, time loaded, and a stacked prompt/generated activity chart (14- or 30-day). Live throughput while a model runs. Resettable. |
+| **Discover** | Search **huggingface.co** for GGUF models (newest / most downloaded / most liked). Every quant is rated against your total VRAM - **FITS / TIGHT / CPU OFFLOAD** - before you download, and each result is tagged with the platforms it runs on plus **GATED** and **INSTALLED** badges. One click streams the download (multi-shard + vision mmproj handled) with live speed/ETA and a cancel button, then registers it in your registry. |
+| **Build / Update** | Shows your current llama.cpp commit, checks GitHub for how far behind you are (cached, so opening the tab doesn't re-hit GitHub every time — with a manual **Check GitHub now**), and rebuilds via CMake with flags **auto-detected for your CPU/GPU/Apple Silicon** (CUDA arch, AVX-512, quantized-KV flash attention, or Metal). Prior binaries are backed up; the build streams live and reports its duration. |
+| **Setup** | Checks prerequisites (Git, CMake, Ninja, Python, C++ compiler, CUDA), installs missing ones **with your permission** (winget/choco on Windows, Homebrew on macOS; exact commands shown on Linux — the dashboard never runs `sudo`) or links official downloads. Detects hardware and scans your drives (or `$HOME` + mounts) for existing GGUF models. **Check for deleted models** prunes registry entries whose file has since been removed from disk. |
 
 ## Screenshots
 
@@ -75,34 +76,41 @@ cd LlamaForge
 ./bootstrap.sh        # then ./run.sh daily, ./stop.sh to shut down
 ```
 
-`bootstrap.ps1` ensures Python + Git (asking before installing anything), fetches
-llama.cpp if you don't have it, writes `config.json`, and opens the dashboard. From
-there: **Setup** to install any missing compiler/CUDA and scan your drives, **Build**
-to compile llama.cpp for your hardware, **Models** to tune and run.
+The bootstrap script (`bootstrap.ps1` on Windows, `bootstrap.sh` on Linux/macOS)
+ensures Python + Git (asking before installing anything), fetches llama.cpp if you
+don't have it, writes `config.json`, and opens the dashboard. From there: **Setup**
+to install any missing compiler/CUDA and scan your drives, **Build** to compile
+llama.cpp for your hardware, **Models** to tune and run. A **Getting Started**
+checklist on the Models tab walks you through these three steps on a fresh install.
 
 ## Daily use
 
-Double-click **`LlamaForge.vbs`**. It starts the llama.cpp router and the dashboard
-hidden, then opens your browser. For autostart, put a shortcut to it in your Startup
-folder (`Win+R` -> `shell:startup`).
+**Windows:** double-click **`LlamaForge.vbs`**. It starts the llama.cpp router and
+the dashboard hidden, then opens your browser. For autostart, put a shortcut to it in
+your Startup folder (`Win+R` -> `shell:startup`).
+
+**Linux / macOS:** run **`./run.sh`** — same thing, starts the router and dashboard
+and opens your browser.
 
 - Dashboard: http://127.0.0.1:8090
 - llama.cpp chat UI + OpenAI-compatible API: http://127.0.0.1:8080
 
-To shut everything down, run **`stop.ps1`**. It reads the ports from `config.json`
-and stops the dashboard, the router, and every model instance the router spawned:
+To shut everything down — the dashboard, the router, and every model instance the
+router spawned — run the stop script for your OS:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File stop.ps1
+powershell -ExecutionPolicy Bypass -File stop.ps1   # Windows
+./stop.sh                                            # Linux / macOS
 ```
 
 ## Requirements
 
-- Windows 10/11
+- Windows 10/11 (primary), or Linux / macOS (Apple Silicon) as an early preview
 - Python 3.10+ (backend is **pure stdlib** - nothing to `pip install`)
-- NVIDIA GPU for CUDA acceleration (CPU-only builds also supported)
-- Everything else (Git, CMake, Ninja, MSVC Build Tools, CUDA) is detected and can be
-  installed from the Setup tab
+- NVIDIA GPU for CUDA acceleration (Metal on Apple Silicon; CPU-only builds also
+  supported everywhere)
+- Everything else (Git, CMake, Ninja, C++ compiler, CUDA) is detected and can be
+  installed from the Setup tab where a package manager allows it
 
 ## Configuration
 
@@ -112,7 +120,7 @@ All machine-specific paths live in `config.json` (see `config.example.json`):
 |-----|---------|
 | `llama_src` | your llama.cpp git checkout |
 | `build_dir` | CMake build directory |
-| `server_bin` | path to `llama-server.exe` |
+| `server_bin` | path to `llama-server` (`llama-server.exe` on Windows) |
 | `models_ini` | the router preset file LlamaForge edits |
 | `model_dirs` | directories to scan for GGUFs (empty = all fixed drives) |
 | `router_port` / `panel_port` | ports for llama.cpp and the dashboard |
@@ -130,10 +138,12 @@ router unauthenticated. See [SECURITY.md](SECURITY.md).
 
 LlamaForge contains **no llama.cpp source code**. The backend
 (`backend/server.py`, pure Python stdlib) proxies llama.cpp's own router API, edits
-`models.ini`, and shells out to `git` / `cmake` / `nvidia-smi` / `winget`. The knob
-list is parsed live from `llama-server --help`, so it stays correct across llama.cpp
-versions automatically. HuggingFace downloads are streamed by the backend, so they
-work even when llama.cpp is built without SSL.
+`models.ini`, and shells out to `git` / `cmake` / `nvidia-smi` and the platform's
+package manager (`winget`/`choco`, `brew`, or `apt`/`dnf`/`pacman`). Everything
+OS-specific lives behind one small `osplat` module. The knob list is parsed live from
+`llama-server --help`, so it stays correct across llama.cpp versions automatically.
+HuggingFace downloads are streamed by the backend, so they work even when llama.cpp
+is built without SSL.
 
 When models are registered, LlamaForge reads each GGUF's trained context length
 straight from its header and writes sensible `ctx-size` defaults into `models.ini`
@@ -143,9 +153,10 @@ by hand always win.
 
 ## Roadmap
 
-Multi-engine support (vLLM, ik-llama), named launch profiles, and Linux/macOS are
-on the way. See [ROADMAP.md](ROADMAP.md) for what's shipped, in progress, and
-planned — it's an early preview, so priorities follow feedback.
+Linux/macOS support and a **vLLM** backend (via WSL2 on Windows) have landed as
+early previews; ik-llama and named launch profiles are next. See
+[ROADMAP.md](ROADMAP.md) for what's shipped, in progress, and planned — it's an
+early preview, so priorities follow feedback.
 
 ## Credits & license
 
