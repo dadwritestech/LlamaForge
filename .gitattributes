@@ -1,0 +1,4 @@
+# Shell scripts must keep LF endings or bash on Linux/macOS rejects them,
+# even when the repo is cloned/committed from Windows.
+*.sh text eol=lf
+*.ps1 text eol=crlf
