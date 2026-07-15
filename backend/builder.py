@@ -55,13 +55,23 @@ class BuildManager:
         with open(self.log_path, encoding="utf-8", errors="replace") as f:
             return "".join(f.readlines()[-n:])
 
-    def backup_binaries(self, build_dir):
+    @staticmethod
+    def binaries_dir(build_dir, isdir=os.path.isdir):
+        """Where built binaries land: bin/Release with MSVC's multi-config
+        generator, plain bin/ with Ninja/Make (Linux, macOS)."""
         rel = os.path.join(build_dir, "bin", "Release")
-        if os.path.isdir(rel):
+        if isdir(rel):
+            return rel
+        flat = os.path.join(build_dir, "bin")
+        return flat if isdir(flat) else None
+
+    def backup_binaries(self, build_dir):
+        src = self.binaries_dir(build_dir)
+        if src:
             stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-            dst = os.path.join(build_dir, "bin", f"Release-backup-{stamp}")
+            dst = src.rstrip("/\\") + f"-backup-{stamp}"
             try:
-                shutil.copytree(rel, dst)
+                shutil.copytree(src, dst)
                 self._log(f"[backup] prior binaries -> {dst}")
             except Exception as e:
                 self._log(f"[backup] skipped: {e}")

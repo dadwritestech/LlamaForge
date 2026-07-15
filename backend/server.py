@@ -7,8 +7,11 @@ detection, and drive scanning. Pure Python stdlib.
 import json, os, subprocess, urllib.request, urllib.error
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-import config, argspec, hardware, prereqs, scanner, hub, router_ctl, stats
+import config, argspec, hardware, osplat, prereqs, scanner, hub, router_ctl, stats
 import wsl, vllm_ctl, vllm_registry, vllm_setup, vllm_job, vllm_hub, vllm_download
+
+# vLLM is managed through WSL2, so the whole vLLM surface is Windows-only.
+VLLM_SUPPORTED = osplat.IS_WIN
 from builder import BuildManager
 
 ROOT    = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -98,6 +101,8 @@ def gpus():
     return hardware.detect_gpus_verbose() if hasattr(hardware, "detect_gpus_verbose") else _gpu_telemetry()
 
 def _gpu_telemetry():
+    if osplat.IS_MAC:
+        return osplat.mac_gpu_telemetry()
     try:
         out = subprocess.check_output(
             ["nvidia-smi",
@@ -220,15 +225,41 @@ class H(BaseHTTPRequestHandler):
         with open(path, "rb") as f:
             self._send(200, f.read(), ctype)
 
+    def _vllm_gate(self, p):
+        """vLLM rides on WSL2; short-circuit its routes on Linux/macOS."""
+        if p.startswith("/api/vllm/") and not VLLM_SUPPORTED:
+            if p == "/api/vllm/setup":   # the Setup tab probes this one
+                self._send(200, {"supported": False, "wsl": {"present": False},
+                                 "distros": [], "gpu": {"present": False},
+                                 "vllm": {"present": False, "version": ""},
+                                 "setup_job": {"running": False}, "setup_log": ""})
+            else:
+                self._send(400, {"error": "vLLM backend requires Windows + WSL2"})
+            return True
+        return False
+
     def do_GET(self):
         p = self.path.split("?")[0]
+        if self._vllm_gate(p):
+            return
         if p in ("/", "/index.html"): return self._file("index.html", "text/html; charset=utf-8")
         if p == "/app.js":            return self._file("app.js", "application/javascript; charset=utf-8")
         if p == "/api/state":
             s = model_state()
-            mgr = vllm_mgr()
-            s = merge_vllm_models(s, mgr.status(), vllm_registry.models(), cfg()["router_port"])
-            s["gpus"] = _gpu_telemetry(); s["config"] = cfg(); return self._send(200, s)
+            c = cfg()
+            if VLLM_SUPPORTED:
+                mgr = vllm_mgr()
+                s = merge_vllm_models(s, mgr.status(), vllm_registry.models(), c["router_port"])
+            else:   # still tags llama.cpp rows with backend + endpoint
+                s = merge_vllm_models(s, [], [], c["router_port"])
+            s["gpus"] = _gpu_telemetry(); s["config"] = c
+            s["platform"] = osplat.current()
+            s["vllm_supported"] = VLLM_SUPPORTED
+            s["onboarding"] = {
+                "server_bin_ok": bool(c.get("server_bin")) and os.path.exists(c["server_bin"]),
+                "model_count": len(s["models"]),
+            }
+            return self._send(200, s)
         if p == "/api/schema":   return self._send(200, schema())
         if p == "/api/gpus":     return self._send(200, {"gpus": _gpu_telemetry()})
         if p == "/api/setup":
@@ -273,6 +304,7 @@ class H(BaseHTTPRequestHandler):
             c = cfg()
             distro = c.get("wsl_distro") or wsl.default_distro()
             s = vllm_setup.status(distro)
+            s["supported"] = True
             s["setup_job"] = VLLM_SETUP_JOB.progress()
             s["setup_log"] = VLLM_SETUP_JOB.tail(300)
             return self._send(200, s)
@@ -293,6 +325,8 @@ class H(BaseHTTPRequestHandler):
         n = int(self.headers.get("Content-Length", 0))
         body = json.loads(self.rfile.read(n) or "{}") if n else {}
         p = self.path.split("?")[0]
+        if self._vllm_gate(p):
+            return
 
         if p == "/api/save":
             mid = body.get("model"); updates = body.get("settings", {})
