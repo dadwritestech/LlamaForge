@@ -87,17 +87,28 @@ def shard_paths(first_path, n):
     return [f"{base}-{i:05d}-of-{n:05d}.gguf" for i in range(1, n + 1)]
 
 class Cancelled(Exception):
-    """User pressed Cancel; unwinds the download thread cleanly."""
+    """User pressed Cancel; unwinds the download thread cleanly (drops .part)."""
+
+
+class Paused(Exception):
+    """User pressed Pause; unwinds the thread but KEEPS the .part for resume."""
 
 
 class DownloadManager:
-    """One download job at a time, streamed with progress. Cancellation is
-    cooperative: cancel() sets a flag the chunk loop checks."""
+    """One download job at a time, streamed with progress. Cancel and pause are
+    cooperative flags the chunk loop checks. Pause leaves the partial `.part`
+    file in place; a later start() with the same paths resumes it via an HTTP
+    Range request, so a 25GB transfer never restarts from zero."""
     def __init__(self):
         self.lock = threading.Lock()
-        self.state = {"running": False, "repo": "", "file": "", "done_files": 0,
-                      "total_files": 0, "downloaded": 0, "total": 0, "cancel": False,
-                      "error": "", "finished_path": "", "phase": "idle"}
+        self._job = None       # (repo, paths, dest_dir) - kept so resume() can rerun
+        self.state = self._idle_state()
+
+    @staticmethod
+    def _idle_state():
+        return {"running": False, "repo": "", "file": "", "done_files": 0,
+                "total_files": 0, "downloaded": 0, "total": 0, "cancel": False,
+                "paused": False, "error": "", "finished_path": "", "phase": "idle"}
 
     def progress(self):
         return dict(self.state)
@@ -110,28 +121,67 @@ class DownloadManager:
             self.state["cancel"] = True
             return True
 
+    def pause(self):
+        """Request a pause of the running job (partial file is kept). Returns
+        whether one ran."""
+        with self.lock:
+            if not self.state["running"]:
+                return False
+            self.state["paused"] = True
+            return True
+
+    def resume(self):
+        """Restart a paused job from where it left off. Returns whether one
+        was resumed."""
+        with self.lock:
+            if self.state["running"] or self.state.get("phase") != "paused" or not self._job:
+                return False
+            repo, paths, dest_dir = self._job
+            self.state.update(running=True, cancel=False, paused=False, phase="starting")
+        threading.Thread(target=self._run, args=(repo, paths, dest_dir), daemon=True).start()
+        return True
+
     def _check_cancel(self):
         if self.state.get("cancel"):
             raise Cancelled()
 
+    def _check_signals(self):
+        if self.state.get("cancel"):
+            raise Cancelled()
+        if self.state.get("paused"):
+            raise Paused()
+
     def _fetch(self, url, dest):
+        tmp = dest + ".part"
+        have = os.path.getsize(tmp) if os.path.exists(tmp) else 0
         req = urllib.request.Request(url, headers=UA)
+        if have:
+            req.add_header("Range", f"bytes={have}-")
         with urllib.request.urlopen(req, timeout=60) as r:
-            total = int(r.headers.get("Content-Length") or 0)
-            self.state["total"] = total
-            self.state["downloaded"] = 0
-            tmp = dest + ".part"
+            resumed = have and getattr(r, "status", 200) == 206
+            clen = int(r.headers.get("Content-Length") or 0)
+            if resumed:                       # server continues from `have`
+                self.state["total"] = have + clen
+                self.state["downloaded"] = have
+                mode = "ab"
+            else:                             # range ignored/absent -> start over
+                have = 0
+                self.state["total"] = clen
+                self.state["downloaded"] = 0
+                mode = "wb"
             try:
-                with open(tmp, "wb") as f:
+                with open(tmp, mode) as f:
                     while True:
-                        self._check_cancel()
+                        self._check_signals()
                         chunk = r.read(1024 * 1024)
                         if not chunk:
                             break
                         f.write(chunk)
                         self.state["downloaded"] += len(chunk)
+            except Paused:
+                raise                          # keep .part so resume() can continue
             except Cancelled:
-                try: os.remove(tmp)        # never leave a poisoned .part behind
+                try: os.remove(tmp)            # never leave a poisoned .part behind
                 except OSError: pass
                 raise
             os.replace(tmp, dest)
@@ -139,10 +189,10 @@ class DownloadManager:
     def _run(self, repo, paths, dest_dir):
         try:
             os.makedirs(dest_dir, exist_ok=True)
-            self.state.update(total_files=len(paths), done_files=0, phase="downloading")
-            final = ""
+            self.state.update(total_files=len(paths), phase="downloading")
+            final = self.state.get("finished_path") or ""
             for i, p in enumerate(paths):
-                self._check_cancel()
+                self._check_signals()
                 self.state.update(file=os.path.basename(p), done_files=i)
                 url = f"{HF}/{repo}/resolve/main/{urllib.parse.quote(p)}"
                 dest = os.path.join(dest_dir, os.path.basename(p))
@@ -153,6 +203,8 @@ class DownloadManager:
                 if not final: final = dest
             self.state.update(done_files=len(paths), phase="done",
                               finished_path=final)
+        except Paused:
+            self.state.update(phase="paused", error="")
         except Cancelled:
             self.state.update(phase="cancelled", error="")
         except Exception as e:
@@ -164,9 +216,10 @@ class DownloadManager:
         with self.lock:
             if self.state["running"]:
                 return False
-            self.state = {"running": True, "repo": repo, "file": "", "done_files": 0,
-                          "total_files": len(paths), "downloaded": 0, "total": 0,
-                          "cancel": False, "error": "", "finished_path": "", "phase": "starting"}
+            self._job = (repo, paths, dest_dir)
+            self.state = self._idle_state()
+            self.state.update(running=True, repo=repo, total_files=len(paths),
+                              phase="starting")
         threading.Thread(target=self._run, args=(repo, paths, dest_dir), daemon=True).start()
         return True
 

@@ -3,7 +3,7 @@
 All machine-specific paths live in config.json so the project is portable:
 nothing is hardcoded. On a fresh machine, bootstrap writes config.json.
 """
-import json, os, re
+import copy, json, os, re
 
 import gguf
 
@@ -24,10 +24,12 @@ DEFAULTS = {
     "vllm_port":   8081,                      # port vLLM serves on (WSL localhost-forwarded to Windows)
     "cmake_flags": {},                       # persisted build flags (from hardware detect)
     "git_remote":  "https://github.com/ggml-org/llama.cpp",
+    "auto_load_model": "",                    # model id to load automatically on launch ("" = none)
+    "presets":     {},                       # named knob sets: {name: {knob: value}}
 }
 
 def load():
-    cfg = dict(DEFAULTS)
+    cfg = copy.deepcopy(DEFAULTS)   # deep so mutable defaults (presets, lists) never alias
     if os.path.exists(CONFIG):
         try:
             with open(CONFIG, encoding="utf-8-sig") as f:
@@ -158,6 +160,42 @@ def remove_section(section, path=None):
     del lines[start:end]
     _write(path, lines)
     return True
+
+# ---------------- knob presets ----------------
+
+def get_presets():
+    """Named knob sets from config.json, e.g. {"coding": {"temp": "0.2"}}."""
+    p = load().get("presets")
+    return p if isinstance(p, dict) else {}
+
+def save_preset(name, settings):
+    """Store a named preset. `settings` is {knob: value}; blank values are
+    dropped so a preset only carries the knobs it actually pins. Returns the
+    full preset map."""
+    name = (name or "").strip()
+    if not name:
+        raise ValueError("preset name is required")
+    clean = {k: str(v).strip() for k, v in (settings or {}).items()
+             if str(v).strip() != ""}
+    cfg = load()
+    presets = cfg.get("presets")
+    if not isinstance(presets, dict):
+        presets = {}
+    presets[name] = clean
+    cfg["presets"] = presets
+    save(cfg)
+    return presets
+
+def delete_preset(name):
+    """Remove a named preset. Returns True if it existed."""
+    cfg = load()
+    presets = cfg.get("presets")
+    if isinstance(presets, dict) and name in presets:
+        del presets[name]
+        cfg["presets"] = presets
+        save(cfg)
+        return True
+    return False
 
 # ---------------- automatic ctx-size defaults ----------------
 
