@@ -59,7 +59,7 @@ function renderGpus(g){
   if(!g||!g.length||g[0].error){setHTML($("#gpus"),`<div class="gpu"><div class="stats">GPU telemetry unavailable</div></div>`);return;}
   setHTML($("#gpus"),g.map(x=>`<div class="gpu"><div class="top"><span class="name">${esc(x.name)}</span><span class="idx">CUDA${esc(x.index)}</span></div>
     <div class="meter">${meter(x.used,x.total)}</div>
-    <div class="stats"><span><b>${esc((x.used/1024).toFixed(1))}</b>/${esc((x.total/1024).toFixed(1))} GB</span><span>UTIL <b>${esc(x.util)}%</b></span><span>TEMP <b>${esc(x.temp)}&deg;C</b></span></div></div>`).join(""));
+    <div class="stats"><span><b>${esc((x.used/1024).toFixed(1))}</b>/${esc((x.total/1024).toFixed(1))} GB</span><span>FREE <b>${esc(((x.total-x.used)/1024).toFixed(1))}</b> GB</span><span>UTIL <b>${esc(x.util)}%</b></span><span>TEMP <b>${esc(x.temp)}&deg;C</b></span></div></div>`).join(""));
 }
 function curVal(m,knob){for(const a of knob.aliases){if(m.settings[a]!=null)return m.settings[a];}return "";}
 function knobField(m,k){
@@ -79,6 +79,13 @@ function knobField(m,k){
     <label title="${esc(k.desc)}">${esc(k.key)}</label>${ctrl}
     ${k.desc?`<div class="hint" title="${esc(k.desc)}">${esc(k.desc)}</div>`:""}</div>`;
 }
+function modelMeta(m){
+  const mp=m.settings&&m.settings.model;
+  if(!mp&&!m.file_gib)return "";
+  return `<div class="note" style="margin-bottom:10px">
+    ${mp?`<span class="tag ep" data-copy="${esc(mp)}" title="click to copy the file path">copy path</span> ${esc(mp)}`:""}
+    ${m.file_gib?`<span style="color:var(--cyan)"> &middot; ${esc(m.file_gib)} GiB on disk</span>`:""}</div>`;
+}
 function editor(m){
   if(m.backend==="vllm") return vllmEditor(m);
   if(!m.in_ini) return `<div class="note">Auto-discovered (not in models.ini) &mdash; add it via Setup &rarr; Scan Drives to tune it here.</div>`;
@@ -87,7 +94,7 @@ function editor(m){
     const flds=g.knobs.map(k=>knobField(m,k)).join("");
     return `<details class="kgroup" ${gi===0?"open":""}><summary>${esc(g.name)} &middot; ${g.knobs.length}</summary><div class="kgrid">${flds}</div></details>`;
   }).join("");
-  return `<div class="toolbar">
+  return `${modelMeta(m)}<div class="toolbar">
       <input class="search" placeholder="filter knobs (e.g. cache, rope, temp)..." oninput="filterKnobs(this)">
       <span class="chip ${onlySet?"on":""}" onclick="toggleOnlySet(this)">Only set</span>
     </div>${groups}
@@ -104,7 +111,7 @@ function vllmEditor(m){
     const flds=g.knobs.map(k=>knobField(m,k)).join("");
     return `<details class="kgroup" ${gi===0?"open":""}><summary>${esc(g.name)} &middot; ${g.knobs.length}</summary><div class="kgrid">${flds}</div></details>`;
   }).join("");
-  return `<div class="toolbar">
+  return `${modelMeta(m)}<div class="toolbar">
       <input class="search" placeholder="filter knobs (e.g. tensor, memory, quant)..." oninput="filterKnobs(this)">
       <span class="chip ${onlySet?"on":""}" onclick="toggleOnlySet(this)">Only set</span>
     </div>${groups}
@@ -135,7 +142,9 @@ function renderModels(){
   const all=STATE.models;
   const ms=all.filter(m=>(!mquery||m.id.toLowerCase().includes(mquery))&&(!favOnly||favs.has(m.id)))
     .sort((a,b)=>(favs.has(b.id)?1:0)-(favs.has(a.id)?1:0));
-  $("#count").textContent=`${all.filter(m=>m.status==="loaded").length} LOADED / ${all.length} TOTAL`+(ms.length!==all.length?` · ${ms.length} shown`:"");
+  const nLoaded=all.filter(m=>m.status==="loaded").length;
+  $("#count").textContent=`${nLoaded} LOADED / ${all.length} TOTAL`+(ms.length!==all.length?` · ${ms.length} shown`:"");
+  document.title=nLoaded?`▸${nLoaded} LLAMAFORGE`:"LLAMAFORGE";
   setHTML($("#list"),ms.map(m=>{
     const vis=m.modalities.includes("image"),loaded=m.status==="loaded",isFav=favs.has(m.id);
     const stuckSecs=loadingSecs(m);
@@ -166,7 +175,9 @@ function captureEditorState(){
   const focusSearch=(active===searchEl);
   const selStart=focusKey&&"selectionStart" in active?active.selectionStart:null;
   const selEnd=focusKey&&"selectionEnd" in active?active.selectionEnd:null;
-  return {vals,groupsOpen,searchVal,focusKey,focusSearch,selStart,selEnd};
+  const msgEl=$("[data-msg]",row);   // keep "unsaved changes" alive across polls
+  return {vals,groupsOpen,searchVal,focusKey,focusSearch,selStart,selEnd,
+          msgText:msgEl?msgEl.textContent:"",msgClass:msgEl?msgEl.className:""};
 }
 function restoreEditorState(snap){
   if(!snap||!openId)return;
@@ -185,7 +196,27 @@ function restoreEditorState(snap){
     const searchEl=$(".edit .search",row);
     if(searchEl)searchEl.focus();
   }
+  if(snap.msgText){
+    const msgEl=$("[data-msg]",row);
+    if(msgEl){msgEl.textContent=snap.msgText;msgEl.className=snap.msgClass;}
+  }
 }
+// flag knob edits so the user knows a Save is pending
+document.addEventListener("input",e=>{
+  const row=e.target.closest("#view-models .row.open");
+  if(!row||e.target.dataset.k==null)return;
+  const msg=$("[data-msg]",row);
+  if(msg){msg.className="msg work";msg.textContent="unsaved changes";}
+});
+// "/" jumps to the model filter; Esc clears it
+document.addEventListener("keydown",e=>{
+  const typing=/INPUT|SELECT|TEXTAREA/.test((document.activeElement||{}).tagName||"");
+  if(e.key==="/"&&!typing&&$(".tab.active").dataset.tab==="models"){
+    e.preventDefault();const inp=$("#model-search");if(inp)inp.focus();
+  }else if(e.key==="Escape"&&document.activeElement===$("#model-search")){
+    const inp=$("#model-search");inp.value="";mquery="";renderModels();inp.blur();
+  }
+});
 async function refresh(silent){
   try{
     const snap=silent?captureEditorState():null;
@@ -200,6 +231,8 @@ async function refresh(silent){
   catch(e){if(!silent)setHTML($("#list"),`<div class="skel" style="color:var(--red)">BACKEND UNREACHABLE</div>`);}
 }
 document.addEventListener("click",async e=>{
+  const cpChip=e.target.closest("#view-models [data-copy]");
+  if(cpChip){e.stopPropagation();navigator.clipboard.writeText(cpChip.dataset.copy).then(()=>toast("Path copied","ok"));return;}
   const epChip=e.target.closest("#view-models [data-ep]");
   if(epChip){e.stopPropagation();navigator.clipboard.writeText(epChip.dataset.ep).then(()=>toast("Endpoint copied","ok"));return;}
   const favBtn=e.target.closest("#view-models [data-fav]");
@@ -303,7 +336,9 @@ async function pollBuild(){
     const log=$("#build-log");if(log){log.textContent=s.log||"idle";log.scrollTop=log.scrollHeight;}
     const msg=$("#build-msg");
     if(msg&&s.running){msg.className="msg work";msg.textContent="building: "+s.phase;}
-    else if(msg&&s.phase==="done"){msg.className="msg ok";msg.textContent="build OK";clearInterval(buildPoll);}
+    else if(msg&&s.phase==="done"){msg.className="msg ok";
+      msg.textContent="build OK"+(s.started&&s.finished?` in ${fmtDur(s.finished-s.started)}`:"");
+      clearInterval(buildPoll);}
     else if(msg&&s.phase==="failed"){msg.className="msg err";msg.textContent="build failed - see log";clearInterval(buildPoll);}
   };
   await tick();buildPoll=setInterval(tick,2000);
@@ -481,6 +516,18 @@ function hubRow(m,installed,clickClass){
     <div class="edit"></div>
   </div>`;
 }
+let dlPrev=null;   // {t, bytes} from the previous progress poll -> speed/ETA
+function dlSpeed(s){
+  const now=Date.now();let txt="";
+  if(dlPrev&&s.downloaded>=dlPrev.bytes){   // negative delta = next shard started
+    const dt=(now-dlPrev.t)/1000;
+    if(dt>0.2){const bps=(s.downloaded-dlPrev.bytes)/dt;
+      if(bps>1e4){txt=` · ${(bps/1e6).toFixed(1)} MB/s`;
+        if(s.total>s.downloaded)txt+=` · ETA ${fmtDur((s.total-s.downloaded)/bps)}`;}}
+  }
+  dlPrev={t:now,bytes:s.downloaded};
+  return txt;
+}
 const FIT_LABEL={fits:["FITS VRAM","ok"],tight:["TIGHT","work"],offload:["CPU OFFLOAD","err"],unknown:["?",""]};
 function fitBadge(fit){const [txt,cls]=FIT_LABEL[fit]||FIT_LABEL.unknown;
   const col=cls==="ok"?"var(--green)":cls==="work"?"var(--amber)":cls==="err"?"var(--red)":"var(--dim)";
@@ -511,21 +558,33 @@ function loadDiscover(){
       <div class="kv"><span class="k">file</span><span class="v" id="dl-file">-</span></div>
       <div class="meter" style="margin-top:8px" id="dl-meter"></div>
       <div class="kv"><span class="k">progress</span><span class="v" id="dl-prog">-</span></div>
+      <div class="actions" id="dl-run" style="display:none">
+        <button class="ghost" id="dl-cancel">Cancel download</button>
+      </div>
       <div class="actions" id="dl-done" style="display:none">
         <button class="primary" id="dl-add">Add to my models</button><span class="msg" id="dl-msg"></span>
       </div>
     </div>`);
+  $("#dl-cancel").onclick=async()=>{const r=await api("/api/hub/cancel",{});toast(r.ok?"Cancelling...":"No download running",r.ok?"ok":"err");};
   // vLLM (safetensors) is Windows/WSL-only; drop the mode on other platforms
   if(STATE&&STATE.vllm_supported===false){
     const opt=$('#hub-mode option[value="safetensors"]');
     if(opt)opt.remove();
   }
+  // restore last search (mode/sort/query survive tab switches + reloads)
+  try{
+    const saved=JSON.parse(localStorage.getItem("lf_hub")||"{}");
+    if(saved.mode&&$(`#hub-mode option[value="${saved.mode}"]`))$("#hub-mode").value=saved.mode;
+    if(saved.sort)$("#hub-sort").value=saved.sort;
+    if(saved.q)$("#hub-q").value=saved.q;
+  }catch(e){}
   $("#hub-go").onclick=hubSearch;
   $("#hub-mode").onchange=()=>hubSearch();
   $("#hub-q").addEventListener("keydown",e=>{if(e.key==="Enter")hubSearch();});
   hubSearch();
 }
 async function hubSearch(){
+  localStorage.setItem("lf_hub",JSON.stringify({mode:$("#hub-mode").value,sort:$("#hub-sort").value,q:$("#hub-q").value.trim()}));
   if($("#hub-mode")&&$("#hub-mode").value==="safetensors")return vllmHubSearch();
   const msg=$("#hub-msg");msg.className="msg work";msg.textContent="searching huggingface.co...";
   const r=await api("/api/hub/search",{query:$("#hub-q").value.trim(),sort:$("#hub-sort").value});
@@ -559,13 +618,16 @@ async function hubDownload(repo,path,shards,mmproj){
   if(!r.started){toast("A download is already running","err");return;}
   toast("Download started","ok");
   $("#hub-dlcard").style.display="";$("#dl-done").style.display="none";
+  $("#dl-run").style.display="";dlPrev=null;
   clearInterval(dlPoll);
   dlPoll=setInterval(async()=>{
     const s=await api("/api/hub/progress");
     $("#dl-file").textContent=`${s.repo} :: ${s.file||"-"} (${s.done_files+1 > s.total_files ? s.total_files : s.done_files+1}/${s.total_files})`;
     const pct=s.total?Math.round(100*s.downloaded/s.total):0;
     setHTML($("#dl-meter"),meter(s.downloaded,Math.max(s.total,1)));
-    $("#dl-prog").textContent=s.phase==="done"?"complete":s.phase==="failed"?("FAILED: "+s.error.slice(0,80)):`${(s.downloaded/1e9).toFixed(2)} / ${(s.total/1e9).toFixed(2)} GB (${pct}%)`;
+    $("#dl-prog").textContent=s.phase==="done"?"complete":s.phase==="failed"?("FAILED: "+s.error.slice(0,80)):s.phase==="cancelled"?"cancelled":`${(s.downloaded/1e9).toFixed(2)} / ${(s.total/1e9).toFixed(2)} GB (${pct}%)${dlSpeed(s)}`;
+    if(s.phase!=="downloading"&&s.phase!=="starting")$("#dl-run").style.display="none";
+    if(s.phase==="cancelled"){clearInterval(dlPoll);toast("Download cancelled","ok");}
     if(s.phase==="done"){clearInterval(dlPoll);$("#dl-done").style.display="";
       $("#dl-add").onclick=async()=>{const m=$("#dl-msg");m.className="msg work";m.textContent="registering...";
         const rr=await api("/api/hub/add",{path:s.finished_path});
@@ -611,13 +673,14 @@ async function vllmHubDownload(repo,sizeBytes,quant){
   if(!r.started){toast("A download is already running","err");return;}
   toast("Download started","ok");
   $("#hub-dlcard").style.display="";$("#dl-done").style.display="none";
+  $("#dl-run").style.display="none";dlPrev=null;   // WSL transfer: no cancel
   clearInterval(dlPoll);
   dlPoll=setInterval(async()=>{
     const s=await api("/api/vllm/hub/progress");
     $("#dl-file").textContent=`${s.repo} (WSL cache)`;
     const pct=s.total?Math.round(100*s.downloaded/s.total):0;
     setHTML($("#dl-meter"),meter(s.downloaded,Math.max(s.total,1)));
-    $("#dl-prog").textContent=s.phase==="done"?"complete":s.phase==="failed"?("FAILED: "+(s.error||"").slice(0,80)):`${(s.downloaded/1e9).toFixed(2)} / ${(s.total/1e9).toFixed(2)} GB (${pct}%)`;
+    $("#dl-prog").textContent=s.phase==="done"?"complete":s.phase==="failed"?("FAILED: "+(s.error||"").slice(0,80)):`${(s.downloaded/1e9).toFixed(2)} / ${(s.total/1e9).toFixed(2)} GB (${pct}%)${dlSpeed(s)}`;
     if(s.phase==="done"){clearInterval(dlPoll);$("#dl-done").style.display="";
       $("#dl-add").onclick=async()=>{const m=$("#dl-msg");m.className="msg work";m.textContent="registering...";
         const rr=await api("/api/vllm/hub/register",{repo,size_bytes:sizeBytes,quant});

@@ -86,16 +86,33 @@ def shard_paths(first_path, n):
     base = re.sub(r"-\d{5}-of-\d{5}\.gguf$", "", first_path, flags=re.I)
     return [f"{base}-{i:05d}-of-{n:05d}.gguf" for i in range(1, n + 1)]
 
+class Cancelled(Exception):
+    """User pressed Cancel; unwinds the download thread cleanly."""
+
+
 class DownloadManager:
-    """One download job at a time, streamed with progress."""
+    """One download job at a time, streamed with progress. Cancellation is
+    cooperative: cancel() sets a flag the chunk loop checks."""
     def __init__(self):
         self.lock = threading.Lock()
         self.state = {"running": False, "repo": "", "file": "", "done_files": 0,
-                      "total_files": 0, "downloaded": 0, "total": 0,
+                      "total_files": 0, "downloaded": 0, "total": 0, "cancel": False,
                       "error": "", "finished_path": "", "phase": "idle"}
 
     def progress(self):
         return dict(self.state)
+
+    def cancel(self):
+        """Request cancellation of the running job. Returns whether one ran."""
+        with self.lock:
+            if not self.state["running"]:
+                return False
+            self.state["cancel"] = True
+            return True
+
+    def _check_cancel(self):
+        if self.state.get("cancel"):
+            raise Cancelled()
 
     def _fetch(self, url, dest):
         req = urllib.request.Request(url, headers=UA)
@@ -104,13 +121,19 @@ class DownloadManager:
             self.state["total"] = total
             self.state["downloaded"] = 0
             tmp = dest + ".part"
-            with open(tmp, "wb") as f:
-                while True:
-                    chunk = r.read(1024 * 1024)
-                    if not chunk:
-                        break
-                    f.write(chunk)
-                    self.state["downloaded"] += len(chunk)
+            try:
+                with open(tmp, "wb") as f:
+                    while True:
+                        self._check_cancel()
+                        chunk = r.read(1024 * 1024)
+                        if not chunk:
+                            break
+                        f.write(chunk)
+                        self.state["downloaded"] += len(chunk)
+            except Cancelled:
+                try: os.remove(tmp)        # never leave a poisoned .part behind
+                except OSError: pass
+                raise
             os.replace(tmp, dest)
 
     def _run(self, repo, paths, dest_dir):
@@ -119,6 +142,7 @@ class DownloadManager:
             self.state.update(total_files=len(paths), done_files=0, phase="downloading")
             final = ""
             for i, p in enumerate(paths):
+                self._check_cancel()
                 self.state.update(file=os.path.basename(p), done_files=i)
                 url = f"{HF}/{repo}/resolve/main/{urllib.parse.quote(p)}"
                 dest = os.path.join(dest_dir, os.path.basename(p))
@@ -129,6 +153,8 @@ class DownloadManager:
                 if not final: final = dest
             self.state.update(done_files=len(paths), phase="done",
                               finished_path=final)
+        except Cancelled:
+            self.state.update(phase="cancelled", error="")
         except Exception as e:
             self.state.update(phase="failed", error=str(e))
         finally:
@@ -140,7 +166,7 @@ class DownloadManager:
                 return False
             self.state = {"running": True, "repo": repo, "file": "", "done_files": 0,
                           "total_files": len(paths), "downloaded": 0, "total": 0,
-                          "error": "", "finished_path": "", "phase": "starting"}
+                          "cancel": False, "error": "", "finished_path": "", "phase": "starting"}
         threading.Thread(target=self._run, args=(repo, paths, dest_dir), daemon=True).start()
         return True
 

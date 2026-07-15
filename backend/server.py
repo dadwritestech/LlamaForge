@@ -175,15 +175,24 @@ def model_state():
             "in_ini": mid in ini,
             "settings": sect,       # only keys explicitly set for this model
             "eff_ctx": _eff(rm, glob, "ctx-size", "--ctx-size"),
+            "file_gib": _file_gib(sect.get("model")),
         })
     # also expose ini-only models not yet known to a (possibly-down) router
     for name in ini:
         if name != "*" and name not in rmap:
             models.append({"id": name, "status": "offline", "failed": False,
                            "modalities": ["text"], "in_ini": True,
-                           "settings": ini[name], "eff_ctx": ini[name].get("ctx-size", glob.get("ctx-size", "?"))})
+                           "settings": ini[name], "eff_ctx": ini[name].get("ctx-size", glob.get("ctx-size", "?")),
+                           "file_gib": _file_gib(ini[name].get("model"))})
     models.sort(key=lambda m: (m["status"] != "loaded", m["id"]))
     return {"models": models, "global": glob}
+
+def _file_gib(path):
+    """Model file size in GiB, or None (missing path / file gone)."""
+    try:
+        return round(os.path.getsize(path) / 1024**3, 2) if path else None
+    except OSError:
+        return None
 
 def _eff(rm, glob, key, flag):
     args = rm.get("status", {}).get("args", [])
@@ -208,11 +217,14 @@ def merge_vllm_models(base, vllm_status, vllm_ids, router_port):
     for mid in vllm_ids:
         inst = live.get(mid)
         status = STATE_MAP.get(inst["state"], "offline") if inst else "offline"
+        entry = vllm_registry.load().get(mid, {})
         row = {"id": mid, "backend": "vllm", "status": status,
                "failed": bool(inst and inst["state"] == "failed"),
                "modalities": ["text"], "in_ini": True,
-               "settings": vllm_registry.load().get(mid, {}).get("settings", {}),
-               "eff_ctx": vllm_registry.effective_settings(mid).get("max-model-len", "?")}
+               "settings": entry.get("settings", {}),
+               "eff_ctx": vllm_registry.effective_settings(mid).get("max-model-len", "?"),
+               "file_gib": round(entry.get("size_bytes", 0) / 1024**3, 2)
+                           if entry.get("size_bytes") else None}
         if inst and status == "loaded":
             row["endpoint"] = inst["endpoint"]
         base["models"].append(row)
@@ -436,6 +448,9 @@ class H(BaseHTTPRequestHandler):
                                 repo.replace("/", "--"))
             ok = DOWNLOADS.start(repo, paths, dest)
             return self._send(200, {"started": ok, "dest": dest})
+
+        if p == "/api/hub/cancel":
+            return self._send(200, {"ok": DOWNLOADS.cancel()})
 
         if p == "/api/hub/add":
             # register a finished download in models.ini
