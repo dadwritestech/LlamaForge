@@ -277,12 +277,17 @@ document.addEventListener("click",async e=>{
 
 /* ---------- build tab ---------- */
 let buildPoll=null;
-async function loadBuild(){
-  const v=$("#view-build");setHTML(v,`<div class="skel">QUERYING GIT + GITHUB...</div>`);
-  const b=await api("/api/build/info");
-  const vver=await api("/api/vllm/version");
+function agoText(secs){secs=Math.max(0,Math.round(secs||0));return secs<60?"just now":secs<3600?Math.floor(secs/60)+"m ago":Math.floor(secs/3600)+"h ago";}
+async function loadBuild(force){
+  const v=$("#view-build");
+  if(force){const s=$("#upstream-status");if(s){s.textContent="checking github...";s.className="v work";}}
+  else setHTML(v,`<div class="skel">QUERYING GIT + GITHUB...</div>`);
+  const q=force?"?force=1":"";
+  const b=await api("/api/build/info"+q);
+  const vver=await api("/api/vllm/version"+q);
   const cur=b.current||{},up=b.updates||{},flags=b.saved_flags&&Object.keys(b.saved_flags).length?b.saved_flags:b.recommended_flags||{};
   const behind=up.ok?up.behind:0;
+  const checked=up.cached?`checked ${agoText(up.checked_secs_ago)}`:"checked just now";
   setHTML(v,`
     <div class="card"><h3>Current Build</h3>
       <div class="kv"><span class="k">commit</span><span class="v">${esc(cur.hash||"?")} &middot; ${esc((cur.subject||"").slice(0,60))}</span></div>
@@ -290,8 +295,12 @@ async function loadBuild(){
       <div class="kv"><span class="k">date</span><span class="v">${esc(cur.date||"?")}</span></div>
     </div>
     <div class="card"><h3>Upstream (github.com/ggml-org/llama.cpp)</h3>
-      <div class="kv"><span class="k">status</span><span class="v ${behind>0?'bad':'ok'}">${up.ok?(behind>0?behind+" commits behind":"up to date"):"check failed"}</span></div>
+      <div class="kv"><span class="k">status</span><span class="v ${behind>0?'bad':'ok'}" id="upstream-status">${up.ok?(behind>0?behind+" commits behind":"up to date"):"check failed"}</span></div>
       ${up.latest?`<div class="kv"><span class="k">latest</span><span class="v">${esc(up.latest.hash)} &middot; ${esc((up.latest.subject||"").slice(0,60))}</span></div>`:""}
+      <div class="actions" style="margin-top:6px">
+        <button class="ghost" id="btn-refresh-upstream">Check GitHub now</button>
+        <span class="note" style="margin:0">${esc(checked)} &middot; auto-checks at most every 15 min</span>
+      </div>
     </div>
     <div class="card"><h3>Build Flags (auto-detected for this machine)</h3>
       <div class="flags">${Object.entries(flags).map(([k,val])=>`<span class="flagpill">${esc(k)}=${esc(val)}</span>`).join("")}</div>
@@ -310,6 +319,8 @@ async function loadBuild(){
       <div class="log" id="vllm-update-log" style="display:none">idle</div>
     </div>`));
   $("#btn-build").onclick=startBuild;
+  const refBtn=$("#btn-refresh-upstream");
+  if(refBtn)refBtn.onclick=()=>{refBtn.disabled=true;loadBuild(true);};
   pollBuild();
   const updBtn=$("#btn-vllm-update");
   if(updBtn)updBtn.onclick=async()=>{

@@ -71,11 +71,21 @@ def update_script():
     ])
 
 
-def latest_pypi_version():
-    """Latest vLLM version on PyPI (for the 'update available' indicator)."""
+import time as _time
+_PYPI_TTL = 3600           # PyPI releases don't warrant a hit per Build-tab open
+_pypi_cache = {"at": 0.0, "version": ""}
+
+def latest_pypi_version(force=False):
+    """Latest vLLM version on PyPI (for the 'update available' indicator),
+    cached for an hour. force=True refetches (the UI's Refresh button)."""
     import json, urllib.request
+    now = _time.time()
+    if not force and _pypi_cache["version"] and now - _pypi_cache["at"] < _PYPI_TTL:
+        return _pypi_cache["version"]
     try:
         with urllib.request.urlopen("https://pypi.org/pypi/vllm/json", timeout=15) as r:
-            return json.loads(r.read().decode())["info"]["version"]
+            v = json.loads(r.read().decode())["info"]["version"]
+        _pypi_cache.update(at=now, version=v)
+        return v
     except Exception:
-        return ""
+        return _pypi_cache["version"]   # fall back to last known, if any

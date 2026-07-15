@@ -5,6 +5,9 @@ polls. Backs up prior binaries before overwriting so a bad build is reversible.
 """
 import os, shutil, subprocess, threading, time, datetime, re
 
+UPDATE_TTL      = 900   # seconds a successful upstream check stays cached
+UPDATE_TTL_FAIL = 60    # failed fetches retry sooner, but never per-click
+
 class BuildManager:
     def __init__(self, log_dir):
         self.log_dir = log_dir
@@ -13,6 +16,7 @@ class BuildManager:
         self.lock = threading.Lock()
         self.state = {"running": False, "phase": "idle", "returncode": None,
                       "started": None, "finished": None}
+        self._upd_cache = {}   # (src, remote_branch) -> (checked_at, result)
 
     # ---- git introspection ----
     def _git(self, src, *args, timeout=60):
@@ -29,9 +33,24 @@ class BuildManager:
         br = self._git(src, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
         return {"ok": True, "hash": h, "subject": s, "date": d, "branch": br}
 
-    def check_updates(self, src, remote_branch="origin/master"):
+    def check_updates(self, src, remote_branch="origin/master", force=False, now=None):
+        """Upstream check with a TTL cache: opening the Build tab must not
+        `git fetch` GitHub on every click. force=True bypasses the cache
+        (the UI's Refresh button); a finished build clears it."""
         if not src:
             return {"ok": False, "error": "no source dir"}
+        now = time.time() if now is None else now
+        key = (src, remote_branch)
+        hit = self._upd_cache.get(key)
+        if not force and hit:
+            age = now - hit[0]
+            if age < (UPDATE_TTL if hit[1].get("ok") else UPDATE_TTL_FAIL):
+                return dict(hit[1], cached=True, checked_secs_ago=int(age))
+        res = self._check_updates_fresh(src, remote_branch)
+        self._upd_cache[key] = (now, res)
+        return dict(res, cached=False, checked_secs_ago=0)
+
+    def _check_updates_fresh(self, src, remote_branch):
         try:
             self._git(src, "fetch", "--quiet", "origin", timeout=120)
         except Exception as e:
@@ -129,6 +148,7 @@ class BuildManager:
             self._log(f"\n=== BUILD FAILED: {e} ===")
         finally:
             self.state.update(running=False, finished=time.time())
+            self._upd_cache.clear()   # a pull may have moved HEAD; re-check next open
 
     def start(self, src, build_dir, flags, pull=True, jobs=None):
         if self.state["running"]:
