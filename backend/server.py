@@ -4,7 +4,7 @@ Serves the dashboard and a JSON API wiring together config, model tuning
 (all knobs), the CMake build/update manager, hardware + prerequisite
 detection, and drive scanning. Pure Python stdlib.
 """
-import json, os, subprocess, urllib.request, urllib.error
+import json, os, subprocess, urllib.request, urllib.error, urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import config, argspec, hardware, osplat, prereqs, scanner, hub, router_ctl, stats
@@ -265,6 +265,8 @@ class H(BaseHTTPRequestHandler):
 
     def do_GET(self):
         p = self.path.split("?")[0]
+        qs = urllib.parse.parse_qs(self.path.split("?", 1)[1]) if "?" in self.path else {}
+        force = qs.get("force", ["0"])[0] in ("1", "true")
         if self._vllm_gate(p):
             return
         if p in ("/", "/index.html"): return self._file("index.html", "text/html; charset=utf-8")
@@ -293,7 +295,7 @@ class H(BaseHTTPRequestHandler):
             c = cfg()
             return self._send(200, {
                 "current": BUILDER.current_commit(c["llama_src"]),
-                "updates": BUILDER.check_updates(c["llama_src"]),
+                "updates": BUILDER.check_updates(c["llama_src"], force=force),
                 "recommended_flags": hardware.recommend()["cmake_flags"],
                 "saved_flags": c.get("cmake_flags", {}),
             })
@@ -340,7 +342,7 @@ class H(BaseHTTPRequestHandler):
             distro = c.get("wsl_distro") or wsl.default_distro()
             return self._send(200, {
                 "installed": vllm_setup._vllm_version(distro),
-                "latest": vllm_setup.latest_pypi_version(),
+                "latest": vllm_setup.latest_pypi_version(force=force),
             })
         if p == "/api/vllm/hub/progress":
             return self._send(200, vllm_dl().progress())
