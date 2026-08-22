@@ -24,21 +24,38 @@ const ENGINE_REPOS = {
 
 export async function loadBuild(force) {
   const v = $("#view-build");
+  const label = ENGINE_LABELS[_target] || _target;
   if (force) {
     const s = $("#upstream-status");
     if (s) { s.textContent = "checking github..."; s.className = "v work"; }
-  } else setHTML(v, `<div class="skel">QUERYING GIT + GITHUB...</div>`);
+  } else setHTML(v, `<div class="skel"><div class="card"><span class="spinner"></span><div class="log card"><span class="log-item">Querying ${esc(label)} git...\n</span></div></div></div>`);
   const q = (force ? "?force=1&" : "?") + `target=${_target}`;
+  
   const b = await api("/api/build/info" + q);
+  
+  if (!force) {
+    const logContainer = $(".log", v);
+    if (logContainer) {
+      logContainer.innerHTML += `<span class="log-item">Validating local ${esc(label)} build state...\n</span>`;
+    }
+  }
+  
   const st = await api("/api/state");
   const activeEngine = st.active_engine || "llamacpp";
+  
+  if (!force) {
+    const logContainer = $(".log", v);
+    if (logContainer) {
+      logContainer.innerHTML += '<span class="log-item">Validating local vLLM state...\n</span>';
+    }
+  }
+  
   const vver = await api("/api/vllm/version" + (force ? "?force=1" : ""));
   const cur = b.current||{}, up = b.updates||{};
   const flags = b.saved_flags && Object.keys(b.saved_flags).length ? b.saved_flags : b.recommended_flags||{};
   const behind = up.ok ? up.behind : 0;
   const checked = up.cached ? `checked ${agoText(up.checked_secs_ago)}` : "checked just now";
   const remoteUrl = b.remote || ENGINE_REPOS[_target] || "";
-  const label = ENGINE_LABELS[_target] || _target;
   const isActive = _target === activeEngine;
 
   setHTML(v, `

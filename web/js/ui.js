@@ -56,8 +56,6 @@ export function setNav(state) {
   const s = state === "expanded" ? "expanded" : "rail";
   document.documentElement.dataset.nav = s;
   try { localStorage.setItem("nav", s); } catch (e) {}
-  const b = $("#nav-toggle");
-  if (b) b.textContent = s === "rail" ? "›" : "‹";
 }
 export function toggleNav() {
   setNav(document.documentElement.dataset.nav === "rail" ? "expanded" : "rail");
@@ -88,7 +86,7 @@ export function initSidebar() {
     setCvd(nx); rc.classList.toggle("on", nx);
   };
   if (rc) rc.classList.toggle("on", document.documentElement.dataset.cvd === "safe");
-  setNav(document.documentElement.dataset.nav || "rail");   // sync chevron glyph
+  setNav(document.documentElement.dataset.nav || "rail");
   showNavHint();
 }
 

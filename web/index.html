@@ -68,8 +68,10 @@ html,body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--mono)
 body{background-image:linear-gradient(var(--grid) 1px,transparent 1px),linear-gradient(90deg,var(--grid) 1px,transparent 1px);background-size:44px 44px;min-height:100vh}
 body::after{content:"";position:fixed;inset:0;pointer-events:none;z-index:99;background:repeating-linear-gradient(0deg,var(--scan) 0,var(--scan) 1px,transparent 1px,transparent 3px);mix-blend-mode:multiply;opacity:.5}
 .wrap{max-width:1180px;margin:0 auto;padding:22px 20px 90px}
-.logo{width:34px;height:34px;border:1px solid var(--amber);position:relative;flex:none}
-.logo::before{content:"";position:absolute;left:6px;right:6px;top:50%;height:2px;transform:translateY(-1px);background:var(--amber);box-shadow:0 -8px 0 var(--amber),0 8px 0 var(--amber)}
+.logo{width:34px;height:34px;border:1px solid var(--amber);position:relative;flex:none;cursor:pointer}
+.logo:hover{border-color:var(--amber-dim);box-shadow:0 0 6px var(--amber-dim)}
+.logo::before{content:"←";position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-family:var(--disp);font-size:16px;color:var(--amber);transition:transform .14s ease}
+:root[data-nav="rail"] .logo::before{content:"→";transform:translate(-50%,-50%)}
 .sub{color:var(--dim);font-size:11px;letter-spacing:.26em;text-transform:uppercase;margin-top:3px}
 :root{--nav-w:200px}
 body.app{display:grid;grid-template-columns:var(--nav-w) 1fr;min-height:100vh;margin:0;transition:grid-template-columns .14s ease}
@@ -81,7 +83,6 @@ body.app{display:grid;grid-template-columns:var(--nav-w) 1fr;min-height:100vh;ma
 :root[data-nav="rail"] .side-settings .mode-toggle,
 :root[data-nav="rail"] .side-settings .cvd-toggle{display:none}
 :root[data-nav="rail"] .settings-rail{display:flex}
-:root[data-nav="rail"] .nav-toggle{margin-left:0}
 /* expanded hides the rail settings icons */
 :root:not([data-nav="rail"]) .settings-rail{display:none}
 #sidebar,.navitem,.brand-word{transition:none}
@@ -90,10 +91,7 @@ body.app{display:grid;grid-template-columns:var(--nav-w) 1fr;min-height:100vh;ma
 .side-head{display:flex;align-items:center;gap:10px;padding:4px 6px 12px;border-bottom:1px solid var(--hair);margin-bottom:8px}
 .brand-word{font-family:var(--disp);font-weight:700;letter-spacing:.12em;color:var(--ink-strong);white-space:nowrap}
 .brand-word span{color:var(--amber)}
-.nav-toggle{margin-left:auto;background:transparent;border:1px solid var(--hair);color:var(--dim);
-  cursor:pointer;width:22px;height:22px;border-radius:4px;font:inherit;line-height:1}
-.nav-toggle:hover{color:var(--amber);border-color:var(--amber)}
-.nav-hint{position:absolute;left:56px;top:14px;z-index:50;background:var(--panel2);color:var(--ink);
+.nav-hint{position:absolute;left:40px;top:14px;z-index:50;background:var(--panel2);color:var(--ink);
   border:1px solid var(--amber);border-radius:6px;padding:6px 10px;font-size:11px;white-space:nowrap;
   box-shadow:0 4px 14px var(--shadow)}
 .nav-hint[hidden]{display:none}
@@ -219,6 +217,9 @@ button:disabled{opacity:.4;cursor:not-allowed}
 #toast.show{transform:translateX(-50%) translateY(0);opacity:1}
 .skel{color:var(--dim);text-align:center;padding:40px;letter-spacing:.2em;font-size:12px}
 .note{color:var(--dim);font-size:11px;margin-top:8px;line-height:1.6}
+.spinner{display:inline-block;width:24px;height:24px;border:2px solid var(--amber-dim);border-top-color:var(--amber);border-radius:50%;animation:spin 1s linear infinite;margin-right:12px;vertical-align:middle}
+@keyframes spin{to{transform:rotate(360deg)}}
+.build-log.load-log{background:var(--code-bg);border:1px solid var(--hair);padding:12px;font-size:11px;line-height:1.5;color:var(--code-ink);white-space:pre-wrap;max-height:120px;overflow:auto;margin-top:12px;text-align:center}
 .credit{color:var(--faint-2);font-size:10px;text-align:center;margin-top:40px;letter-spacing:.06em}
 .credit a{color:var(--dim)}
 /* quick-load button in the row header (#3) */
@@ -343,6 +344,7 @@ body.mode-lite .advanced-only{display:none !important}
   :root #sidebar .settings-rail{display:flex}
   .navitem{justify-content:center;padding:9px 0;gap:0}
   #nav-toggle{display:none}                  /* no manual expand below 900 */
+  #sidebar .logo{cursor:default}
 }
 @media (max-width:600px){
   body.app{grid-template-columns:1fr}        /* content full-width; sidebar overlays */
@@ -362,9 +364,8 @@ body.mode-lite .advanced-only{display:none !important}
 <body class="app">
 <nav id="sidebar">
   <div class="side-head">
-    <div class="logo"></div>
+    <div class="logo" id="nav-toggle" title="Collapse / expand" aria-label="Toggle sidebar"></div>
     <span class="brand-word">LLAMA<span>FORGE</span></span>
-    <button id="nav-toggle" class="nav-toggle" title="Collapse / expand" aria-label="Toggle sidebar">‹</button>
     <div id="nav-hint" class="nav-hint" hidden>Click to expand &rsaquo;</div>
   </div>
   <div class="side-nav">

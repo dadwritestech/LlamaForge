@@ -1,0 +1,50 @@
+services:
+  llamaforge:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        BASE_IMAGE: ${DOCKER_BASE_IMAGE:-nvidia/cuda:12.4.1-devel-ubuntu22.04}
+        LLAMAFORGE_REPO: ${LLAMAFORGE_REPO:-https://github.com/CaspervanWetten/LlamaForge.git}
+        LLAMAFORGE_REF: ${LLAMAFORGE_REF:-master}
+    container_name: llamaforge
+    restart: unless-stopped
+    ports:
+      - "${DASHBOARD_PORT:-8090}:8090"
+      - "${ROUTER_PORT:-8080}:8080"
+    environment:
+      ROUTER_PORT: "8080"
+      PANEL_PORT: "8090"
+      ROUTER_HOST: ${ROUTER_HOST:-0.0.0.0}
+      ROUTER_API_KEY: ${ROUTER_API_KEY:-}
+      MODEL_DIRS: ${MODEL_DIRS:-/data/models}
+      AUTO_LOAD_MODEL: ${AUTO_LOAD_MODEL:-}
+      UI_MODE: ${UI_MODE:-advanced}
+      THEME: ${THEME:-}
+      CVD: ${CVD:-false}
+      ANTHROPIC_SHIM_ENABLED: ${ANTHROPIC_SHIM_ENABLED:-false}
+      ANTHROPIC_DEFAULT_MODEL: ${ANTHROPIC_DEFAULT_MODEL:-}
+      GIT_REMOTE_LLAMACPP: ${GIT_REMOTE_LLAMACPP:-https://github.com/ggml-org/llama.cpp}
+      AUTO_BUILD_LLAMACPP: ${AUTO_BUILD_LLAMACPP:-true}
+      ENABLE_CUDA: ${ENABLE_CUDA:-true}
+    volumes:
+      # config.json, models.ini, logs, the llama.cpp checkout+build, and GGUF
+      # models all live under here. Point this at real storage on HexOS (a
+      # pool/dataset mount) rather than the default Docker volume if you can -
+      # the llama.cpp build and any downloaded models add up to many GB.
+      - llamaforge-data:/data
+    # NVIDIA GPU passthrough. Requires the NVIDIA Container Toolkit configured
+    # on the host (`nvidia-ctk runtime configure --runtime=docker` + restart
+    # docker) on both HexOS and a Bazzite box. Delete this whole "deploy"
+    # block on a host with no GPU, and set ENABLE_CUDA=false / switch
+    # DOCKER_BASE_IMAGE to ubuntu:22.04 in .env for a CPU-only build.
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+volumes:
+  llamaforge-data:
