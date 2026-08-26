@@ -89,11 +89,8 @@ gets built next.
 
 ## Planned
 
-- **Community VRAM-fit reports** — the fit rating is now offload-aware
-  ([#4](https://github.com/dadwritestech/LlamaForge/issues/4) part 1). The
-  remaining half is a crowdsourced signal ("this quant runs at ~X tok/s on a
-  16 GB card") to sit alongside the physics estimate. It can't be local-only, so
-  it needs its own design (hosting, opt-in, moderation) before any build.
+- **Local-only VRAM-fit predictions** — fit ratings remain entirely on-device.
+  LlamaForge will not build hosted or crowdsourced performance reporting.
 - **Native (non-WSL) vLLM on Linux** — vLLM currently rides WSL2 on Windows only.
 
 ## Under consideration

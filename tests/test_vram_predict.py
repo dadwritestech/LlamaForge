@@ -1,6 +1,7 @@
 import conftest_paths  # noqa: F401
 import unittest
 import vram_predict as vp
+import osplat
 from vramwise import constants as C
 
 
@@ -21,6 +22,20 @@ class TestBuildHardware(unittest.TestCase):
         self.assertEqual(hw.vram_bw, 1008)
         self.assertAlmostEqual(hw.vram_gb, 24.0, delta=0.1)
         self.assertEqual(hw.ram_gb, 64.0)
+
+    def test_apple_silicon_uses_metal_budget_without_ram_spill(self):
+        original_is_mac = osplat.IS_MAC
+        original_mem = osplat.mac_mem_bytes
+        osplat.IS_MAC = True
+        osplat.mac_mem_bytes = lambda: 32 * 1024 ** 3
+        try:
+            hw = vp.build_hardware(cfg={})
+        finally:
+            osplat.IS_MAC = original_is_mac
+            osplat.mac_mem_bytes = original_mem
+
+        self.assertAlmostEqual(hw.vram_gb, 32 * osplat.METAL_BUDGET, places=1)
+        self.assertEqual(hw.ram_gb, 0.0)
 
 
 class TestPredictLocal(unittest.TestCase):

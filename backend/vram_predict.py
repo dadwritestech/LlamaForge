@@ -8,7 +8,7 @@ input degrades to a lower-confidence result with a plain-language note.
 """
 import json, os, re, threading, urllib.request
 
-import config, hardware, gguf
+import config, hardware, gguf, osplat
 from vramwise import physics, catalog, constants as C
 
 HF = "https://huggingface.co"
@@ -37,8 +37,17 @@ def build_hardware(cfg=None, gpus=None, ram_gb=None):
     gpus = hardware.detect_gpus() if gpus is None else gpus
     vram_mib = sum((g.get("vram_mib") or 0) for g in gpus)
     ram_gb = hardware.detect_ram_gb() if ram_gb is None else ram_gb
-    ram_gb = ram_gb or 16.0
     name = gpus[0]["name"] if gpus else "cpu"
+    apple_unified = False
+    if osplat.IS_MAC:
+        mem_bytes = osplat.mac_mem_bytes()
+        if mem_bytes:
+            name = "Apple Silicon (unified memory)"
+            vram_mib = mem_bytes * osplat.METAL_BUDGET / (1024 * 1024)
+            ram_gb = 0.0
+            apple_unified = True
+    if not apple_unified:
+        ram_gb = ram_gb or 16.0
     ov = (cfg or {}).get("vram_bandwidths") or {}
     return physics.Hardware(
         name=name,
