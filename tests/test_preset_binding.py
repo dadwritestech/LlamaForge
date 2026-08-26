@@ -135,6 +135,14 @@ class BindMaterializeRouteTest(_ConfigTempCase):
         self.assertEqual(sections["qwopus"]["temp"], "0.9")
         self.assertEqual(sections["ornith"]["temp"], "0.9")
 
+    def test_preset_edit_normalizes_name_before_resyncing_bindings(self):
+        self._post(routes.post_presets_bind, model="qwopus", name="coding")
+
+        self._post(routes.post_presets_save, name="  coding  ",
+                   settings={"temp": "0.9"})
+
+        self.assertEqual(config.read_sections()["qwopus"]["temp"], "0.9")
+
     def test_preset_edit_preserves_a_manually_changed_bound_key(self):
         self._post(routes.post_presets_bind, model="qwopus", name="coding")
         config.set_keys("qwopus", {"temp": "0.55"})

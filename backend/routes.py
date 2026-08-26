@@ -941,7 +941,7 @@ def post_autotune_refine(req):
 
 
 def post_presets_save(req):
-    name = req.body.get("name", "")
+    name = (req.body.get("name", "") or "").strip()
     try:
         presets = config.save_preset(name, req.body.get("settings", {}))
     except ValueError as e:
