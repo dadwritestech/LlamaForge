@@ -164,7 +164,7 @@ async function hubFiles(row) {
   const mm = r.mmproj && r.mmproj.length ? r.mmproj[0].path : "";
   setHTML(box, `
     ${mm?`<div class="note">vision model - the smallest mmproj (${esc(mm)}) will be downloaded too</div>`:""}
-    ${r.mtp&&r.mtp.length?`<div class="note">matching MTP sidecars are downloaded automatically</div>`:""}
+    ${r.files.some(f=>f.mtp)?`<div class="note">matching MTP sidecars are downloaded automatically</div>`:""}
     <div class="list" style="margin-top:8px">${r.files.map(f=>`
       <div class="row"><div class="rhead" style="grid-template-columns:1fr auto auto auto auto;cursor:default">
         <span class="mid">${esc(f.path)}${f.shards>1?`<span class="tag">${f.shards} shards</span>`:""}${f.mtp?`<span class="tag" title="includes ${esc(f.mtp)}">MTP</span>`:""}</span>
