@@ -81,6 +81,27 @@ class BuildEntriesMtpTest(unittest.TestCase):
         (entry,) = self._entries(paths, nextn=True).values()
         self.assertNotIn("draft_model", entry)
 
+    def test_matching_sidecar_attaches_only_to_its_main_in_a_multi_model_dir(self):
+        entries = self._entries([
+            "/m/alpha-q4.gguf", "/m/beta-q4.gguf", "/m/mtp-beta-q4.gguf",
+        ], nextn=True)
+        self.assertNotIn("draft_model", entries["alpha-q4.gguf"])
+        self.assertEqual(entries["beta-q4.gguf"]["draft_model"],
+                         "/m/mtp-beta-q4.gguf")
+
+    def test_generic_sidecar_attaches_to_none_in_a_multi_model_dir(self):
+        entries = self._entries([
+            "/m/alpha-q4.gguf", "/m/beta-q4.gguf", "/m/mtp-draft.gguf",
+        ], nextn=True)
+        self.assertNotIn("draft_model", entries["alpha-q4.gguf"])
+        self.assertNotIn("draft_model", entries["beta-q4.gguf"])
+
+    def test_generic_sidecar_attaches_when_directory_has_one_main(self):
+        (entry,) = self._entries([
+            "/m/alpha-q4.gguf", "/m/mtp-draft.gguf",
+        ], nextn=True).values()
+        self.assertEqual(entry["draft_model"], "/m/mtp-draft.gguf")
+
 
 class ScanApplyMtpTest(unittest.TestCase):
     """Route-level: additive wiring that never clobbers a hand-set spec-type."""
@@ -128,6 +149,69 @@ class ScanApplyMtpTest(unittest.TestCase):
         sect = config.read_sections()["m"]
         self.assertEqual(sect["spec-draft-model"], "/m/mtp-m.gguf")
         self.assertNotIn("spec-type", sect)
+
+    def test_rescan_replaces_then_removes_unchanged_auto_owned_draft_keys(self):
+        self._apply([{"id": "m", "model": "/m/m.gguf",
+                      "draft_model": "/m/mtp-old.gguf", "draft_mtp": True}])
+        self._apply([{"id": "m", "model": "/m/m.gguf",
+                      "draft_model": "/m/mtp-new.gguf", "draft_mtp": True}])
+        replaced = config.read_sections()["m"]
+        self.assertEqual(replaced["spec-draft-model"], "/m/mtp-new.gguf")
+        self.assertEqual(replaced["spec-type"], "draft-mtp")
+
+        self._apply([{"id": "m", "model": "/m/m.gguf"}])
+        removed = config.read_sections()["m"]
+        self.assertNotIn("spec-draft-model", removed)
+        self.assertNotIn("spec-type", removed)
+
+    def test_rescan_never_replaces_or_removes_a_manually_edited_draft_key(self):
+        self._apply([{"id": "m", "model": "/m/m.gguf",
+                      "draft_model": "/m/mtp-auto.gguf", "draft_mtp": True}])
+        config.set_keys("m", {"spec-draft-model": "/m/manual-draft.gguf"})
+
+        self._apply([{"id": "m", "model": "/m/m.gguf",
+                      "draft_model": "/m/mtp-new.gguf", "draft_mtp": True}])
+        self.assertEqual(config.read_sections()["m"]["spec-draft-model"],
+                         "/m/manual-draft.gguf")
+
+        self._apply([{"id": "m", "model": "/m/m.gguf"}])
+        self.assertEqual(config.read_sections()["m"]["spec-draft-model"],
+                         "/m/manual-draft.gguf")
+
+
+class HubRegistrationMtpTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self._saved = config.CONFIG
+        config.CONFIG = os.path.join(self.tmp, "config.json")
+        self.ini = os.path.join(self.tmp, "models.ini")
+        with open(config.CONFIG, "w") as f:
+            json.dump({"models_ini": self.ini}, f)
+
+    def tearDown(self):
+        config.CONFIG = self._saved
+
+    def test_post_download_registration_persists_mtp_draft_keys(self):
+        folder = os.path.join(self.tmp, "repo")
+        os.makedirs(folder)
+        main = os.path.join(folder, "qwen-q4.gguf")
+        sidecar = os.path.join(folder, "mtp-qwen-q4.gguf")
+        open(main, "wb").close()
+        open(sidecar, "wb").close()
+
+        req = mock.Mock()
+        req.body = {"path": main}
+        with mock.patch("gguf.has_nextn", return_value=True), \
+             mock.patch.object(config, "apply_ctx_defaults",
+                               return_value={"changed": []}), \
+             mock.patch.object(routes, "router", return_value=(200, {})):
+            status, result = routes.post_hub_add(req)
+
+        self.assertEqual(status, 200)
+        self.assertEqual(result["added"], ["qwen-q4"])
+        section = config.read_sections()["qwen-q4"]
+        self.assertEqual(section["spec-draft-model"], sidecar.replace("\\", "/"))
+        self.assertEqual(section["spec-type"], "draft-mtp")
 
 
 if __name__ == "__main__":

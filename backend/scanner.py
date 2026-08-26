@@ -77,15 +77,49 @@ def _shard(p):
     m = re.search(r"-(\d{5})-of-(\d{5})\.gguf$", _base(p), re.I)
     return (m.group(1), m.group(2)) if m else None
 
+def _model_stem(p):
+    """Normalized logical basename, with a shard suffix removed."""
+    return re.sub(r"-\d{5}-of-\d{5}$", "", _slug(_base(p)), flags=re.I)
+
+def mtp_pairs(mains, sidecars):
+    """Return {main_path: mtp_path} for unambiguous same-directory pairs.
+
+    An exact normalized ``mtp-<main basename>`` match wins. A generic sidecar
+    is safe only when its directory contains exactly one main and one sidecar.
+    """
+    mains_by_dir, sidecars_by_dir = defaultdict(list), defaultdict(list)
+    for path in mains:
+        mains_by_dir[os.path.dirname(path)].append(path)
+    for path in sidecars:
+        sidecars_by_dir[os.path.dirname(path)].append(path)
+
+    pairs = {}
+    for directory, dir_mains in mains_by_dir.items():
+        dir_sidecars = sidecars_by_dir.get(directory, [])
+        candidates = defaultdict(list)
+        for sidecar in dir_sidecars:
+            tail = _model_stem(sidecar)
+            if tail.startswith("mtp-"):
+                tail = tail[4:]
+            matches = [main for main in dir_mains if _model_stem(main) == tail]
+            if len(matches) == 1:
+                candidates[matches[0]].append(sidecar)
+        for main, matches in candidates.items():
+            if len(matches) == 1:
+                pairs[main] = matches[0]
+        if not pairs.keys() & set(dir_mains) and len(dir_mains) == 1 and len(dir_sidecars) == 1:
+            pairs[dir_mains[0]] = dir_sidecars[0]
+    return pairs
+
 def build_entries(paths):
     """Return list of {id, model, mmproj?, embeddings?, gib, existing_id?}."""
     mmproj_by_dir = {}
-    mtp_by_dir = {}
+    mtp_sidecars = []
     for p in paths:
         if _is_mmproj(p):
             mmproj_by_dir[os.path.dirname(p)] = p
         elif _is_mtp(p):
-            mtp_by_dir[os.path.dirname(p)] = p
+            mtp_sidecars.append(p)
 
     mains = []
     seen_shard_sets = set()
@@ -99,6 +133,8 @@ def build_entries(paths):
                 continue  # only the first shard represents the set
             seen_shard_sets.add(key)
         mains.append(p)
+
+    mtp_by_main = mtp_pairs(mains, mtp_sidecars)
 
     stem_counts = defaultdict(int)
     for p in mains:
@@ -127,7 +163,7 @@ def build_entries(paths):
         # Attach an mtp-* sibling as a speculative draft model. Attaching alone
         # is inert; only enable spec-type=draft-mtp when the sidecar actually
         # declares NextN layers, the signal llama.cpp itself gates on.
-        mt = mtp_by_dir.get(os.path.dirname(p))
+        mt = mtp_by_main.get(p)
         if mt:
             from gguf import has_nextn
             e["draft_model"] = mt.replace("\\", "/")

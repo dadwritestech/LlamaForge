@@ -164,20 +164,21 @@ async function hubFiles(row) {
   const mm = r.mmproj && r.mmproj.length ? r.mmproj[0].path : "";
   setHTML(box, `
     ${mm?`<div class="note">vision model - the smallest mmproj (${esc(mm)}) will be downloaded too</div>`:""}
+    ${r.mtp&&r.mtp.length?`<div class="note">matching MTP sidecars are downloaded automatically</div>`:""}
     <div class="list" style="margin-top:8px">${r.files.map(f=>`
       <div class="row"><div class="rhead" style="grid-template-columns:1fr auto auto auto auto;cursor:default">
-        <span class="mid">${esc(f.path)}${f.shards>1?`<span class="tag">${f.shards} shards</span>`:""}</span>
+        <span class="mid">${esc(f.path)}${f.shards>1?`<span class="tag">${f.shards} shards</span>`:""}${f.mtp?`<span class="tag" title="includes ${esc(f.mtp)}">MTP</span>`:""}</span>
         <span class="ctxpill">${esc((f.size/1e9).toFixed(2))} GB</span>
         ${fitBadge(f.fit)}
         ${predictBadge(f.predict)}
-        <button data-dl="${esc(f.path)}" data-shards="${f.shards}" ${f.fit==="offload"?'title="larger than VRAM - will be slow"':""}>Download</button>
+        <button data-dl="${esc(f.path)}" data-shards="${f.shards}" data-mtp="${esc(f.mtp||"")}" ${f.fit==="offload"?'title="larger than VRAM - will be slow"':""}>Download</button>
       </div></div>`).join("")}</div>`);
   $$("[data-dl]", box).forEach(b => b.onclick = () =>
-    hubDownload(row.dataset.repo, b.dataset.dl, parseInt(b.dataset.shards), mm));
+    hubDownload(row.dataset.repo, b.dataset.dl, parseInt(b.dataset.shards), mm, b.dataset.mtp));
 }
 
-async function hubDownload(repo, path, shards, mmproj) {
-  const r = await api("/api/hub/download", {repo, path, shards, mmproj});
+async function hubDownload(repo, path, shards, mmproj, mtp) {
+  const r = await api("/api/hub/download", {repo, path, shards, mmproj, mtp});
   if (!r.started) { toast("A download is already running", "err"); return; }
   toast("Download started", "ok");
   $("#hub-dlcard").style.display = ""; $("#dl-done").style.display = "none";

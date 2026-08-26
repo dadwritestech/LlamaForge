@@ -48,6 +48,7 @@ DEFAULTS = {
     "auto_load_model": "",                    # model id to load automatically on launch ("" = none)
     "presets":     {},                       # named knob sets: {name: {knob: value}}
     "preset_bindings": {},                    # {model_id: preset_name} auto-applied on bind/edit
+    "mtp_auto_owned": {},                     # {engine: {model_id: {key: value}}}
     "ui_mode":     "lite",                    # "lite" (curated knobs) or "advanced" (all ~220)
     "onboarded":   False,                     # first-run wizard shown once, then True
     "anthropic_default_model": "",           # fallback local model id for the Anthropic shim
@@ -300,6 +301,60 @@ def remove_section(section, path=None):
     path = path or ini_path()
     with _INI_LOCK:
         return _remove_section_locked(section, path)
+
+# ---------------- automatic MTP wiring ----------------
+
+def reconcile_mtp_autowire(model_id, current, desired):
+    """Return safe models.ini updates and record the values LlamaForge owns.
+
+    ``desired`` contains speculative keys inferred by a scan. Previously
+    auto-written values may be replaced or removed while unchanged; a missing,
+    different, or manually deleted value is treated as a user override.
+    Ownership is engine-scoped because each llama family has its own registry.
+    """
+    current = current or {}
+    desired = desired or {}
+
+    with _LOCK:
+        cfg = load()
+        engine = cfg.get("active_engine", "llamacpp")
+        all_owned = cfg.get("mtp_auto_owned")
+        if not isinstance(all_owned, dict):
+            all_owned = {}
+        before_owned = copy.deepcopy(all_owned)
+        engine_owned = all_owned.get(engine)
+        if not isinstance(engine_owned, dict):
+            engine_owned = {}
+        prior = engine_owned.get(model_id)
+        if not isinstance(prior, dict) or "model" not in current:
+            prior = {}
+
+        updates, next_owned = {}, {}
+        for key in ("spec-draft-model", "spec-type"):
+            want = desired.get(key)
+            before = prior.get(key)
+            actual = current.get(key)
+            if key in prior:
+                if actual == before:
+                    updates[key] = want
+                    if want is not None:
+                        next_owned[key] = str(want)
+            elif want is not None and not actual:
+                updates[key] = want
+                next_owned[key] = str(want)
+
+        if next_owned:
+            engine_owned[model_id] = next_owned
+        else:
+            engine_owned.pop(model_id, None)
+        if engine_owned:
+            all_owned[engine] = engine_owned
+        else:
+            all_owned.pop(engine, None)
+        if all_owned != before_owned:
+            cfg["mtp_auto_owned"] = all_owned
+            save(cfg)
+        return updates
 
 def _remove_section_locked(section, path):
     if not path or not os.path.exists(path):

@@ -599,16 +599,28 @@ def _clean_settings(updates):
     return clean
 
 
+def _persist_scanned_entries(entries):
+    """Persist scanner fields and reconcile only LlamaForge-owned MTP keys."""
+    existing = config.read_sections()
+    for e in entries:
+        keys = {
+            "model": e["model"],
+            "mmproj": e.get("mmproj") or None,
+            "embeddings": "true" if e.get("embeddings") else None,
+        }
+        desired_mtp = {
+            "spec-draft-model": e.get("draft_model"),
+            "spec-type": "draft-mtp" if e.get("draft_mtp") else None,
+        }
+        keys.update(config.reconcile_mtp_autowire(
+            e["id"], existing.get(e["id"]), desired_mtp))
+        config.set_keys(e["id"], keys)
+    return entries
+
+
 def _register_ggufs_beside(paths):
     """Add scanner-derived entries to models.ini and reload the router."""
-    entries = scanner.build_entries(paths)
-    for e in entries:
-        keys = {"model": e["model"]}
-        if e.get("mmproj"):
-            keys["mmproj"] = e["mmproj"]
-        if e.get("embeddings"):
-            keys["embeddings"] = "true"
-        config.set_keys(e["id"], keys)
+    entries = _persist_scanned_entries(scanner.build_entries(paths))
     config.apply_ctx_defaults()
     router("/models?reload=1")
     return entries
@@ -978,22 +990,7 @@ def post_scan(req):
 
 def post_scan_apply(req):
     entries = req.body.get("entries", [])
-    existing = config.read_sections()
-    for e in entries:
-        keys = {"model": e["model"]}
-        # Always pass mmproj/embeddings so stale values are cleared on re-scan.
-        keys["mmproj"] = e.get("mmproj") or None
-        keys["embeddings"] = "true" if e.get("embeddings") else None
-        # MTP wiring is ADDITIVE, unlike mmproj: spec-type is also how the user
-        # selects ngram-* speculation, so clearing it on re-scan would wipe a
-        # hand-set mode. Only fill these when the section doesn't already carry
-        # its own value.
-        sect = existing.get(e["id"], {})
-        if e.get("draft_model") and not sect.get("spec-draft-model"):
-            keys["spec-draft-model"] = e["draft_model"]
-        if e.get("draft_mtp") and not sect.get("spec-type"):
-            keys["spec-type"] = "draft-mtp"
-        config.set_keys(e["id"], keys)
+    _persist_scanned_entries(entries)
     config.apply_ctx_defaults()
     router("/models?reload=1")
     return 200, {"ok": True, "added": len(entries)}
@@ -1048,7 +1045,7 @@ def post_hub_files(req):
                     f["fit"] = label
         return 200, listing
     except Exception as e:
-        return 200, {"error": str(e), "files": [], "mmproj": []}
+        return 200, {"error": str(e), "files": [], "mmproj": [], "mtp": []}
 
 
 def post_vram_predict(req):
@@ -1086,6 +1083,8 @@ def post_hub_download(req):
     paths  = hub.shard_paths(first, shards)
     if req.body.get("mmproj"):
         paths.append(req.body["mmproj"])
+    if req.body.get("mtp"):
+        paths.append(req.body["mtp"])
     dest = os.path.join(download_dir(), repo.replace("/", "--"))
     ok = DOWNLOADS.start(repo, paths, dest)
     return 200, {"started": ok, "dest": dest}

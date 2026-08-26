@@ -7,6 +7,8 @@ no SSL support).
 """
 import json, os, re, threading, time, urllib.request, urllib.parse
 
+import scanner
+
 HF = "https://huggingface.co"
 UA = {"User-Agent": "LlamaForge/1.0 (+local model manager)"}
 
@@ -53,11 +55,14 @@ def files(repo, vram_mib=0):
     """List a repo's GGUF files with size + fit rating. Collapses shard sets."""
     tree = _get_json(f"{HF}/api/models/{repo}/tree/main")
     ggufs = [f for f in tree if f.get("path", "").lower().endswith(".gguf")]
-    shard_totals, singles, mmproj = {}, [], []
+    shard_totals, singles, mmproj, mtp = {}, [], [], []
     for f in ggufs:
         p, size = f["path"], f.get("size", 0)
         if os.path.basename(p).lower().startswith("mmproj"):
             mmproj.append({"path": p, "size": size})
+            continue
+        if os.path.basename(p).lower().startswith("mtp-"):
+            mtp.append({"path": p, "size": size})
             continue
         m = re.search(r"-(\d{5})-of-(\d{5})\.gguf$", p, re.I)
         if m:
@@ -77,7 +82,13 @@ def files(repo, vram_mib=0):
             out.append({"path": agg["first"], "size": agg["size"], "shards": agg["n"],
                         "fit": _fit(agg["size"], vram_mib)})
     out.sort(key=lambda x: x["size"])
-    return {"files": out, "mmproj": sorted(mmproj, key=lambda x: x["size"])}
+    mtp.sort(key=lambda x: x["size"])
+    pairs = scanner.mtp_pairs([f["path"] for f in out], [f["path"] for f in mtp])
+    for f in out:
+        if f["path"] in pairs:
+            f["mtp"] = pairs[f["path"]]
+    return {"files": out, "mmproj": sorted(mmproj, key=lambda x: x["size"]),
+            "mtp": mtp}
 
 def shard_paths(first_path, n):
     """All shard file paths given the first shard's path."""
