@@ -9,6 +9,7 @@ import atomicio, gguf
 
 ROOT      = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CONFIG    = os.path.join(ROOT, "config.json")
+PRESET_ENGINES = ("llamacpp", "ikllama")
 
 # The dashboard is a ThreadingHTTPServer with background workers (stats poller,
 # build/download threads), and config.json is edited by load->mutate->save at
@@ -47,7 +48,8 @@ DEFAULTS = {
     "active_engine": "llamacpp",              # which binary the router uses: llamacpp | ikllama
     "auto_load_model": "",                    # model id to load automatically on launch ("" = none)
     "presets":     {},                       # named knob sets: {name: {knob: value}}
-    "preset_bindings": {},                    # {model_id: preset_name} auto-applied on bind/edit
+    "preset_bindings": {},                    # {engine: {model_id: preset_name}}
+    "preset_binding_snapshots": {},           # {engine: {model_id: {knob: owned_value}}}
     "ui_mode":     "lite",                    # "lite" (curated knobs) or "advanced" (all ~220)
     "onboarded":   False,                     # first-run wizard shown once, then True
     "anthropic_default_model": "",           # fallback local model id for the Anthropic shim
@@ -144,12 +146,25 @@ def migrate():
                 raw = json.load(f)
         except Exception:
             raw = {}
-        if "ui_mode" in raw:
-            return cfg
-        existing = bool(cfg.get("server_bin"))
-        cfg["ui_mode"] = "advanced" if existing else "lite"
-        cfg["onboarded"] = existing
-        save(cfg)
+        changed = False
+        if "ui_mode" not in raw:
+            existing = bool(cfg.get("server_bin"))
+            cfg["ui_mode"] = "advanced" if existing else "lite"
+            cfg["onboarded"] = existing
+            changed = True
+
+        # Issue #2 originally shipped a flat {model_id: preset_name} map.  The
+        # same id can exist in both llama-family registries, so move that legacy
+        # state into whichever engine was active when it was written.
+        binds = raw.get("preset_bindings")
+        if isinstance(binds, dict) and binds and all(isinstance(v, str) for v in binds.values()):
+            engine = cfg.get("active_engine", "llamacpp")
+            if engine not in PRESET_ENGINES:
+                engine = "llamacpp"
+            cfg["preset_bindings"] = {engine: dict(binds)}
+            changed = True
+        if changed:
+            save(cfg)
         return cfg
 
 # ---------------- models.ini (BOM-free, comment-preserving) ----------------
@@ -185,15 +200,16 @@ def _abs(p):
         return p
     return os.path.normpath(os.path.join(ROOT, p))
 
-def ini_path():
-    """The models.ini the active engine reads, always as an absolute path.
+def ini_path(engine=None):
+    """The selected (or active) engine's models.ini, as an absolute path.
 
     ik_llama gets its own registry because the two binaries accept different
     knobs; when the user has not named one, derive a sibling of the llama.cpp
     file. Split on the extension rather than str.replace(".ini", ...), which is
     a global replace and rewrites any directory that happens to contain ".ini"."""
     c = load()
-    if c.get("active_engine") == "ikllama":
+    engine = engine or c.get("active_engine", "llamacpp")
+    if engine == "ikllama":
         p = c.get("ik_llama_models_ini")
         if p:
             return _abs(p)
@@ -359,22 +375,87 @@ def delete_preset(name):
             return False
         del presets[name]
         cfg["presets"] = presets
-        binds = cfg.get("preset_bindings")
-        if isinstance(binds, dict):
-            cfg["preset_bindings"] = {m: n for m, n in binds.items() if n != name}
+        all_binds = _nested_preset_map(cfg, "preset_bindings")
+        snapshots = _nested_preset_map(cfg, "preset_binding_snapshots")
+        for engine, binds in list(all_binds.items()):
+            removed = [model_id for model_id, preset in binds.items() if preset == name]
+            for model_id in removed:
+                del binds[model_id]
+                snapshots.get(engine, {}).pop(model_id, None)
+            if not binds:
+                all_binds.pop(engine, None)
+            if engine in snapshots and not snapshots[engine]:
+                snapshots.pop(engine)
+        cfg["preset_bindings"] = all_binds
+        cfg["preset_binding_snapshots"] = snapshots
         save(cfg)
         return True
 
 # ---------------- preset bindings ----------------
-# A binding names the preset a model defaults to. The knobs themselves are
-# materialized into models.ini by the caller (routes) at bind/edit time - config
-# only owns the mapping, because reloading the router is not config's job.
+# A binding names the preset a model defaults to.  Snapshots contain only the
+# exact values LlamaForge materialized, so route reconciliation can distinguish
+# its defaults from values the user wrote.  Both maps are engine-scoped because
+# llama.cpp and ik_llama have independent models.ini registries.
 
-def get_bindings():
-    b = load().get("preset_bindings")
-    return b if isinstance(b, dict) else {}
+def _preset_engine(cfg, engine=None):
+    engine = (engine or cfg.get("active_engine") or "llamacpp").strip()
+    if engine not in PRESET_ENGINES:
+        raise ValueError(f"presets are not supported for engine: {engine}")
+    return engine
 
-def bind_preset(model_id, name):
+def _scoped_preset_map(cfg, key, engine=None):
+    """Return one engine's state, accepting the pre-engine flat binding map."""
+    engine = _preset_engine(cfg, engine)
+    raw = cfg.get(key)
+    if not isinstance(raw, dict):
+        return {}
+    if key == "preset_bindings" and raw and all(isinstance(v, str) for v in raw.values()):
+        active = _preset_engine(cfg)
+        return dict(raw) if engine == active else {}
+    scoped = raw.get(engine)
+    return dict(scoped) if isinstance(scoped, dict) else {}
+
+def _nested_preset_map(cfg, key):
+    """Normalize mutable preset state to {engine: {...}}."""
+    raw = cfg.get(key)
+    if not isinstance(raw, dict):
+        return {}
+    if key == "preset_bindings" and raw and all(isinstance(v, str) for v in raw.values()):
+        return {_preset_engine(cfg): dict(raw)}
+    return {engine: dict(values) for engine, values in raw.items()
+            if engine in PRESET_ENGINES and isinstance(values, dict)}
+
+def get_bindings(engine=None):
+    cfg = load()
+    return _scoped_preset_map(cfg, "preset_bindings", engine)
+
+def get_binding_snapshots(engine=None):
+    cfg = load()
+    return _scoped_preset_map(cfg, "preset_binding_snapshots", engine)
+
+def get_binding_snapshot(model_id, engine=None):
+    snapshot = get_binding_snapshots(engine).get(model_id)
+    return dict(snapshot) if isinstance(snapshot, dict) else {}
+
+def set_binding_snapshot(model_id, snapshot, engine=None):
+    """Record the knobs currently owned for one model, dropping empty state."""
+    with _LOCK:
+        cfg = load()
+        engine = _preset_engine(cfg, engine)
+        snapshots = _nested_preset_map(cfg, "preset_binding_snapshots")
+        scoped = snapshots.setdefault(engine, {})
+        clean = {str(k): str(v) for k, v in (snapshot or {}).items()}
+        if clean:
+            scoped[model_id] = clean
+        else:
+            scoped.pop(model_id, None)
+        if not scoped:
+            snapshots.pop(engine, None)
+        cfg["preset_binding_snapshots"] = snapshots
+        save(cfg)
+        return dict(scoped)
+
+def bind_preset(model_id, name, engine=None):
     """Bind model_id to preset `name` (or unbind when name is ""). Raises if the
     preset does not exist. Returns the full bindings map."""
     model_id = (model_id or "").strip()
@@ -383,39 +464,56 @@ def bind_preset(model_id, name):
     name = (name or "").strip()
     with _LOCK:
         cfg = load()
-        binds = cfg.get("preset_bindings")
-        if not isinstance(binds, dict):
-            binds = {}
+        engine = _preset_engine(cfg, engine)
+        all_binds = _nested_preset_map(cfg, "preset_bindings")
+        binds = all_binds.setdefault(engine, {})
         if name == "":
             binds.pop(model_id, None)
         else:
             if name not in (cfg.get("presets") or {}):
                 raise ValueError(f"unknown preset: {name}")
             binds[model_id] = name
-        cfg["preset_bindings"] = binds
+        if not binds:
+            all_binds.pop(engine, None)
+        cfg["preset_bindings"] = all_binds
         save(cfg)
-        return binds
+        if name == "":
+            set_binding_snapshot(model_id, {}, engine)
+        return dict(binds)
 
-def unbind_preset(model_id):
+def unbind_preset(model_id, engine=None):
     """Remove a model's binding. Returns True if it had one."""
     with _LOCK:
         cfg = load()
-        binds = cfg.get("preset_bindings")
-        if isinstance(binds, dict) and model_id in binds:
+        engine = _preset_engine(cfg, engine)
+        all_binds = _nested_preset_map(cfg, "preset_bindings")
+        binds = all_binds.get(engine, {})
+        existed = model_id in binds
+        if existed:
             del binds[model_id]
-            cfg["preset_bindings"] = binds
+            if not binds:
+                all_binds.pop(engine, None)
+            cfg["preset_bindings"] = all_binds
+        snapshots = _nested_preset_map(cfg, "preset_binding_snapshots")
+        scoped = snapshots.get(engine, {})
+        had_snapshot = model_id in scoped
+        if had_snapshot:
+            del scoped[model_id]
+            if not scoped:
+                snapshots.pop(engine, None)
+            cfg["preset_binding_snapshots"] = snapshots
+        if existed or had_snapshot:
             save(cfg)
-            return True
-        return False
+        return existed
 
-def prune_binding(model_id):
+def prune_binding(model_id, engine=None):
     """Drop a deleted model's binding. Alias of unbind_preset for call-site
     clarity."""
-    return unbind_preset(model_id)
+    return unbind_preset(model_id, engine)
 
-def bindings_for_preset(name):
+def bindings_for_preset(name, engine=None):
     """Model ids bound to preset `name`."""
-    return [m for m, n in get_bindings().items() if n == name]
+    return [m for m, n in get_bindings(engine).items() if n == name]
 
 # ---------------- automatic ctx-size defaults ----------------
 

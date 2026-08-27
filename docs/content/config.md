@@ -34,7 +34,8 @@ order: 1
 | `ik_llama_cmake_flags` | object | `{}` | Persisted CMake build flags for the ik_llama build. |
 | `auto_load_model` | string | `""` | Model id to load automatically on launch. Empty string disables auto-load. |
 | `presets` | object | `{}` | Named knob sets: `{name: {knob: value}}`, managed from the dashboard. |
-| `preset_bindings` | object | `{}` | Preset bound as each model's default: `{model_id: preset_name}`. |
+| `preset_bindings` | object | `{}` | Preset bound as each model's default, scoped by llama-family engine: `{engine: {model_id: preset_name}}`. |
+| `preset_binding_snapshots` | object | `{}` | Engine-scoped values materialized by a preset binding: `{engine: {model_id: {knob: value}}}`. LlamaForge uses these snapshots to retain model values you subsequently change yourself. |
 | `ui_mode` | string | `"lite"` | `"lite"` shows a curated knob set; `"advanced"` exposes all ~220 llama-server flags. |
 | `onboarded` | bool | `False` | Whether the first-run wizard has already been shown; set to `True` once dismissed. |
 | `anthropic_default_model` | string | `""` | Fallback local model id used by the Anthropic-compatible shim when a request doesn't map to one. |
@@ -48,7 +49,17 @@ order: 1
 | `vram_predict_enabled` | bool | `True` | Whether the offline VRAM-fit/tok-s estimate is computed (Discover, on expand). |
 | `docs_dir` | string | `""` | Directory the in-app docs viewer reads from. Empty string resolves to `<repo root>/docs/content`. |
 
-35 keys total, matching `DEFAULTS` in `backend/config.py`.
+36 keys total, matching `DEFAULTS` in `backend/config.py`.
+
+## Preset bindings
+
+Binding a preset makes it the default for a model in the active llama-family
+engine (`llamacpp` or `ikllama`). When a binding is created or its preset is
+edited, LlamaForge materializes only preset knobs that the model has not set.
+`preset_binding_snapshots` records those materialized values so unbinding,
+deleting a preset, or removing a knob cleans up only values that are still
+unchanged; manual model overrides remain in `models.ini`. Older flat binding
+maps are migrated to the engine that was active when they were saved.
 
 ## Loading and saving
 

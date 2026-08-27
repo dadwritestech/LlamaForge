@@ -599,6 +599,48 @@ def _clean_settings(updates):
     return clean
 
 
+def _reconcile_preset_binding(mid, preset, engine=None):
+    """Apply only preset defaults LlamaForge still owns for one model.
+
+    A section value is user-owned when it predates the binding or differs from
+    the last materialized snapshot.  Such values are never changed or removed.
+    Returns the delta written to models.ini.
+    """
+    engine = engine or cfg().get("active_engine", "llamacpp")
+    desired = {key: value for key, value in _clean_settings(preset).items()
+               if value is not None}
+    previous = config.get_binding_snapshot(mid, engine)
+    path = config.ini_path(engine)
+    current = config.read_sections(path).get(mid, {})
+    updates, owned = {}, {}
+
+    for key, old_value in previous.items():
+        if current.get(key) != old_value:
+            continue                    # edited or deleted manually: relinquish it
+        if key not in desired:
+            updates[key] = None
+            continue
+        new_value = desired[key]
+        owned[key] = new_value
+        if new_value != old_value:
+            updates[key] = new_value
+
+    for key, new_value in desired.items():
+        if key in previous:
+            continue
+        if key not in current:
+            updates[key] = new_value
+            owned[key] = new_value
+
+    if updates:
+        if engine == cfg().get("active_engine", "llamacpp"):
+            _apply_knobs_and_reload(mid, updates)
+        else:
+            config.set_keys(mid, updates, path)
+    config.set_binding_snapshot(mid, owned, engine)
+    return updates
+
+
 def _register_ggufs_beside(paths):
     """Add scanner-derived entries to models.ini and reload the router."""
     entries = scanner.build_entries(paths)
@@ -855,7 +897,9 @@ def post_model_delete(req):
     except backends.Unsupported as e:
         raise ApiError(400, str(e))
     if ok:
-        config.prune_binding(mid)          # a gone model keeps no binding
+        if backend.name in config.PRESET_ENGINES:
+            _reconcile_preset_binding(mid, {}, backend.name)
+            config.prune_binding(mid, backend.name)
     return (200 if ok else 500), {"ok": ok, "error": err, "backend": backend.name}
 
 
@@ -897,7 +941,7 @@ def post_autotune_refine(req):
 
 
 def post_presets_save(req):
-    name = req.body.get("name", "")
+    name = (req.body.get("name", "") or "").strip()
     try:
         presets = config.save_preset(name, req.body.get("settings", {}))
     except ValueError as e:
@@ -905,28 +949,41 @@ def post_presets_save(req):
     # Re-sync every model bound to this preset: editing "coding" once updates
     # all models using it - the point of binding (issue #2).
     clean = _clean_settings(presets.get(name, {}))
-    for mid in config.bindings_for_preset(name):
-        _apply_knobs_and_reload(mid, clean)
+    for engine in config.PRESET_ENGINES:
+        for mid in config.bindings_for_preset(name, engine):
+            _reconcile_preset_binding(mid, clean, engine)
     return 200, {"ok": True, "presets": presets}
 
 
 def post_presets_delete(req):
-    return 200, {"ok": config.delete_preset(req.body.get("name", ""))}
+    name = req.body.get("name", "")
+    if name in config.get_presets():
+        for engine in config.PRESET_ENGINES:
+            for mid in config.bindings_for_preset(name, engine):
+                _reconcile_preset_binding(mid, {}, engine)
+    return 200, {"ok": config.delete_preset(name)}
 
 
 def post_presets_bind(req):
     """Bind a preset as a model's default (name="" unbinds). Binding
-    materializes the preset's knobs into the model's section now; unbinding
-    leaves them in place - they're the user's once written."""
-    mid = req.body.get("model", "")
-    name = req.body.get("name", "")
+    materializes only absent knobs; unbinding removes only unchanged values
+    that LlamaForge previously materialized."""
+    mid = (req.body.get("model", "") or "").strip()
+    name = (req.body.get("name", "") or "").strip()
+    engine = cfg().get("active_engine", "llamacpp")
+    if not mid:
+        raise ApiError(400, "model id is required")
     try:
-        binds = config.bind_preset(mid, name)
+        if name:
+            preset = config.get_presets().get(name)
+            if preset is None:
+                raise ValueError(f"unknown preset: {name}")
+            _reconcile_preset_binding(mid, preset, engine)
+        else:
+            _reconcile_preset_binding(mid, {}, engine)
+        binds = config.bind_preset(mid, name, engine)
     except ValueError as e:
         raise ApiError(400, str(e))
-    if name:
-        preset = config.get_presets().get(name, {})
-        _apply_knobs_and_reload(mid, _clean_settings(preset))
     return 200, {"ok": True, "bindings": binds}
 
 
@@ -1015,6 +1072,9 @@ def post_scan_prune(req):
             router("/models/unload", "POST", {"model": mid})
         if config.remove_section(mid):
             removed.append(mid)
+            engine = cfg().get("active_engine", "llamacpp")
+            _reconcile_preset_binding(mid, {}, engine)
+            config.prune_binding(mid, engine)
     if removed:
         router("/models?reload=1")
     return 200, {"removed": removed}

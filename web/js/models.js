@@ -407,8 +407,8 @@ function openClientConfig(id) {
 
 /* ---------- presets ---------- */
 function presetBar(m) {
-  const P = cfgOf().presets || {};
-  const bound = (cfgOf().preset_bindings || {})[m.id] || "";
+  const c = cfgOf(), P = c.presets || {};
+  const bound = ((c.preset_bindings || {})[m.backend || c.active_engine || "llamacpp"] || {})[m.id] || "";
   const chips = Object.keys(P).map(n => {
     const isBound = n === bound;
     return `<span class="pchip${isBound ? " bound" : ""}" data-preset-apply="${esc(n)}" data-preset-model="${esc(m.id)}" title="apply preset to this model">`
@@ -428,7 +428,8 @@ async function applyPreset(model, name) {
 }
 async function bindPreset(model, name) {
   // toggle: clicking the dot of an already-bound preset unbinds it
-  const cur = (cfgOf().preset_bindings || {})[model] || "";
+  const c = cfgOf(), engine = c.active_engine || "llamacpp";
+  const cur = ((c.preset_bindings || {})[engine] || {})[model] || "";
   const next = (cur === name) ? "" : name;
   const r = await api("/api/presets/bind", {model, name: next});
   if (r.ok) {

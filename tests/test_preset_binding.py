@@ -1,9 +1,4 @@
-"""Bind a preset as a model's default (issue #2).
-
-A binding lives in config.json (preset_bindings: {model_id: preset_name}); the
-preset's knobs are materialized into the model's models.ini section when bound
-and re-materialized when the preset is edited. Hand edits win by write-order.
-"""
+"""Bind a preset as non-destructive model defaults (issue #2)."""
 import conftest_paths  # noqa: F401
 import json, os, tempfile, unittest
 from unittest import mock
@@ -60,10 +55,28 @@ class BindingStorageTest(_ConfigTempCase):
         self.assertTrue(config.prune_binding("qwopus"))
         self.assertEqual(config.get_bindings(), {})
 
+    def test_same_model_id_has_separate_bindings_per_engine(self):
+        config.save_preset("chat", {"temp": "0.8"})
+        config.bind_preset("shared", "coding", engine="llamacpp")
+        config.bind_preset("shared", "chat", engine="ikllama")
+
+        self.assertEqual(config.get_bindings("llamacpp"), {"shared": "coding"})
+        self.assertEqual(config.get_bindings("ikllama"), {"shared": "chat"})
+
+    def test_legacy_flat_bindings_migrate_into_the_active_engine(self):
+        cfg = config.load()
+        cfg["active_engine"] = "ikllama"
+        cfg["preset_bindings"] = {"legacy": "coding"}
+        config.save(cfg)
+
+        config.migrate()
+
+        self.assertEqual(config.get_bindings("llamacpp"), {})
+        self.assertEqual(config.get_bindings("ikllama"), {"legacy": "coding"})
+
 
 class BindMaterializeRouteTest(_ConfigTempCase):
-    """Route-level: binding writes the preset's knobs; editing the preset
-    re-materializes into every bound model."""
+    """Route-level reconciliation owns only values that it materialized."""
 
     def setUp(self):
         super().setUp()
@@ -71,13 +84,11 @@ class BindMaterializeRouteTest(_ConfigTempCase):
         cfg = config.load(); cfg["models_ini"] = self.ini; config.save(cfg)
         config.set_keys("qwopus", {"model": "/m/q.gguf"})
         config.save_preset("coding", {"temp": "0.2", "top-k": "20"})
-        self.applied = []
-        # capture materialization instead of touching a live router
-        self._orig = routes._apply_knobs_and_reload
-        routes._apply_knobs_and_reload = lambda mid, clean: self.applied.append((mid, clean)) or False
+        self.router = mock.patch.object(routes, "router", return_value=(200, {"data": []}))
+        self.router.start()
 
     def tearDown(self):
-        routes._apply_knobs_and_reload = self._orig
+        self.router.stop()
         super().tearDown()
 
     def _post(self, fn, **body):
@@ -87,31 +98,97 @@ class BindMaterializeRouteTest(_ConfigTempCase):
     def test_bind_materializes_the_preset(self):
         self._post(routes.post_presets_bind, model="qwopus", name="coding")
         self.assertEqual(config.get_bindings(), {"qwopus": "coding"})
-        self.assertEqual(len(self.applied), 1)
-        mid, clean = self.applied[0]
-        self.assertEqual(mid, "qwopus")
-        self.assertEqual(clean.get("temp"), "0.2")
+        self.assertEqual(config.read_sections()["qwopus"]["temp"], "0.2")
+
+    def test_bind_does_not_overwrite_an_existing_model_value(self):
+        config.set_keys("qwopus", {"temp": "0.7"})
+
+        self._post(routes.post_presets_bind, model="qwopus", name="coding")
+
+        section = config.read_sections()["qwopus"]
+        self.assertEqual(section["temp"], "0.7")
+        self.assertEqual(section["top-k"], "20")
+
+    def test_bind_rejects_an_empty_model_before_writing_the_registry(self):
+        with open(self.ini, encoding="utf-8") as f:
+            before = f.read()
+
+        with self.assertRaises(routes.ApiError):
+            self._post(routes.post_presets_bind, model="", name="coding")
+
+        with open(self.ini, encoding="utf-8") as f:
+            self.assertEqual(f.read(), before)
+
+    def test_bind_normalizes_model_and_preset_names_before_reconciling(self):
+        self._post(routes.post_presets_bind, model="  qwopus  ", name="  coding  ")
+
+        self.assertEqual(config.get_bindings(), {"qwopus": "coding"})
+        self.assertEqual(config.read_sections()["qwopus"]["temp"], "0.2")
 
     def test_editing_a_bound_preset_resyncs_every_model(self):
         self._post(routes.post_presets_bind, model="qwopus", name="coding")
         config.set_keys("ornith", {"model": "/m/o.gguf"})
         self._post(routes.post_presets_bind, model="ornith", name="coding")
-        self.applied.clear()
         self._post(routes.post_presets_save, name="coding", settings={"temp": "0.9"})
-        synced = {mid for mid, _ in self.applied}
-        self.assertEqual(synced, {"qwopus", "ornith"})
-        self.assertTrue(all(clean.get("temp") == "0.9" for _, clean in self.applied))
 
-    def test_unbind_leaves_knobs_in_place(self):
+        sections = config.read_sections()
+        self.assertEqual(sections["qwopus"]["temp"], "0.9")
+        self.assertEqual(sections["ornith"]["temp"], "0.9")
+
+    def test_preset_edit_normalizes_name_before_resyncing_bindings(self):
         self._post(routes.post_presets_bind, model="qwopus", name="coding")
-        self.applied.clear()
+
+        self._post(routes.post_presets_save, name="  coding  ",
+                   settings={"temp": "0.9"})
+
+        self.assertEqual(config.read_sections()["qwopus"]["temp"], "0.9")
+
+    def test_preset_edit_preserves_a_manually_changed_bound_key(self):
+        self._post(routes.post_presets_bind, model="qwopus", name="coding")
+        config.set_keys("qwopus", {"temp": "0.55"})
+
+        self._post(routes.post_presets_save, name="coding",
+                   settings={"temp": "0.9", "top-k": "40"})
+
+        section = config.read_sections()["qwopus"]
+        self.assertEqual(section["temp"], "0.55")
+        self.assertEqual(section["top-k"], "40")
+
+    def test_removed_preset_key_is_deleted_only_while_still_owned(self):
+        self._post(routes.post_presets_bind, model="qwopus", name="coding")
+        config.set_keys("qwopus", {"temp": "0.55"})
+
+        self._post(routes.post_presets_save, name="coding", settings={"min-p": "0.1"})
+
+        section = config.read_sections()["qwopus"]
+        self.assertEqual(section["temp"], "0.55")
+        self.assertNotIn("top-k", section)
+        self.assertEqual(section["min-p"], "0.1")
+
+    def test_unbind_removes_untouched_owned_values_but_keeps_manual_values(self):
+        self._post(routes.post_presets_bind, model="qwopus", name="coding")
+        config.set_keys("qwopus", {"temp": "0.55"})
         self._post(routes.post_presets_bind, model="qwopus", name="")   # unbind
+
         self.assertEqual(config.get_bindings(), {})
-        self.assertEqual(self.applied, [], "unbind must not rewrite the section")
+        section = config.read_sections()["qwopus"]
+        self.assertEqual(section["temp"], "0.55")
+        self.assertNotIn("top-k", section)
 
     def test_saving_an_unbound_preset_materializes_nothing(self):
         self._post(routes.post_presets_save, name="coding", settings={"temp": "0.5"})
-        self.assertEqual(self.applied, [])
+        self.assertNotIn("temp", config.read_sections()["qwopus"])
+
+    def test_deleting_preset_removes_only_untouched_owned_values(self):
+        self._post(routes.post_presets_bind, model="qwopus", name="coding")
+        config.set_keys("qwopus", {"temp": "0.55"})
+
+        self._post(routes.post_presets_delete, name="coding")
+
+        self.assertEqual(config.get_bindings(), {})
+        section = config.read_sections()["qwopus"]
+        self.assertEqual(section["temp"], "0.55")
+        self.assertNotIn("top-k", section)
 
 
 if __name__ == "__main__":
