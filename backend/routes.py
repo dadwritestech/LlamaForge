@@ -21,7 +21,7 @@ tables: they write to the socket themselves and stay in server.py.
 import json, os, subprocess, sys, urllib.request, urllib.error, urllib.parse
 
 import config, argspec, hardware, osplat, prereqs, scanner, hub, router_ctl, stats
-import autotune, anthropic_shim, agentsetup, wiki, docs
+import autotune, anthropic_shim, agentsetup, clientsetup, network_policy, wiki, docs
 import vram_predict
 import wsl, vllm_ctl, vllm_registry, vllm_setup, vllm_job, vllm_hub, vllm_download
 import gguf, diag, backends
@@ -811,6 +811,71 @@ def get_presets(req):
     return 200, {"presets": config.get_presets()}
 
 
+def _resolve_model_row(mid, hint=""):
+    if not isinstance(mid, str) or not mid.strip():
+        raise ApiError(400, "model is required")
+    mid = mid.strip()
+    if not isinstance(hint, str):
+        raise ApiError(400, "backend must be a string")
+    if hint in backends.LLAMA_FAMILY:
+        hint = REGISTRY.active_engine()
+    elif hint and hint != "vllm":
+        raise ApiError(400, f"unknown backend: {hint}")
+
+    rows = [row for row in REGISTRY.state().get("models", [])
+            if row.get("id") == mid]
+    if hint:
+        rows = [row for row in rows if row.get("backend") == hint]
+    if not rows:
+        raise ApiError(400, f"unknown model/backend: {mid}/{hint or 'unspecified'}")
+    if len(rows) != 1:
+        raise ApiError(409, f"model ownership is ambiguous; supply backend for {mid}")
+    return rows[0], rows[0].get("backend", "")
+
+
+def _llama_client_endpoint(c):
+    assessment = network_policy.assess(
+        c.get("router_host", "127.0.0.1"), c.get("router_api_key", ""))
+    if assessment.access_scope == "local":
+        host = "127.0.0.1"
+    elif assessment.access_scope == "lan":
+        host = router_ctl.lan_ip()
+        if not host:
+            raise ApiError(503, "LAN IP is not available; use local-only or repair networking")
+    else:
+        raise ApiError(409, "repair the legacy Network Access configuration first")
+    return f"http://{host}:{c['router_port']}"
+
+
+def post_client_config(req):
+    body = req.body or {}
+    unknown = set(body) - {"model", "backend"}
+    if unknown:
+        raise ApiError(400, "unsupported client-config fields: " + ", ".join(sorted(unknown)))
+    row, backend = _resolve_model_row(body.get("model"), body.get("backend", ""))
+    c = cfg()
+    if backend in backends.LLAMA_FAMILY:
+        endpoint = _llama_client_endpoint(c)
+        api_key = c.get("router_api_key", "")
+    elif backend == "vllm":
+        live = next((item for item in vllm_mgr().status()
+                     if item.get("model_id") == row["id"]
+                     and item.get("state") == "ready"), None)
+        if not live or not live.get("endpoint"):
+            raise ApiError(400, f"vLLM model {row['id']} is not ready; load it first")
+        endpoint = live["endpoint"]
+        api_key = ""
+    else:
+        raise ApiError(400, f"unsupported backend: {backend}")
+    shell = "powershell" if osplat.IS_WIN else "posix"
+    try:
+        out = clientsetup.generate(endpoint, api_key, row["id"], backend, shell)
+    except Exception:
+        raise ApiError(500, "client configuration could not be generated") from None
+    out["model_loaded"] = row.get("status") == "loaded"
+    return 200, out
+
+
 def get_agent_config(req):
     agent = req.q("agent")
     model = req.q("model")
@@ -1496,6 +1561,7 @@ GET_ROUTES = {
 }
 
 POST_ROUTES = {
+    "/api/client/config":       post_client_config,
     # engine-agnostic (dispatch on the model's backend)
     "/api/models/load":         post_model_load,
     "/api/models/unload":       post_model_unload,
