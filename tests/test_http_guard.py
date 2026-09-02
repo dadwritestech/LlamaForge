@@ -205,6 +205,17 @@ class LiveServerTest(unittest.TestCase):
         self.assertEqual(headers.get("connection"), "close")
         self.assertEqual(self.seen, [])
 
+    def test_thousands_of_leading_zeroes_are_zero_length(self):
+        status, _, _ = self._raw_post("/api/_probe", "0" * 5000)
+        self.assertEqual(status, 200)
+        self.assertEqual(self.seen[-1].body, {})
+
+    def test_thousands_of_nonzero_length_digits_are_413_without_dispatch(self):
+        status, headers, _ = self._raw_post("/api/_probe", "9" * 5000)
+        self.assertEqual(status, 413)
+        self.assertEqual(headers.get("connection"), "close")
+        self.assertEqual(self.seen, [])
+
     def test_transfer_encoding_and_short_body_close_without_dispatch(self):
         status, headers, _ = self._raw_post(
             "/api/_probe", None, extra_headers=("Transfer-Encoding: chunked",),

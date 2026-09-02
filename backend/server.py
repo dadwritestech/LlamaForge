@@ -125,9 +125,13 @@ class H(BaseHTTPRequestHandler):
         raw = lengths[0]
         if not raw or not raw.isascii() or not raw.isdecimal():
             return self._body_error(400, "invalid Content-Length")
-        size = int(raw)
-        if size > _post_body_limit(path):
+        normalized = raw.lstrip("0") or "0"
+        limit = _post_body_limit(path)
+        limit_digits = str(limit)
+        if (len(normalized) > len(limit_digits) or
+                len(normalized) == len(limit_digits) and normalized > limit_digits):
             return self._body_error(413, "request body too large")
+        size = int(normalized)
         data = self.rfile.read(size)
         if len(data) != size:
             return self._body_error(400, "incomplete request body")
