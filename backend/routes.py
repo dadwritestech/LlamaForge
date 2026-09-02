@@ -886,11 +886,15 @@ def post_client_config(req):
 
 
 def _resolve_agent_request(body):
+    if not isinstance(body, dict):
+        raise ApiError(400, "agent configuration must be an object")
     allowed = {"agent", "model", "backend", "small", "inject"}
     unknown = set(body) - allowed
     if unknown:
         raise ApiError(400, "unsupported agent-config fields: " + ", ".join(sorted(unknown)))
     agent = body.get("agent", "")
+    if not isinstance(agent, str):
+        raise ApiError(400, "agent must be a string")
     if agent not in agentsetup.AGENTS:
         raise ApiError(400, f"unknown agent: {agent}")
     inject = body.get("inject")
@@ -932,7 +936,7 @@ def _resolve_agent_request(body):
 
 
 def post_agent_config(req):
-    target = _resolve_agent_request(req.body or {})
+    target = _resolve_agent_request(req.body)
     try:
         out = agentsetup.generate(
             target["agent"], target["endpoint"], target["api_key"],
@@ -1544,7 +1548,7 @@ def _compat_agent_apply_body(body):
 
 
 def post_agent_apply(req):
-    target = _resolve_agent_request(_compat_agent_apply_body(req.body or {}))
+    target = _resolve_agent_request(_compat_agent_apply_body(req.body))
     try:
         out = agentsetup.apply(
             target["agent"], os.path.expanduser("~"), target["endpoint"],
