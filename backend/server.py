@@ -37,6 +37,15 @@ from routes import ApiError, Req
 # application/json - requiring JSON on state-changing routes means an attacker's
 # page cannot forge one without a preflight it will fail.
 ALLOWED_HOSTS = {"127.0.0.1", "localhost", "[::1]", "::1"}
+MAX_MANAGEMENT_JSON_BODY_BYTES = 4 * 1024 * 1024
+MAX_PROXY_JSON_BODY_BYTES = 64 * 1024 * 1024
+_BODY_ERROR = object()
+
+
+def _post_body_limit(path):
+    if path in ("/v1/messages", "/v1/chat/completions"):
+        return MAX_PROXY_JSON_BODY_BYTES
+    return MAX_MANAGEMENT_JSON_BODY_BYTES
 
 
 def _host_ok(host_header, port):
@@ -83,6 +92,10 @@ class H(BaseHTTPRequestHandler):
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("X-Content-Type-Options", "nosniff")
+        if ctype.startswith("application/json"):
+            self.send_header("Cache-Control", "no-store")
+        if self.close_connection:
+            self.send_header("Connection", "close")
         self.end_headers()
         self.wfile.write(body)
 
@@ -96,15 +109,49 @@ class H(BaseHTTPRequestHandler):
     def _headers_lower(self):
         return {k.lower(): v for k, v in self.headers.items()}
 
+    def _body_error(self, code, message):
+        self.close_connection = True
+        self._send(code, {"error": message})
+        return _BODY_ERROR
+
+    def _read_json_body(self, path):
+        if self.headers.get("Transfer-Encoding") is not None:
+            return self._body_error(400, "Transfer-Encoding is not supported")
+        lengths = self.headers.get_all("Content-Length") or []
+        if not lengths:
+            return self._body_error(411, "Content-Length is required")
+        if len(lengths) != 1:
+            return self._body_error(400, "invalid Content-Length")
+        raw = lengths[0]
+        if not raw or not raw.isascii() or not raw.isdecimal():
+            return self._body_error(400, "invalid Content-Length")
+        size = int(raw)
+        if size > _post_body_limit(path):
+            return self._body_error(413, "request body too large")
+        data = self.rfile.read(size)
+        if len(data) != size:
+            return self._body_error(400, "incomplete request body")
+        try:
+            body = json.loads(data or b"{}")
+        except (UnicodeDecodeError, ValueError):
+            return self._body_error(400, "invalid JSON body")
+        if not isinstance(body, dict):
+            return self._body_error(400, "body must be a JSON object")
+        return body
+
     # ---------------------------------------------------------------- guards
     def _guard(self, method):
         """Reject anything that isn't this dashboard's own page talking to it.
         Returns True when the request has been answered and must not proceed."""
         port = routes.cfg()["panel_port"]
         if not _host_ok(self.headers.get("Host", ""), port):
+            if method == "POST":
+                self.close_connection = True
             self._send(403, {"error": "bad Host header"})
             return True
         if not _origin_ok(self.headers.get("Origin", ""), port):
+            if method == "POST":
+                self.close_connection = True
             self._send(403, {"error": "cross-origin request refused"})
             return True
         if method == "POST":
@@ -112,6 +159,7 @@ class H(BaseHTTPRequestHandler):
             # Requiring JSON means a forged post needs a preflight it can't pass.
             ctype = (self.headers.get("Content-Type") or "").split(";")[0].strip().lower()
             if ctype and ctype != "application/json":
+                self.close_connection = True
                 self._send(415, {"error": "Content-Type must be application/json"})
                 return True
         return False
@@ -167,14 +215,10 @@ class H(BaseHTTPRequestHandler):
     def do_POST(self):
         if self._guard("POST"):
             return
-        n = int(self.headers.get("Content-Length", 0) or 0)
-        try:
-            body = json.loads(self.rfile.read(n) or "{}") if n else {}
-        except ValueError:
-            return self._send(400, {"error": "invalid JSON body"})
-        if not isinstance(body, dict):
-            return self._send(400, {"error": "body must be a JSON object"})
         p = self.path.split("?")[0]
+        body = self._read_json_body(p)
+        if body is _BODY_ERROR:
+            return
         if self._vllm_gate(p):
             return
 
