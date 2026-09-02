@@ -162,6 +162,15 @@ def _agent_endpoint(agent):
     return f"http://{host}:{c['router_port']}/v1"
 
 
+def _agent_endpoint_for(agent, inject, c=None):
+    c = c or cfg()
+    if agent == "claude-code":
+        return f"http://127.0.0.1:{c['panel_port']}"
+    if inject:
+        return f"http://127.0.0.1:{c['panel_port']}/v1"
+    return _llama_client_endpoint(c) + "/v1"
+
+
 _AGENT_CONTEXT_FILE = {"claude-code": ".claude/CLAUDE.md",
                        "codex": ".codex/AGENTS.md", "pi": ".pi/AGENTS.md"}
 
@@ -876,23 +885,72 @@ def post_client_config(req):
     return 200, out
 
 
-def get_agent_config(req):
-    agent = req.q("agent")
-    model = req.q("model")
-    small = req.q("small") or None
-    inject = req.flag("inject")
+def _resolve_agent_request(body):
+    allowed = {"agent", "model", "backend", "small", "inject"}
+    unknown = set(body) - allowed
+    if unknown:
+        raise ApiError(400, "unsupported agent-config fields: " + ", ".join(sorted(unknown)))
+    agent = body.get("agent", "")
+    if agent not in agentsetup.AGENTS:
+        raise ApiError(400, f"unknown agent: {agent}")
+    inject = body.get("inject")
+    if not isinstance(inject, bool):
+        raise ApiError(400, "inject must be a boolean")
+    if agent == "claude-code" and inject:
+        raise ApiError(400, "Claude Code always uses the local Anthropic endpoint")
+
+    backend = body.get("backend", "")
+    active = REGISTRY.active_engine()
+    if backend != active or backend not in backends.LLAMA_FAMILY:
+        raise ApiError(400, f"agent setup requires the active llama backend: {active}")
+    row, resolved_backend = _resolve_model_row(body.get("model"), backend)
+    if resolved_backend != active:
+        raise ApiError(400, f"model is not owned by active backend: {row['id']}")
+
+    small = body.get("small", "")
+    if not isinstance(small, str):
+        raise ApiError(400, "small must be a model id")
+    small = small or None
+    if small and agent != "claude-code":
+        raise ApiError(400, "small is only supported for Claude Code")
+    if small:
+        small_row, small_backend = _resolve_model_row(small, backend)
+        if small_backend != active:
+            raise ApiError(400, f"small model is not owned by active backend: {small_row['id']}")
+        small = small_row["id"]
+
     c = cfg()
-    if inject and agent in ("codex", "pi"):
-        host = router_ctl.lan_ip() if c.get("router_host", "127.0.0.1") != "127.0.0.1" else "127.0.0.1"
-        endpoint = f"http://{host}:{c['panel_port']}/v1"
-    else:
-        endpoint = _agent_endpoint(agent)
+    return {
+        "agent": agent,
+        "model": row["id"],
+        "backend": active,
+        "small": small,
+        "inject": inject,
+        "endpoint": _agent_endpoint_for(agent, inject, c),
+        "api_key": c.get("router_api_key", ""),
+    }
+
+
+def post_agent_config(req):
+    target = _resolve_agent_request(req.body or {})
     try:
-        out = agentsetup.generate(agent, endpoint, c.get("router_api_key", ""),
-                                  model, small, inject)
-    except ValueError as e:
-        raise ApiError(400, str(e))
+        out = agentsetup.generate(
+            target["agent"], target["endpoint"], target["api_key"],
+            target["model"], target["small"], target["inject"])
+    except Exception:
+        raise ApiError(500, "agent configuration could not be generated") from None
     return 200, out
+
+
+def get_agent_config(req):
+    """Remove with the old Setup consumer in Task 8."""
+    return post_agent_config(Req(body={
+        "agent": req.q("agent"),
+        "model": req.q("model"),
+        "backend": REGISTRY.active_engine(),
+        "small": req.q("small") or "",
+        "inject": req.flag("inject"),
+    }))
 
 
 def get_wiki_docs(req):
@@ -1476,16 +1534,23 @@ def post_count_tokens(req):
     return 200, {"input_tokens": anthropic_shim.count_tokens_estimate(req.body)}
 
 
+def _compat_agent_apply_body(body):
+    """Remove with the old Setup consumer in Task 8."""
+    if (isinstance(body, dict) and "backend" not in body and
+            "inject" not in body and
+            not (set(body) - {"agent", "model", "small"})):
+        return dict(body, backend=REGISTRY.active_engine(), inject=False)
+    return body
+
+
 def post_agent_apply(req):
-    agent = req.body.get("agent", "")
-    model = req.body.get("model", "")
-    small = req.body.get("small") or None
+    target = _resolve_agent_request(_compat_agent_apply_body(req.body or {}))
     try:
-        out = agentsetup.apply(agent, os.path.expanduser("~"),
-                               _agent_endpoint(agent),
-                               cfg().get("router_api_key", ""), model, small)
-    except ValueError as e:
-        raise ApiError(400, str(e))
+        out = agentsetup.apply(
+            target["agent"], os.path.expanduser("~"), target["endpoint"],
+            target["api_key"], target["model"], target["small"])
+    except Exception:
+        raise ApiError(500, "agent configuration could not be applied") from None
     return 200, out
 
 
@@ -1606,6 +1671,7 @@ POST_ROUTES = {
     "/api/vllm/hub/register":   post_vllm_hub_register,
     "/api/vllm/delete":         post_vllm_delete,
     "/v1/messages/count_tokens": post_count_tokens,
+    "/api/agent/config":        post_agent_config,
     "/api/agent/apply":         post_agent_apply,
     "/api/wiki/doc":            post_wiki_doc,
     "/api/wiki/doc/delete":     post_wiki_doc_delete,
