@@ -25,7 +25,7 @@ def generate(endpoint, api_key, model, backend, shell):
     if api_key:
         args += ["-H", _quote("Authorization: Bearer " + api_key, shell)]
     args += ["-d", _quote(compact, shell)]
-    continuation = " `\n  " if shell == "powershell" else " "
+    continuation = " `\n  " if shell == "powershell" else " \\\n  "
     curl = continuation.join(args)
     shown_key = api_key or "not-required"
     if shell == "powershell":

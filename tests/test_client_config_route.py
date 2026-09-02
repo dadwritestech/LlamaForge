@@ -1,6 +1,10 @@
 import conftest_paths  # noqa: F401
 import json
+import os
 import shlex
+import shutil
+import subprocess
+import tempfile
 import unittest
 from unittest import mock
 
@@ -54,16 +58,44 @@ class ClientSetupGeneratorTest(unittest.TestCase):
         key = "legacy'\"$key"
         out = clientsetup.generate(
             "http://127.0.0.1:8080", key, model, "llamacpp", "posix")
-        argv = shlex.split(out["curl"])
+        self.assertIn(" \\\n  ", out["curl"])
+        argv = shlex.split(out["curl"].replace("\\\n", ""))
         self.assertEqual(argv[0:2], ["curl", "http://127.0.0.1:8080/v1/chat/completions"])
         self.assertIn("Authorization: Bearer " + key, argv)
         self.assertEqual(json.loads(argv[-1])["model"], model)
 
-    def test_powershell_uses_single_quote_escaping_and_backtick_continuations(self):
+    @unittest.skipUnless(
+        os.name == "nt" and (shutil.which("powershell") or shutil.which("pwsh")),
+        "PowerShell is required for argument-preservation coverage")
+    def test_powershell_executes_adversarial_values_as_literal_arguments(self):
+        powershell = shutil.which("powershell") or shutil.which("pwsh")
+        model = "model'; Write-Error injected; # \"quoted\""
+        key = "legacy'\"$key"
         out = clientsetup.generate(
-            "http://127.0.0.1:8080", "legacy'key", "m", "llamacpp", "powershell")
-        self.assertIn("legacy''key", out["curl"])
+            "http://127.0.0.1:8080", key, model, "llamacpp", "powershell")
         self.assertIn("`\n", out["curl"])
+        with tempfile.TemporaryDirectory() as tmp:
+            recorded = os.path.join(tmp, "curl-argv.json")
+            script = os.path.join(tmp, "snippet.ps1")
+            with open(script, "w", encoding="utf-8") as f:
+                f.write(
+                    "function curl_stub {\n"
+                    "  @($args) | ConvertTo-Json -Compress | "
+                    "Set-Content -LiteralPath $env:LF_CAPTURE -NoNewline\n"
+                    "}\n"
+                    "Set-Alias curl curl_stub -Scope Global -Option AllScope -Force\n"
+                    + out["curl"] + "\n")
+            env = dict(os.environ, LF_CAPTURE=recorded)
+            result = subprocess.run(
+                [powershell, "-NoProfile", "-NonInteractive", "-File", script],
+                capture_output=True, text=True, check=False, env=env)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue(os.path.exists(recorded), result.stderr + result.stdout)
+            with open(recorded, encoding="utf-8") as f:
+                argv = json.load(f)
+        self.assertEqual(argv[0:2], ["http://127.0.0.1:8080/v1/chat/completions", "-H"])
+        self.assertIn("Authorization: Bearer " + key, argv)
+        self.assertEqual(json.loads(argv[-1])["model"], model)
 
 
 class ClientConfigRouteTest(unittest.TestCase):
@@ -93,6 +125,38 @@ class ClientConfigRouteTest(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(out["backend"], "ikllama")
         self.assertFalse(out["model_loaded"])
+
+    def test_unsafe_legacy_lan_config_is_rejected(self):
+        config = dict(BASE_CFG, router_host="0.0.0.0", router_api_key="")
+        with self.assertRaises(ApiError) as cm:
+            self._call(
+                {"model": "qwen", "backend": "llamacpp"},
+                [{"id": "qwen", "backend": "llamacpp", "status": "loaded"}],
+                cfg=config,
+            )
+        self.assertEqual(cm.exception.status, 409)
+
+    def test_protected_lan_uses_canonical_lan_ip(self):
+        config = dict(BASE_CFG, router_host="0.0.0.0")
+        with mock.patch.object(routes.router_ctl, "lan_ip", return_value="192.0.2.10"):
+            status, out = self._call(
+                {"model": "qwen", "backend": "llamacpp"},
+                [{"id": "qwen", "backend": "llamacpp", "status": "loaded"}],
+                cfg=config,
+            )
+        self.assertEqual(status, 200)
+        self.assertEqual(out["endpoint"], "http://192.0.2.10:8080")
+
+    def test_protected_lan_without_an_ip_is_unavailable(self):
+        config = dict(BASE_CFG, router_host="0.0.0.0")
+        with mock.patch.object(routes.router_ctl, "lan_ip", return_value=""):
+            with self.assertRaises(ApiError) as cm:
+                self._call(
+                    {"model": "qwen", "backend": "llamacpp"},
+                    [{"id": "qwen", "backend": "llamacpp", "status": "loaded"}],
+                    cfg=config,
+                )
+        self.assertEqual(cm.exception.status, 503)
 
     def test_vllm_ready_target_uses_manager_endpoint_and_never_router_key(self):
         status, out = self._call(
