@@ -759,15 +759,24 @@ def get_scan_missing(req):
     return 200, {"missing": missing}
 
 
-def get_network(req):
-    c = cfg()
-    return 200, {
-        "host": c.get("router_host", "127.0.0.1"),
+def _network_status(c, running=None):
+    assessment = network_policy.assess(
+        c.get("router_host", "127.0.0.1"),
+        c.get("router_api_key", ""))
+    if running is None:
+        running = router_ctl.is_running(c["router_port"])
+    out = assessment.public()
+    out.update({
         "port": c["router_port"],
-        "has_api_key": bool(c.get("router_api_key")),
         "lan_ip": router_ctl.lan_ip(),
-        "router_running": router_ctl.is_running(c["router_port"]),
-    }
+        "router_running": bool(running),
+        "listener_status": "listening" if running else "not_listening",
+    })
+    return out
+
+
+def get_network(req):
+    return 200, _network_status(cfg())
 
 
 def get_vllm_log(req):
@@ -1406,18 +1415,46 @@ def _record_server_bin(key, path):
     return True
 
 
+def _network_error(error, secret):
+    text = str(error or "")
+    return text.replace(secret, "[redacted]") if secret else text
+
+
 def post_network(req):
-    c = cfg()
-    host = req.body.get("host", "127.0.0.1")
-    api_key = req.body.get("api_key")
-    if api_key is None:
-        api_key = c.get("router_api_key", "")   # field left blank -> keep existing key
-    c = config.update({"router_host": host, "router_api_key": api_key})
-    sbin = _active_server_bin(c)
-    ini = config.ini_path()
-    ok, err = router_ctl.restart(sbin, ini, c["router_port"],
-                                 host, api_key, LOGDIR)
-    return (200 if ok else 500), {"ok": ok, "error": err, "host": host}
+    current = cfg()
+    try:
+        mutation = network_policy.apply_request(current, req.body or {})
+    except ValueError as e:
+        raise ApiError(400, str(e))
+    except Exception:
+        raise ApiError(500, "network change could not be prepared") from None
+
+    try:
+        c = config.update({
+            "router_host": mutation.router_host,
+            "router_api_key": mutation.router_api_key,
+        })
+    except Exception:
+        raise ApiError(500, "network settings could not be saved") from None
+    try:
+        ok, error = router_ctl.restart(
+            _active_server_bin(c), config.ini_path(), c["router_port"],
+            mutation.router_host, mutation.router_api_key, LOGDIR)
+    except Exception as exc:
+        ok, error = False, exc
+    running = router_ctl.is_running(c["router_port"])
+    out = _network_status(c, running)
+    out.update({
+        "ok": bool(ok),
+        "saved": True,
+        "restart_status": ("failed" if not ok else
+                           "running" if running else "starting"),
+    })
+    if error:
+        out["error"] = _network_error(error, mutation.router_api_key)
+    if mutation.generated_api_key is not None:
+        out["generated_api_key"] = mutation.generated_api_key
+    return (200 if ok else 500), out
 
 
 def post_engine_switch(req):
