@@ -38,7 +38,7 @@ PUBLIC_CONFIG = {
     "active_engine": "llamacpp",
     "router_api_key_configured": False,
 }
-MODELS = [
+DEFAULT_MODELS = [
     {"id": "llama-fixture", "backend": "llamacpp", "status": "loaded",
      "settings": {}, "modalities": ["text"], "in_ini": True,
      "endpoint": "http://127.0.0.1:8080", "eff_ctx": 4096},
@@ -46,6 +46,27 @@ MODELS = [
      "settings": {}, "modalities": ["text"], "in_ini": True,
      "endpoint": "http://127.0.0.1:8081", "eff_ctx": 4096},
 ]
+MODEL_SCENARIOS = {
+    "default": (DEFAULT_MODELS, "llamacpp"),
+    # Deliberately put vLLM first. State rows are not specified to be ordered
+    # by backend, and this catches DOM reconciliation that keys only on id.
+    "shared-llamacpp": ([
+        {"id": "shared-fixture", "backend": "vllm", "status": "loaded",
+         "settings": {}, "modalities": ["text"], "in_ini": True,
+         "endpoint": "http://127.0.0.1:8081", "eff_ctx": 4096},
+        {"id": "shared-fixture", "backend": "llamacpp", "status": "loaded",
+         "settings": {}, "modalities": ["text"], "in_ini": True,
+         "endpoint": "http://127.0.0.1:8080", "eff_ctx": 4096},
+    ], "llamacpp"),
+    "shared-ikllama": ([
+        {"id": "shared-fixture", "backend": "vllm", "status": "loaded",
+         "settings": {}, "modalities": ["text"], "in_ini": True,
+         "endpoint": "http://127.0.0.1:8081", "eff_ctx": 4096},
+        {"id": "shared-fixture", "backend": "ikllama", "status": "loaded",
+         "settings": {}, "modalities": ["text"], "in_ini": True,
+         "endpoint": "http://127.0.0.1:8080", "eff_ctx": 4096},
+    ], "ikllama"),
+}
 LOCAL_NETWORK = {
     "access_scope": "local", "host": "127.0.0.1", "port": 8080,
     "lan_ip": "192.168.1.44", "router_running": True,
@@ -66,6 +87,13 @@ SCENARIOS = {
         "access_scope": "lan", "host": "0.0.0.0",
         "configured_security_status": "protected",
         "key_status": "strong", "has_api_key": True,
+    },
+    "protected-legacy": {
+        **LOCAL_NETWORK,
+        "access_scope": "lan", "host": "0.0.0.0",
+        "configured_security_status": "protected_legacy",
+        "key_status": "legacy", "has_api_key": True,
+        "message": "Rotate this legacy API key when convenient.",
     },
     "unsafe-legacy": {
         **LOCAL_NETWORK,
@@ -110,11 +138,17 @@ SETUP = {
 
 
 class FixtureState:
+    DELAY_KINDS = frozenset(("client", "agent", "network"))
+
     def __init__(self):
         self.lock = threading.Lock()
         self.network = copy.deepcopy(LOCAL_NETWORK)
+        self.models = copy.deepcopy(DEFAULT_MODELS)
+        self.active_engine = "llamacpp"
         self.fail_next_restart = False
         self.requests = []
+        self.delays = {}
+        self.delay_completed = {kind: 0 for kind in self.DELAY_KINDS}
 
     def record(self, method, path, body=None):
         with self.lock:
@@ -133,6 +167,67 @@ class FixtureState:
             self.network = copy.deepcopy(SCENARIOS[name])
             self.fail_next_restart = name == "forced-restart-failure"
         return True
+
+    def select_models(self, name):
+        scenario = MODEL_SCENARIOS.get(name)
+        if scenario is None:
+            return False
+        rows, active_engine = scenario
+        with self.lock:
+            self.models = copy.deepcopy(rows)
+            self.active_engine = active_engine
+        return True
+
+    def snapshot_models(self):
+        with self.lock:
+            return copy.deepcopy(self.models), self.active_engine
+
+    def arm_delay(self, kind, delay_ms=750):
+        if (kind not in self.DELAY_KINDS or not isinstance(delay_ms, int) or
+                delay_ms < 100 or delay_ms > 5000):
+            return False
+        event = threading.Event()
+        with self.lock:
+            previous = self.delays.get(kind)
+            self.delays[kind] = event
+        if previous is not None:
+            previous.set()
+        timer = threading.Timer(delay_ms / 1000, event.set)
+        timer.daemon = True
+        timer.start()
+        return True
+
+    def release_delay(self, kind):
+        if kind not in self.DELAY_KINDS:
+            return False
+        with self.lock:
+            event = self.delays.get(kind)
+        if event is None:
+            return False
+        event.set()
+        return True
+
+    def wait_delay(self, kind):
+        with self.lock:
+            event = self.delays.get(kind)
+        if event is not None:
+            event.wait(timeout=15)
+        return event
+
+    def complete_delay(self, kind, event):
+        if event is None:
+            return
+        with self.lock:
+            if self.delays.get(kind) is event:
+                del self.delays[kind]
+            self.delay_completed[kind] += 1
+
+    def snapshot_delays(self):
+        with self.lock:
+            return {
+                "pending": sorted(self.delays),
+                "completed": copy.deepcopy(self.delay_completed),
+            }
 
 
 class FixtureServer(ThreadingHTTPServer):
@@ -171,6 +266,13 @@ class FixtureHandler(BaseHTTPRequestHandler):
             return None
         return body
 
+    def _send_delayed(self, kind, status, payload):
+        event = self.server.fixture.wait_delay(kind)
+        try:
+            self._send(status, payload)
+        finally:
+            self.server.fixture.complete_delay(kind, event)
+
     def do_GET(self):
         path = urlsplit(self.path).path
         if path.startswith("/api/"):
@@ -178,18 +280,21 @@ class FixtureHandler(BaseHTTPRequestHandler):
         if path in ("/api/schema", "/api/vllm/schema"):
             self._send(200, SCHEMA)
         elif path == "/api/state":
+            models, active_engine = self.server.fixture.snapshot_models()
+            public_config = copy.deepcopy(PUBLIC_CONFIG)
+            public_config["active_engine"] = active_engine
             self._send(200, {
-                "models": MODELS,
+                "models": models,
                 "global": {},
                 "gpus": [],
-                "config": PUBLIC_CONFIG,
+                "config": public_config,
                 "platform": "windows",
                 "vllm_supported": True,
                 "backends": ["llamacpp", "vllm"],
-                "active_engine": "llamacpp",
+                "active_engine": active_engine,
                 "config_error": None,
                 "onboarding": {
-                    "server_bin_ok": True, "model_count": len(MODELS),
+                    "server_bin_ok": True, "model_count": len(models),
                     "ui_mode": "advanced", "onboarded": True,
                 },
             })
@@ -207,6 +312,8 @@ class FixtureHandler(BaseHTTPRequestHandler):
             self._send(404, {"error": "not found"})
         elif path == "/_fixture/requests":
             self._send(200, {"requests": self.server.fixture.snapshot_requests()})
+        elif path == "/_fixture/delays":
+            self._send(200, self.server.fixture.snapshot_delays())
         elif path == "/_fixture.js":
             self._send(200, FIXTURE_JS.read_text(encoding="utf-8"),
                        "text/javascript; charset=utf-8")
@@ -223,6 +330,25 @@ class FixtureHandler(BaseHTTPRequestHandler):
         if path == "/_fixture/scenario":
             if not isinstance(body, dict) or not self.server.fixture.select(body.get("name")):
                 self._send(400, {"ok": False, "error": "unknown fixture scenario"})
+            else:
+                self._send(200, {"ok": True})
+        elif path == "/_fixture/models":
+            if (not isinstance(body, dict) or
+                    not self.server.fixture.select_models(body.get("name"))):
+                self._send(400, {"ok": False, "error": "unknown model scenario"})
+            else:
+                self._send(200, {"ok": True})
+        elif path == "/_fixture/delay":
+            if (not isinstance(body, dict) or
+                    not self.server.fixture.arm_delay(
+                        body.get("kind"), body.get("delay_ms", 750))):
+                self._send(400, {"ok": False, "error": "unknown delay kind"})
+            else:
+                self._send(200, {"ok": True})
+        elif path == "/_fixture/release":
+            if (not isinstance(body, dict) or
+                    not self.server.fixture.release_delay(body.get("kind"))):
+                self._send(400, {"ok": False, "error": "delay not armed"})
             else:
                 self._send(200, {"ok": True})
         elif path == "/api/network":
@@ -299,7 +425,7 @@ class FixtureHandler(BaseHTTPRequestHandler):
             out["error"] = "Router restart failed; inspect Router Log."
         if action == "generate":
             out["generated_api_key"] = SENTINEL
-        self._send(500 if fail else 200, out)
+        self._send_delayed("network", 500 if fail else 200, out)
 
     def _post_client(self, body):
         if not isinstance(body, dict) or set(body) != {"model", "backend"}:
@@ -307,29 +433,34 @@ class FixtureHandler(BaseHTTPRequestHandler):
             return
         backend = body.get("backend")
         model = body.get("model")
-        if (backend, model) == ("llamacpp", "llama-fixture"):
+        if ((backend, model) == ("llamacpp", "llama-fixture") or
+                (backend in ("llamacpp", "ikllama") and
+                 model == "shared-fixture")):
             endpoint = "http://127.0.0.1:8080"
-            self._send(200, {
+            payload = {
                 "backend": backend, "endpoint": endpoint,
                 "auth_required": True, "model_loaded": True,
                 "curl": ("curl http://127.0.0.1:8080/v1/chat/completions "
                          "-H 'Authorization: Bearer " + SENTINEL + "'"),
                 "environment": ("OPENAI_BASE_URL=http://127.0.0.1:8080/v1\n"
                                 "OPENAI_API_KEY=" + SENTINEL),
-                "payload": '{"model":"llama-fixture","messages":[]}',
-            })
-        elif (backend, model) == ("vllm", "vllm-fixture"):
+                "payload": json.dumps({"model": model, "messages": []}),
+            }
+        elif (backend == "vllm" and
+              model in ("vllm-fixture", "shared-fixture")):
             endpoint = "http://127.0.0.1:8081"
-            self._send(200, {
+            payload = {
                 "backend": backend, "endpoint": endpoint,
                 "auth_required": False, "model_loaded": True,
                 "curl": "curl http://127.0.0.1:8081/v1/chat/completions",
                 "environment": ("OPENAI_BASE_URL=http://127.0.0.1:8081/v1\n"
                                 "OPENAI_API_KEY=not-required"),
-                "payload": '{"model":"vllm-fixture","messages":[]}',
-            })
+                "payload": json.dumps({"model": model, "messages": []}),
+            }
         else:
             self._send(400, {"error": "unknown client target"})
+            return
+        self._send_delayed("client", 200, payload)
 
     def _post_agent_config(self, body):
         expected = {"agent", "model", "backend", "small", "inject"}
@@ -338,7 +469,7 @@ class FixtureHandler(BaseHTTPRequestHandler):
                 body.get("backend") != "llamacpp"):
             self._send(400, {"error": "invalid agent request"})
             return
-        self._send(200, {
+        self._send_delayed("agent", 200, {
             "target_path": "fixture-agent.json",
             "endpoint": "http://127.0.0.1:8090/v1",
             "instructions": "Use the generated local fixture configuration.",

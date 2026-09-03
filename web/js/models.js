@@ -232,6 +232,10 @@ function knobSig(m) {
                          : (S.SCHEMA ? S.SCHEMA.count||0 : -1), knobEpoch]);
 }
 
+function rowIdentity(backend, id) {
+  return JSON.stringify([backend || "llamacpp", id]);
+}
+
 export function renderModels() {
   if (!S.STATE) return;
   const all = modelRows();
@@ -249,17 +253,21 @@ export function renderModels() {
   if (!ms.length) { setHTML(list, `<div class="skel">NO MODELS MATCH</div>`); return; }
   if (list.firstElementChild && list.firstElementChild.classList.contains("skel")) setHTML(list, "");
 
-  const existing = new Map($$(".row", list).map(r => [r.dataset.id, r]));
+  const existing = new Map($$(".row", list).map(r => [
+    rowIdentity(r.dataset.backend, r.dataset.id), r,
+  ]));
   let prev = null;
   for (const m of ms) {
-    let row = existing.get(m.id);
+    const backend = m.backend || "llamacpp";
+    const identity = rowIdentity(backend, m.id);
+    let row = existing.get(identity);
     if (!row) {
       row = document.createElement("div");
       row.className = "row";
-      row.dataset.id = m.id;
-      row.dataset.backend = m.backend || "llamacpp";
       row.innerHTML = `<div class="rhead"></div><div class="edit"></div>`;
-    } else existing.delete(m.id);
+    } else existing.delete(identity);
+    row.dataset.id = m.id;
+    row.dataset.backend = backend;
 
     const hs = headSig(m, cols, showBackend);
     if (row._hs !== hs) {

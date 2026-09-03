@@ -5,6 +5,40 @@ import { models, config as cfgOf } from "./state.js";
 import { emit } from "./bus.js";
 
 let vllmSetupPoll = null;
+let setupGeneration = 0;
+const setupCleanups = new Set();
+let clearAgentSecret = () => {};
+
+function setupViewActive(generation) {
+  const view = $("#view-setup");
+  return generation === setupGeneration &&
+    Boolean(view && view.classList.contains("active"));
+}
+
+function registerSetupCleanup(generation, cleanup) {
+  if (!setupViewActive(generation)) {
+    cleanup();
+    return () => {};
+  }
+  setupCleanups.add(cleanup);
+  return () => setupCleanups.delete(cleanup);
+}
+
+function invalidateSetup() {
+  setupGeneration += 1;
+  const cleanups = [...setupCleanups];
+  setupCleanups.clear();
+  for (const cleanup of cleanups) cleanup();
+  clearAgentSecret();
+  clearAgentSecret = () => {};
+  const out = $("#ac-out");
+  if (out) setHTML(out, "");
+  return setupGeneration;
+}
+
+export function leaveSetup() {
+  invalidateSetup();
+}
 
 function pollVllmSetup() {
   clearInterval(vllmSetupPoll);
@@ -40,6 +74,9 @@ function networkMarkup(net) {
           ? " A listener occupies the configured port; its process identity and protection cannot be verified."
           : ""}`
     : "";
+  const advisory = !net.remediation_required &&
+    net.configured_security_status === "protected_legacy"
+    ? (net.message || "Rotate this legacy API key when convenient.") : "";
   return `<section class="card" id="network-access" aria-labelledby="network-title">
     <h3 id="network-title">Network Access</h3>
     ${net.remediation_required ? `<div id="net-alert" class="net-alert" role="alert">
@@ -49,12 +86,16 @@ function networkMarkup(net) {
         <button type="button" id="net-remediate-local">Return to local-only</button>
       </div>
     </div>` : ""}
+    ${advisory ? `<div id="net-advisory" class="note">${esc(advisory)}</div>` : ""}
     <div class="net-observation">
-      <p><b>Configured:</b> <span id="net-configured">${esc(status)}</span></p>
+      <p><b>Configured policy:</b> <span id="net-configured">${esc(status)}</span></p>
+      <p><b>Configured endpoint:</b> <span id="net-configured-endpoint">http://${
+        esc(net.host)}:${esc(net.port)}/</span></p>
       <p><b>Observed listener:</b> <span id="net-runtime">${
         net.router_running ? "listening on the configured port" : "not listening"}</span></p>
       <p class="note">A listening port does not prove process identity or authentication.
-        LAN address: <b>http://${esc(net.lan_ip || "<lan-ip>")}:${esc(net.port)}/</b></p>
+        Convenience LAN URL: <b id="net-convenience-url">http://${
+          esc(net.lan_ip || "<lan-ip>")}:${esc(net.port)}/</b></p>
     </div>
     <fieldset id="net-scope-group" aria-describedby="net-scope-help net-apply-error">
       <legend>Access scope</legend>
@@ -103,7 +144,7 @@ function networkMarkup(net) {
   </section>`;
 }
 
-function confirmNetworkChange(title, message, confirmLabel) {
+function confirmNetworkChange(title, message, confirmLabel, generation) {
   return new Promise(resolve => {
     const root = $("#modal-root");
     const returnTo = document.activeElement;
@@ -123,12 +164,16 @@ function confirmNetworkChange(title, message, confirmLabel) {
     const cancel = $("#net-confirm-cancel");
     const accept = $("#net-confirm-accept");
     let finished = false;
+    let unregister = () => {};
     const finish = answer => {
       if (finished) return;
       finished = true;
+      unregister();
       if (dialog.open) dialog.close();
       setHTML(root, "");
-      if (returnTo && returnTo.isConnected) returnTo.focus();
+      if (returnTo && returnTo.isConnected && setupViewActive(generation)) {
+        returnTo.focus();
+      }
       resolve(answer);
     };
     cancel.onclick = () => finish(false);
@@ -149,6 +194,7 @@ function confirmNetworkChange(title, message, confirmLabel) {
     });
     dialog.showModal();
     cancel.focus();
+    unregister = registerSetupCleanup(generation, () => finish(false));
   });
 }
 
@@ -165,20 +211,20 @@ function networkFailureMessage(scope, listenerObserved = false) {
     : "The local-only configuration was saved, but the router is stopped; its listener is not currently active or verified.";
 }
 
-async function pollNetworkRuntime(root, savedScope) {
+async function pollNetworkRuntime(root, savedScope, generation) {
   const status = $("#net-status", root);
   const runtime = $("#net-runtime", root);
   const error = $("#net-apply-error", root);
   let latest = null;
   for (let attempt = 0; attempt < 10; attempt++) {
-    if (!root.isConnected) return;
+    if (!root.isConnected || !setupViewActive(generation)) return;
     let net;
     try {
       net = await api("/api/network");
     } catch (requestError) {
       break;
     }
-    if (!root.isConnected) return;
+    if (!root.isConnected || !setupViewActive(generation)) return;
     latest = net;
     runtime.textContent = net.router_running
       ? "listening on the configured port"
@@ -195,7 +241,7 @@ async function pollNetworkRuntime(root, savedScope) {
     }
     await new Promise(resolve => setTimeout(resolve, 500));
   }
-  if (root.isConnected) {
+  if (root.isConnected && setupViewActive(generation)) {
     status.className = "msg";
     status.textContent = "";
     error.hidden = false;
@@ -204,7 +250,7 @@ async function pollNetworkRuntime(root, savedScope) {
   }
 }
 
-function wireNetwork(net) {
+function wireNetwork(net, generation) {
   const root = $("#network-access");
   if (!root) return;
   const status = $("#net-status", root);
@@ -227,11 +273,11 @@ function wireNetwork(net) {
   let clearGenerated = hideGeneratedPanel;
 
   const installGeneratedSecret = rawSecret => {
+    if (!root.isConnected || !setupViewActive(generation)) return;
     clearGenerated();
     const privateKey = {value: String(rawSecret)};
     let revealTimer = null;
     let observer = null;
-    let leaveSetup = null;
 
     const destroy = () => {
       if (revealTimer !== null) clearTimeout(revealTimer);
@@ -245,8 +291,6 @@ function wireNetwork(net) {
       generatedReveal.disabled = true;
       generatedCopy.disabled = true;
       if (observer) observer.disconnect();
-      if (leaveSetup) document.removeEventListener("click", leaveSetup, true);
-      leaveSetup = null;
       generatedPanel.hidden = true;
       clearGenerated = hideGeneratedPanel;
     };
@@ -263,8 +307,6 @@ function wireNetwork(net) {
       generatedReveal.onclick = null;
       generatedCopy.onclick = null;
       if (observer) observer.disconnect();
-      if (leaveSetup) document.removeEventListener("click", leaveSetup, true);
-      leaveSetup = null;
       generatedDismiss.onclick = hideGeneratedPanel;
       clearGenerated = hideGeneratedPanel;
     };
@@ -295,20 +337,20 @@ function wireNetwork(net) {
       revealTimer = setTimeout(expire, 30_000);
     };
     generatedDismiss.onclick = destroy;
-    leaveSetup = event => {
-      const tab = event.target.closest?.(".tab");
-      if (tab && tab.dataset.tab !== "setup") destroy();
-    };
-    document.addEventListener("click", leaveSetup, true);
     observer = new MutationObserver(() => {
       const view = root.closest(".view");
-      if (!root.isConnected || !view || !view.classList.contains("active")) destroy();
+      if (!root.isConnected || !view || !view.classList.contains("active") ||
+          !setupViewActive(generation)) destroy();
     });
     observer.observe(document.body, {
       childList: true, subtree: true, attributes: true, attributeFilter: ["class"],
     });
     clearGenerated = destroy;
   };
+  registerSetupCleanup(generation, () => {
+    clearGenerated();
+    replaceInput.value = "";
+  });
 
   const scope = () => $('[name="net-scope"]:checked', root).value;
   const action = () => $('[name="net-key-action"]:checked', root).value;
@@ -395,33 +437,41 @@ function wireNetwork(net) {
       if (net.has_api_key && !await confirmNetworkChange(
           "Rotate router API key",
           "Existing clients will stop authenticating after restart until you update them.",
-          "Rotate key")) return;
+          "Rotate key", generation)) return;
     }
     if (keyAction === "generate" && net.has_api_key &&
         !await confirmNetworkChange(
           "Rotate router API key",
           "Generating a new key immediately invalidates the current key after restart.",
-          "Generate and rotate")) return;
+          "Generate and rotate", generation)) return;
     if (keyAction === "clear" && net.has_api_key && !await confirmNetworkChange(
         "Remove router API key",
         "Local clients will no longer need a key. LAN mode cannot run without one.",
-        "Remove key")) return;
+        "Remove key", generation)) return;
+
+    if (!setupViewActive(generation)) return;
 
     apply.disabled = true;
     status.className = "msg work";
     status.textContent = "Saving safe policy and restarting router...";
     try {
       const r = await api("/api/network", body);
-      if (!root.isConnected) return;
+      let issued = r.generated_api_key ? String(r.generated_api_key) : "";
+      delete r.generated_api_key;
+      if (!root.isConnected || !setupViewActive(generation)) {
+        issued = "";
+        return;
+      }
       $("#net-configured", root).textContent =
         String(r.configured_security_status || "saved").replaceAll("_", " ");
+      $("#net-configured-endpoint", root).textContent =
+        `http://${r.host || ""}:${r.port == null ? "" : r.port}/`;
       net.has_api_key = Boolean(r.has_api_key);
       $('[name="net-key-action"][value="keep"]', root).disabled =
         !net.has_api_key;
-      if (r.generated_api_key) {
-        const issued = r.generated_api_key;
-        delete r.generated_api_key;
+      if (issued) {
         installGeneratedSecret(issued);
+        issued = "";
       }
       if (!r.ok) {
         status.className = "msg";
@@ -434,22 +484,24 @@ function wireNetwork(net) {
           ? "listener present / not verified" : "not running / not verified";
         return;
       }
-      await pollNetworkRuntime(root, r.access_scope);
+      await pollNetworkRuntime(root, r.access_scope, generation);
     } catch (requestError) {
-      if (root.isConnected) {
+      if (root.isConnected && setupViewActive(generation)) {
         showError("The network change could not be completed.", apply);
       }
     } finally {
-      if (root.isConnected) apply.disabled = false;
+      if (root.isConnected && setupViewActive(generation)) apply.disabled = false;
     }
   };
   sync();
 }
 
 export async function loadSetup() {
+  const generation = invalidateSetup();
   const v = $("#view-setup");
   setHTML(v, `<div class="skel">PROBING SYSTEM...</div>`);
   const [s, net, vs] = await Promise.all([api("/api/setup"), api("/api/network"), api("/api/vllm/setup")]);
+  if (!setupViewActive(generation)) return;
   const p = s.prereqs, hw = s.hardware;
   const toolRow = (name, t) => `<div class="kv"><span class="k">${esc(name)}</span>
     <span class="v ${t.present?'ok':'bad'}">${t.present?esc(t.version||"present"):"MISSING"}
@@ -509,7 +561,7 @@ export async function loadSetup() {
       <div class="note">Downloads uv + a standalone Python and installs vLLM into ~/.llamaforge/vllm-venv. Several GB; watch the log.</div>`:""}
       <div class="log" id="vllm-setup-log" style="display:${(vs.setup_job&&vs.setup_job.running)?"":"none"}">${esc(vs.setup_log||"idle")}</div>
     </div>`));
-  wireNetwork(net);
+  wireNetwork(net, generation);
   $$("[data-install]", v).forEach(b => b.onclick = async () => {
     b.disabled = true; b.textContent = "installing...";
     const r = await api("/api/setup/install", {tool: b.dataset.install});
@@ -543,7 +595,7 @@ export async function loadSetup() {
     else msg.textContent = "already running";
   };
   if (vs.setup_job && vs.setup_job.running) pollVllmSetup();
-  renderAgentConnect();
+  renderAgentConnect(generation);
 }
 
 /* ---------- connect an agent ---------- */
@@ -561,6 +613,8 @@ function agentModelOptions(selected = "") {
 }
 
 function clearAgentPreview(message = "Choose settings, then show the configuration.") {
+  clearAgentSecret();
+  clearAgentSecret = () => {};
   const out = $("#ac-out");
   if (out) setHTML(out, `<div class="note">${esc(message)}</div>`);
 }
@@ -579,7 +633,7 @@ function agentRequest() {
   };
 }
 
-function renderAgentConnect() {
+function renderAgentConnect(generation) {
   const host = $("#agent-connect");
   if (!host) return;
   setHTML(host, `<h3>Connect an agent</h3>
@@ -617,12 +671,13 @@ function renderAgentConnect() {
   $("#ac-model").onchange = () => clearAgentPreview();
   $("#ac-small").onchange = () => clearAgentPreview();
   $("#ac-inject").onchange = () => clearAgentPreview();
-  $("#ac-show").onclick = showAgentConfig;
-  $("#ac-apply").onclick = applyAgentConfig;
+  $("#ac-show").onclick = () => showAgentConfig(generation);
+  $("#ac-apply").onclick = () => applyAgentConfig(generation);
   sync();
 }
 
-async function showAgentConfig() {
+async function showAgentConfig(generation) {
+  if (!setupViewActive(generation)) return;
   const body = agentRequest();
   if (!body) {
     clearAgentPreview("No llama-family model is available.");
@@ -631,10 +686,14 @@ async function showAgentConfig() {
   }
   const out = $("#ac-out");
   const stillCurrent = () => {
-    if (!out.isConnected || out !== $("#ac-out")) return false;
+    if (!setupViewActive(generation) || !out.isConnected || out !== $("#ac-out")) {
+      return false;
+    }
     const current = agentRequest();
     return current !== null && JSON.stringify(current) === JSON.stringify(body);
   };
+  clearAgentSecret();
+  clearAgentSecret = () => {};
   setHTML(out,
     `<div class="note" role="status">Generating configuration...</div>`);
   let r;
@@ -647,45 +706,72 @@ async function showAgentConfig() {
     }
     return;
   }
-  if (!stillCurrent()) return;
+  if (!stillCurrent()) {
+    if (r && typeof r.content === "string") r.content = "";
+    return;
+  }
   if (r.error) {
     setHTML(out,
       `<div class="note" role="alert">${esc(r.error)}</div>`);
     return;
   }
-  const privateValues = [r.content];
+  let privateValue = String(r.content || "");
+  r.content = "";
   setHTML(out,
     `<div class="note">Target: <b>${esc(r.target_path)}</b> · endpoint
       <b>${esc(r.endpoint)}</b><br>${esc(r.instructions)}</div>
       <div class="slabel">${esc(r.target_path)}</div>
       <div class="snip"><button type="button" class="qbtn scopy"
         data-agent-copy-index="0" aria-label="Copy agent configuration">Copy</button>${
-        esc(r.content)}</div>`);
-  $$("[data-agent-copy-index]", out).forEach(button => {
-    const value = privateValues[Number(button.dataset.agentCopyIndex)];
+        esc(privateValue)}</div>`);
+  const buttons = $$("[data-agent-copy-index]", out);
+  for (const button of buttons) {
     button.removeAttribute("data-agent-copy-index");
-    button.onclick = () => navigator.clipboard.writeText(value).then(
-      () => toast("Copied to clipboard", "ok"));
-  });
+    button.onclick = () => {
+      if (!privateValue) return;
+      navigator.clipboard.writeText(privateValue).then(
+        () => toast("Copied to clipboard", "ok"));
+    };
+  }
+  let unregister = () => {};
+  const destroy = () => {
+    privateValue = "";
+    for (const button of buttons) button.onclick = null;
+    if (out.isConnected && out === $("#ac-out")) setHTML(out, "");
+    unregister();
+    if (clearAgentSecret === destroy) clearAgentSecret = () => {};
+  };
+  clearAgentSecret = destroy;
+  unregister = registerSetupCleanup(generation, destroy);
 }
 
-async function applyAgentConfig() {
+async function applyAgentConfig(generation) {
+  if (!setupViewActive(generation)) return;
   const body = agentRequest();
   if (!body) {
     clearAgentPreview("No llama-family model is available.");
     $("#ac-model").focus();
     return;
   }
+  const out = $("#ac-out");
+  const stillCurrent = () => {
+    if (!setupViewActive(generation) || !out.isConnected || out !== $("#ac-out")) {
+      return false;
+    }
+    const current = agentRequest();
+    return current !== null && JSON.stringify(current) === JSON.stringify(body);
+  };
   let r;
   try {
     r = await api("/api/agent/apply", body);
   } catch (requestError) {
-    setHTML($("#ac-out"),
+    if (stillCurrent()) setHTML(out,
       `<div class="note" role="alert">Agent configuration could not be applied.</div>`);
     return;
   }
+  if (!stillCurrent()) return;
   if (r.error) {
-    setHTML($("#ac-out"),
+    setHTML(out,
       `<div class="note" role="alert">${esc(r.error)}</div>`);
     return;
   }
