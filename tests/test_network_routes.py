@@ -176,6 +176,29 @@ class PostNetworkRouteTest(unittest.TestCase):
         update.assert_not_called()
         restart.assert_not_called()
 
+    def test_save_failure_is_generic_and_stops_before_lifecycle_work(self):
+        current = {"router_host": "127.0.0.1", "router_api_key": "",
+                   "router_port": 8080, "server_bin": "server"}
+        with mock.patch.object(routes, "cfg", return_value=current), \
+             mock.patch.object(
+                 config, "update",
+                 side_effect=OSError("save refused with " + SECRET)) as update, \
+             mock.patch.object(routes.router_ctl, "restart") as restart, \
+             mock.patch.object(routes.router_ctl, "is_running") as running, \
+             mock.patch.object(routes.router_ctl, "lan_ip") as lan_ip, \
+             self.assertRaises(ApiError) as cm:
+            routes.post_network(Req(body={
+                "access_scope": "lan", "key_action": "replace",
+                "api_key": SECRET}))
+        self.assertEqual(cm.exception.status, 500)
+        self.assertEqual(str(cm.exception), "network settings could not be saved")
+        self.assertNotIn(SECRET, str(cm.exception))
+        update.assert_called_once_with({
+            "router_host": "0.0.0.0", "router_api_key": SECRET})
+        restart.assert_not_called()
+        running.assert_not_called()
+        lan_ip.assert_not_called()
+
     def test_restart_exception_still_returns_saved_generated_key_once(self):
         current = {"router_host": "127.0.0.1", "router_api_key": "",
                    "router_port": 8080, "server_bin": "server"}
