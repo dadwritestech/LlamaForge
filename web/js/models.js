@@ -257,6 +257,7 @@ export function renderModels() {
       row = document.createElement("div");
       row.className = "row";
       row.dataset.id = m.id;
+      row.dataset.backend = m.backend || "llamacpp";
       row.innerHTML = `<div class="rhead"></div><div class="edit"></div>`;
     } else existing.delete(m.id);
 
@@ -379,30 +380,94 @@ function openCompare() {
 }
 
 /* ---------- modal ---------- */
-function closeModal() { setHTML($("#modal-root"), ""); }
-function showModal(title, inner) {
-  setHTML($("#modal-root"), `<div class="modal-bg"><div class="modal">
-    <span class="mclose" data-mclose>&times;</span><h3>${esc(title)}</h3>${inner}</div></div>`);
+function closeModal() {
+  const dialog = $("#modal-root dialog");
+  if (dialog && dialog.open) dialog.close();
+  else setHTML($("#modal-root"), "");
+}
+
+function showModal(title, inner, privateCopies = [], returnTo = document.activeElement) {
+  const root = $("#modal-root");
+  setHTML(root, `<dialog class="modal-dialog" aria-labelledby="modal-title">
+    <div class="modal">
+      <button type="button" class="mclose" data-mclose aria-label="Close dialog">&times;</button>
+      <h3 id="modal-title">${esc(title)}</h3>${inner}
+    </div>
+  </dialog>`);
+  const dialog = $("dialog", root);
+  const finish = () => {
+    setHTML(root, "");
+    if (returnTo && returnTo.isConnected) returnTo.focus();
+  };
+  dialog.addEventListener("close", finish, {once: true});
+  dialog.addEventListener("cancel", e => {
+    e.preventDefault();
+    dialog.close();
+  });
+  dialog.addEventListener("click", e => {
+    if (e.target === dialog) dialog.close();
+  });
+  $$("[data-private-copy-index]", dialog).forEach(button => {
+    const value = privateCopies[Number(button.dataset.privateCopyIndex)];
+    button.removeAttribute("data-private-copy-index");
+    button.onclick = e => {
+      e.stopPropagation();
+      navigator.clipboard.writeText(value).then(
+        () => toast("Copied to clipboard", "ok"));
+    };
+  });
+  dialog.showModal();
+  $("[data-mclose]", dialog).focus();
+  return {
+    returnTo,
+    isOpen: () => dialog.isConnected && dialog.open,
+    close: () => { if (dialog.open) dialog.close(); },
+  };
 }
 
 /* ---------- client config ---------- */
-function endpointFor(m) {
-  if (m.endpoint) return m.endpoint;
-  const c = cfgOf();
-  const host = (c.router_host && c.router_host !== "0.0.0.0") ? c.router_host : "127.0.0.1";
-  return `http://${host}:${c.router_port||8080}`;
-}
-function openClientConfig(id) {
-  const m = modelRows().find(x => x.id === id); if (!m) return;
-  const base = endpointFor(m), key = cfgOf().router_api_key || "";
-  const auth = key ? ` \\\n  -H "Authorization: Bearer ${key}"` : "";
-  const curl = `curl ${base}/v1/chat/completions \\\n  -H "Content-Type: application/json"${auth} \\\n  -d '{"model":"${id}","messages":[{"role":"user","content":"Hello"}]}'`;
-  const envs = `OPENAI_BASE_URL=${base}/v1\nOPENAI_API_KEY=${key||"not-required"}\n# model id: ${id}`;
-  const payload = JSON.stringify({model:id,messages:[{role:"user",content:"Hello"}],stream:false}, null, 2);
-  const snip = (label, text) => `<div class="slabel">${esc(label)}</div><div class="snip"><button class="qbtn scopy" data-copytext="${esc(text)}">Copy</button>${esc(text)}</div>`;
+async function openClientConfig(id, backend) {
+  const m = modelRows().find(
+    row => row.id === id && (row.backend || "llamacpp") === backend);
+  if (!m) return;
+  const pending = showModal(
+    "Client config - " + id,
+    `<div class="note" role="status">Generating configuration...</div>`);
+  let r;
+  try {
+    r = await api("/api/client/config", {model: m.id, backend});
+  } catch (error) {
+    if (pending.isOpen()) {
+      showModal("Client config - " + id,
+        `<div class="note" role="alert">Client configuration is unavailable.</div>`,
+        [], pending.returnTo);
+    }
+    return;
+  }
+  if (!pending.isOpen()) return;
+  if (r.error) {
+    showModal("Client config - " + id,
+      `<div class="note" role="alert">${esc(r.error)}</div>`,
+      [], pending.returnTo);
+    return;
+  }
+  const values = [r.curl, r.environment, r.payload];
+  const snip = (label, text, index) =>
+    `<div class="slabel">${esc(label)}</div><div class="snip">
+      <button type="button" class="qbtn scopy"
+              data-private-copy-index="${index}"
+              aria-label="Copy ${esc(label)}">Copy</button>${esc(text)}</div>`;
   showModal("Client config - " + id,
-    `<div class="note">This endpoint is OpenAI-compatible. ${key?"An API key is set and included below.":"No API key is set."}${m.status!=="loaded"?" <b style=\"color:var(--amber)\">Model isn't loaded - load it before sending requests.</b>":""}</div>`
-    + snip("curl", curl) + snip("OpenAI client (environment)", envs) + snip("Test JSON payload", payload));
+    `<div class="note">Endpoint: <b>${esc(r.endpoint)}</b>. ${
+      r.auth_required ? "The configured router credential is included." :
+                        "No API key is required for this target."}${
+      r.model_loaded ? "" :
+        ` <b style="color:var(--amber)">Load the model before sending requests.</b>`
+    }</div>` +
+    snip("curl", r.curl, 0) +
+    snip("OpenAI client (environment)", r.environment, 1) +
+    snip("Test JSON payload", r.payload, 2),
+    values, pending.returnTo);
 }
 
 /* ---------- presets ---------- */
@@ -616,7 +681,6 @@ export function initModels() {
   document.addEventListener("keydown", e => {
     const tag = (document.activeElement || {}).tagName || "";
     const typing = /INPUT|SELECT|TEXTAREA/.test(tag);
-    if (e.key === "Escape" && $("#modal-root").children.length) { closeModal(); return; }
     if (typing) {
       if (e.key === "Escape" && document.activeElement === $("#model-search")) {
         const inp = $("#model-search"); inp.value = ""; mquery = ""; renderModels(); inp.blur();
@@ -657,10 +721,7 @@ export function initModels() {
     if (favBtn) { e.stopPropagation(); toggleFav(favBtn.dataset.fav); return; }
     const onlySetChip = e.target.closest("#view-models [data-onlyset]");
     if (onlySetChip) { e.stopPropagation(); toggleOnlySet(onlySetChip); return; }
-    // modal controls (client config / compare)
-    if (e.target.closest("[data-mclose]") || (e.target.classList && e.target.classList.contains("modal-bg"))) { closeModal(); return; }
-    const scopy = e.target.closest("[data-copytext]");
-    if (scopy) { e.stopPropagation(); navigator.clipboard.writeText(scopy.dataset.copytext).then(() => toast("Copied to clipboard","ok")); return; }
+    if (e.target.closest("[data-mclose]")) { closeModal(); return; }
     // compare-pick checkbox
     const cmpBox = e.target.closest("[data-cmp]");
     if (cmpBox) {
@@ -697,6 +758,8 @@ export function initModels() {
     const btn = e.target.closest("#view-models button[data-act]");
     if (!btn) return;
     const row = btn.closest(".row"), id = row.dataset.id, msg = $("[data-msg]", row), act = btn.dataset.act;
+    const clientOpening = act === "client"
+      ? openClientConfig(id, row.dataset.backend) : null;
     btn.disabled = true;
     try {
       if (act === "save") {
@@ -717,7 +780,7 @@ export function initModels() {
         msg.className = "msg work"; msg.textContent = "unloading...";
         await api("/api/unload", {model: id}); toast("Unloaded", "ok");
       } else if (act === "client") {
-        openClientConfig(id); btn.disabled = false; return;
+        await clientOpening; return;
       } else if (act === "vsave") {
         const settings = {}; $$("[data-k]", row).forEach(el => settings[el.dataset.k] = el.value.trim());
         msg.className = "msg work"; msg.textContent = "saving vLLM knobs...";
@@ -733,7 +796,7 @@ export function initModels() {
         msg.className = "msg work"; msg.textContent = "stopping vLLM...";
         await api("/api/vllm/unload", {model: id}); toast("vLLM stopped", "ok");
       } else if (act === "vdelete") {
-        if (!confirm(`Delete ${id} and its files from WSL? This cannot be undone.`)) { btn.disabled = false; return; }
+        if (!confirm(`Delete ${id} and its files from WSL? This cannot be undone.`)) return;
         msg.className = "msg work"; msg.textContent = "deleting from WSL...";
         const r = await api("/api/vllm/delete", {model: id});
         r.ok ? toast("Deleted","ok") : (msg.className="msg err", msg.textContent=r.error||"delete failed");
@@ -741,6 +804,6 @@ export function initModels() {
       }
       await refresh(true);
     } catch (err) { msg.className = "msg err"; msg.textContent = String(err); }
-    btn.disabled = false;
+    finally { if (btn.isConnected) btn.disabled = false; }
   });
 }

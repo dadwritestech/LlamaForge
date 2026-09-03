@@ -164,17 +164,13 @@ class AgentConfigRouteTest(unittest.TestCase):
                     body, rows, active,
                     "agent configuration must be an object" if name == "empty array" else None)
 
-    def test_temporary_apply_adapter_preserves_the_current_frontend_shape(self):
-        old_body = {"agent": "pi", "model": "main", "small": ""}
+    def test_legacy_apply_shape_is_removed_after_frontend_cutover(self):
         patches = self._patch()
-        with patches[0], patches[1], \
-             mock.patch.object(
-                 routes.agentsetup, "apply",
-                 return_value={"ok": True, "path": "p", "backup": None,
-                               "action": "created"}) as apply:
-            status, _ = routes.post_agent_apply(Req(body=old_body))
-        self.assertEqual(status, 200)
-        self.assertEqual(apply.call_args.args[2], "http://127.0.0.1:8080/v1")
+        with patches[0], patches[1], self.assertRaises(ApiError) as cm:
+            routes.post_agent_apply(Req(body={
+                "agent": "pi", "model": "main", "small": ""}))
+        self.assertEqual(cm.exception.status, 400)
+        self.assertIn("inject", str(cm.exception))
 
     def test_preview_and_apply_failures_never_echo_the_router_key(self):
         body = {"agent": "pi", "model": "main", "backend": "llamacpp",

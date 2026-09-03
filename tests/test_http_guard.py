@@ -260,6 +260,20 @@ class LiveServerTest(unittest.TestCase):
             self.assertEqual(status, 415, ctype)
         self.assertEqual(self.seen, [])
 
+    def test_secret_preview_posts_share_origin_and_json_guards(self):
+        for path in ("/api/client/config", "/api/agent/config"):
+            with self.subTest(path=path, guard="origin"):
+                status, _ = self._req(
+                    path, method="POST", data={},
+                    headers={"Origin": "https://evil.example",
+                             "Content-Type": "application/json"})
+                self.assertEqual(status, 403)
+            with self.subTest(path=path, guard="content-type"):
+                status, _ = self._req(
+                    path, method="POST", data={},
+                    headers={"Content-Type": "application/x-www-form-urlencoded"})
+                self.assertEqual(status, 415)
+
     def test_malformed_json_is_a_400_not_a_crash(self):
         url = f"http://127.0.0.1:{self.port}/api/_probe"
         r = urllib.request.Request(

@@ -687,10 +687,9 @@ def get_state(req):
 
 
 def _public_config(c):
-    """config.json as the dashboard sees it. The router API key is deliberately
-    included: the Client-config modal shows the exact curl the user needs, and
-    the panel is same-origin and localhost-only."""
-    return dict(c)
+    """Allowlisted browser state. Secret material is available only through
+    deliberate client/agent/network POST actions."""
+    return network_policy.public_config(c)
 
 
 def get_schema(req):
@@ -953,17 +952,6 @@ def post_agent_config(req):
     except Exception:
         raise ApiError(500, "agent configuration could not be generated") from None
     return 200, out
-
-
-def get_agent_config(req):
-    """Remove with the old Setup consumer in Task 8."""
-    return post_agent_config(Req(body={
-        "agent": req.q("agent"),
-        "model": req.q("model"),
-        "backend": REGISTRY.active_engine(),
-        "small": req.q("small") or "",
-        "inject": req.flag("inject"),
-    }))
 
 
 def get_wiki_docs(req):
@@ -1575,17 +1563,8 @@ def post_count_tokens(req):
     return 200, {"input_tokens": anthropic_shim.count_tokens_estimate(req.body)}
 
 
-def _compat_agent_apply_body(body):
-    """Remove with the old Setup consumer in Task 8."""
-    if (isinstance(body, dict) and "backend" not in body and
-            "inject" not in body and
-            not (set(body) - {"agent", "model", "small"})):
-        return dict(body, backend=REGISTRY.active_engine(), inject=False)
-    return body
-
-
 def post_agent_apply(req):
-    target = _resolve_agent_request(_compat_agent_apply_body(req.body))
+    target = _resolve_agent_request(req.body if req.body is not None else {})
     try:
         out = agentsetup.apply(
             target["agent"], os.path.expanduser("~"), target["endpoint"],
@@ -1657,7 +1636,6 @@ GET_ROUTES = {
     "/api/model/metadata":    get_model_metadata,
     "/api/model/diag":        get_model_diag,
     "/api/presets":           get_presets,
-    "/api/agent/config":      get_agent_config,
     "/api/wiki/docs":         get_wiki_docs,
     "/api/wiki/doc":          get_wiki_doc,
     "/api/wiki/profiles":     get_wiki_profiles,
