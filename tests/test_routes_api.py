@@ -137,10 +137,17 @@ class ScanPruneTest(unittest.TestCase):
     whose file is actually present."""
 
     def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.old_config = config.CONFIG
+        config.CONFIG = os.path.join(self.tmp, "config.json")
         self.removed = []
         mock.patch.object(config, "remove_section",
                           side_effect=lambda s: (self.removed.append(s), True)[1]).start()
-        self.addCleanup(mock.patch.stopall)
+        self.addCleanup(self._cleanup)
+
+    def _cleanup(self):
+        mock.patch.stopall()
+        config.CONFIG = self.old_config
 
     def _no_router(self, *a, **k):
         return 599, {}
@@ -161,6 +168,17 @@ class ScanPruneTest(unittest.TestCase):
              mock.patch.object(routes, "router", self._no_router):
             status, out = routes.post_scan_prune(Req(body={"ids": ["ghost"]}))
         self.assertEqual(out["removed"], [])
+
+    def test_pruning_a_removed_section_drops_its_preset_binding(self):
+        config.save_preset("coding", {"temp": "0.2"})
+        config.bind_preset("gone", "coding")
+        with mock.patch.object(config, "read_sections",
+                               return_value={"gone": {"model": "/nope/a.gguf"}}), \
+             mock.patch.object(routes, "router", self._no_router):
+            status, out = routes.post_scan_prune(Req(body={"ids": ["gone"]}))
+
+        self.assertEqual(out["removed"], ["gone"])
+        self.assertEqual(config.get_bindings(), {})
 
 
 class HubAddTest(unittest.TestCase):
