@@ -12,14 +12,19 @@ CREATE_NO_WINDOW = 0x08000000
 def lan_ip():
     """Best-effort local-network IP (no traffic sent; just picks the
     interface the OS would use to reach the internet)."""
-    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    s = None
     try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         s.connect(("8.8.8.8", 80))
         return s.getsockname()[0]
     except Exception:
         return None
     finally:
-        s.close()
+        if s is not None:
+            try:
+                s.close()
+            except Exception:
+                pass
 
 # ---------------------------------------------------------------- capability
 # The router is driven as `<server_bin> --models-preset <ini> --models-max 1`.

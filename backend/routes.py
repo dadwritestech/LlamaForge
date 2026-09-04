@@ -18,7 +18,7 @@ content_type. Raising ApiError(status, message) produces {"error": message}.
 Streaming responses (the Anthropic and OpenAI SSE proxies) are not in these
 tables: they write to the socket themselves and stay in server.py.
 """
-import json, os, subprocess, sys, urllib.request, urllib.error, urllib.parse
+import json, os, subprocess, sys, threading, urllib.request, urllib.error, urllib.parse
 
 import config, argspec, hardware, osplat, prereqs, scanner, hub, router_ctl, stats
 import autotune, anthropic_shim, agentsetup, clientsetup, network_policy, wiki, docs
@@ -87,6 +87,12 @@ _SCHEMA_KEY = None      # (server_bin, mtime) the cache was built from
 _IK_SCHEMA = None       # cached schema for ik_llama binary
 _IK_SCHEMA_KEY = None
 _VLLM_SCHEMA = None
+
+# Saving router-affecting config and restarting the process is one transaction.
+# ThreadingHTTPServer may run network and engine mutations concurrently; without
+# this boundary, the file and the live router can end up describing different
+# settings.  RLock keeps it safe for future lifecycle helpers to compose.
+_ROUTER_LIFECYCLE_LOCK = threading.RLock()
 
 
 def cfg():          return config.load()
@@ -1409,6 +1415,11 @@ def _network_error(error, secret):
 
 
 def post_network(req):
+    with _ROUTER_LIFECYCLE_LOCK:
+        return _post_network_locked(req)
+
+
+def _post_network_locked(req):
     current = cfg()
     try:
         mutation = network_policy.apply_request(current, req.body or {})
@@ -1446,6 +1457,11 @@ def post_network(req):
 
 
 def post_engine_switch(req):
+    with _ROUTER_LIFECYCLE_LOCK:
+        return _post_engine_switch_locked(req)
+
+
+def _post_engine_switch_locked(req):
     """Switch the active engine (llamacpp / ikllama) and restart the router.
 
     Validate the binary BEFORE persisting. `active_engine` steers ini_path(),
