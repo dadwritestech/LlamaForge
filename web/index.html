@@ -130,6 +130,30 @@ body.app{display:grid;grid-template-columns:var(--nav-w) 1fr;min-height:100vh;ma
    was clipping the row buttons, not the rows themselves. */
 .gpu .stats{display:flex;flex-wrap:wrap;gap:4px 14px;justify-content:space-between;margin-top:9px;color:var(--dim);font-size:11px}
 .gpu .stats b{color:var(--cyan-text);font-weight:500}
+.token-scale{display:flex;align-items:baseline;gap:9px;min-width:0;margin-bottom:10px;padding:9px 12px;
+  border:1px solid var(--amber-dim);background:linear-gradient(90deg,var(--amber-tint),transparent 70%);
+  font-family:var(--disp);letter-spacing:.04em;white-space:nowrap;position:relative;z-index:2}
+.token-scale-label{color:var(--amber-text);font-size:10px;letter-spacing:.16em;flex:none}
+.token-scale-total{color:var(--cyan-text);font-size:11px;font-weight:600;flex:none}
+.token-scale-mark{color:var(--amber-text);flex:none}
+.token-scale-fact{min-width:0;color:var(--ink-strong);font-weight:600;overflow:hidden;text-overflow:ellipsis}
+.token-scale-details{margin-left:auto;flex:none;color:var(--dim);font:9px var(--mono);letter-spacing:.14em}
+.token-scale-details summary{list-style:none;cursor:pointer;border-bottom:1px dotted var(--dim)}
+.token-scale-details summary::-webkit-details-marker{display:none}
+.token-scale-details summary:focus-visible{outline:1px solid var(--cyan);outline-offset:3px;color:var(--cyan-text)}
+.token-scale-note{position:absolute;right:0;top:calc(100% + 5px);width:min(540px,calc(100vw - 76px));padding:10px 12px;
+  border:1px solid var(--amber-dim);background:var(--panel2);box-shadow:0 8px 24px var(--shadow);white-space:normal;line-height:1.5;letter-spacing:0}
+.token-scale-note b,.token-scale-note span{display:block}.token-scale-note b{color:var(--ink-strong);font-weight:500}.token-scale-note span{color:var(--dim);margin-top:4px}
+.stats-vram{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:8px;margin-bottom:14px}
+.stats-vram-card,.stats-vram-empty{background:var(--panel);border:1px solid var(--hair);padding:8px 10px}
+.stats-vram-head{display:flex;justify-content:space-between;gap:12px;margin-bottom:6px;color:var(--ink-hi);font-size:10px}
+.stats-vram-head span:first-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.stats-vram-head span:last-child{color:var(--amber-text);letter-spacing:.12em;flex:none}
+.stats-vram .meter{height:13px;padding:2px;gap:1px}
+.stats-vram .stats{display:flex;justify-content:space-between;gap:12px;margin-top:5px;color:var(--dim);font-size:9px}
+.stats-vram .stats b{color:var(--cyan-text);font-weight:500}
+.stats-vram-empty{grid-column:1/-1;color:var(--dim);font-size:9px;letter-spacing:.12em}
+@media(max-width:620px){.token-scale-label{display:none}.token-scale{gap:7px}.stats-vram{grid-template-columns:1fr}}
 .tbl-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
 .tbl-head h2{font-family:var(--disp);font-weight:600;letter-spacing:.18em;font-size:12px;color:var(--dim);text-transform:uppercase;margin:0}
 .count{color:var(--amber-text);font-size:11px}
