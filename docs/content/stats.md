@@ -28,7 +28,7 @@ Each model's record in `stats.json` (`{"models": {...}, "daily": {...}, "first_s
 3. **Activity** is a stacked prompt/generated bar chart; toggle **14d** / **30d** to change the window.
 4. **Per-model Usage** lists every model with logged usage — total tokens, average tok/s while generating, run count, time loaded, and when it was last used. Click a column chip to sort by it.
 5. Click **Reset stats** to zero the whole store (`POST /api/stats/reset`) — this is destructive and cannot be undone.
-6. To share the router on your LAN: go to **Setup** → **Network Access**, select local-network access, then explicitly generate or replace a key before **Apply & Restart Router**. The dashboard remains loopback-only.
+6. To share the router on your LAN: go to **Setup** → **Network Access**, select local-network access, then keep a usable existing key or explicitly generate or replace one before **Apply & Restart Router**. The dashboard remains loopback-only.
 
 ## Screenshot
 

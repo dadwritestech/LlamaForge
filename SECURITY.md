@@ -46,8 +46,9 @@ The panel treats every HTTP request as untrusted input:
 
 - Host and Origin checks keep requests tied to this loopback service and defend
   against cross-site requests and DNS rebinding.
-- State-changing requests require JSON content type; this is defense in depth
-  against form posts.
+- When a POST declares `Content-Type`, it must be `application/json`; declared
+  form or other non-JSON types are rejected with 415. This is defense in depth
+  against form posts. A missing `Content-Type` is not rejected by this guard.
 - POST framing requires one valid `Content-Length`; transfer encoding, malformed
   or duplicate lengths, short bodies, and oversized requests are rejected and
   the connection is closed. Management JSON is capped at 4 MiB; the

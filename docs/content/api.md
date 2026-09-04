@@ -20,9 +20,9 @@ These are the endpoints external coding agents (Claude Code, Codex, etc.) talk t
 
 | Method | Path | Purpose |
 |---|---|---|
-| POST | `/v1/messages` | Anthropic Messages API-compatible endpoint. Requires `x-api-key` auth (`_shim_auth_ok`) and `anthropic_shim_enabled: true` in `config.json` (the default). Supports `"stream": true` (SSE) via `_anthropic_stream`. Internally translated to the OpenAI-shaped request and forwarded to the router (`_anthropic_messages` -> `_router_openai`). |
-| POST | `/v1/messages/count_tokens` | Anthropic-compatible token-count estimate for a would-be `/v1/messages` request. Same auth/enable gating as `/v1/messages`. |
-| POST | `/v1/chat/completions` | OpenAI Chat Completions-compatible endpoint. Requires auth via `_shim_auth_ok`. Injects the active wiki context profile as a system message (`_inject_openai_system`) before forwarding to the router. Supports `"stream": true`. |
+| POST | `/v1/messages` | Anthropic Messages API-compatible endpoint. Requires `anthropic_shim_enabled: true` in `config.json` (the default) and uses conditional `_shim_auth_ok`: auth is skipped for local router scope (and current behavior also skips when no key is configured); when enforced, it accepts either `x-api-key` or `Authorization: Bearer <key>`. Supports `"stream": true` (SSE) via `_anthropic_stream`, translates to the OpenAI-shaped request, and forwards to the router. |
+| POST | `/v1/messages/count_tokens` | Anthropic-compatible token-count estimate for a would-be `/v1/messages` request. Same enable and conditional auth behavior as `/v1/messages`. |
+| POST | `/v1/chat/completions` | OpenAI Chat Completions-compatible endpoint with the same conditional `_shim_auth_ok` behavior. Injects the active wiki context profile as a system message (`_inject_openai_system`) before forwarding to the router. Supports `"stream": true`. |
 | POST | `/api/load` | Load a model into the router. Body: `{"model": "<id>"}`. Proxies to the router's `/models/load`. |
 | POST | `/api/unload` | Unload a model from the router. Body: `{"model": "<id>"}`. Proxies to the router's `/models/unload`. |
 | POST | `/api/unload_all` | Unload every currently loaded/loading model (except the router's `default` entry). |
@@ -168,8 +168,9 @@ reachable by any page in your browser. Every request is therefore checked:
 - `Host` must name this loopback service, and `Origin` — when present — must
   match it. Anything else gets **403**. This blocks both cross-site requests and
   DNS rebinding.
-- `POST` bodies must be `application/json`. A form content type gets **415**,
-  which is what stops a cross-site `<form>` from forging a state change.
+- When a POST declares `Content-Type`, it must be `application/json`; declared
+  form or other non-JSON content types get **415**, helping block a cross-site
+  `<form>`. This guard currently permits an absent `Content-Type`.
 - Every POST requires exactly one ASCII-decimal `Content-Length`. Missing length
   is **411**. Malformed, duplicate, or transfer-encoded framing is **400**; a
   short body is also **400**. Rejected framing closes the connection.

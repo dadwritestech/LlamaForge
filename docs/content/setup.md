@@ -48,10 +48,13 @@ the router's `127.0.0.1` scope or **Devices on my local network** for its
 
 Choose one unambiguous key action: **Keep current key**, **Generate / rotate**,
 **Replace**, or **Remove**. Remove is available only with local access; moving
-from LAN back to local otherwise retains the key. Rotation warns before it
-persists because clients using the previous key will stop authenticating. A
-generated key is returned only by that explicit Generate action: it starts masked,
-can be copied without displaying plaintext, and its optional reveal is temporary.
+from LAN back to local otherwise retains the key. Generating or replacing over an
+existing key, and removing an existing key, each require confirmation. Rotation
+warns because clients using the previous key will stop authenticating. A generated
+key is returned only by that explicit Generate action: it starts masked, can be
+copied without displaying plaintext, and its one-time reveal expires after 30
+seconds. Retry, Done, navigation, or a Setup rerender clears the value and its
+copy closure.
 
 Older printable LAN keys are retained as `protected_legacy` so an upgrade does
 not force an immediate client outage, but the card recommends rotation. Unsupported

@@ -32,7 +32,7 @@ Codex and pi can optionally be routed through the loopback panel proxy with
 [Context Wiki](context-wiki.md)). An injected endpoint is local-machine-only;
 direct Codex/pi configuration uses the router endpoint instead.
 
-Two apply paths exist: `generate()` returns the config content and a human-readable target path/instructions without touching disk (used for "copy this into your config" display); `apply()` actually writes it — JSON targets are deep-merged into any existing file (`_deep_merge()`, so unrelated existing keys survive), and the Codex TOML target is appended only if the `[model_providers.llamaforge]` block isn't already present, commenting out any conflicting top-level `model`/`model_provider` line rather than deleting it. Both paths back up the target file once, to `<path>.llamaforge.bak`, before the first write.
+Preview generation returns config content and a human-readable target path/instructions without touching disk (used for "copy this into your config" display). Apply writes it — JSON targets are deep-merged into any existing file (`_deep_merge()`, so unrelated existing keys survive), and the Codex TOML target is appended only if the `[model_providers.llamaforge]` block isn't already present, commenting out any conflicting top-level `model`/`model_provider` line rather than deleting it. Apply backs up the target once, to `<path>.llamaforge.bak`, before its first write.
 
 The preview may deliberately contain the Claude Code or pi credential needed for
 that agent's native file. Treat it like Client Config: it is shown only after the
