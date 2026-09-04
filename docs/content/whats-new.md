@@ -8,6 +8,20 @@ order: 1
 
 This page summarizes the most recent additions to LlamaForge. Each entry links to the full reference for that capability. For the longer-term direction, see the project's `ROADMAP.md`.
 
+## Fail-closed network and explicit credentials
+
+Network Access now distinguishes the loopback-only dashboard from the router it
+controls. LlamaForge accepts only local (`127.0.0.1`) or LAN (`0.0.0.0`) router
+scope, requires a usable key for every newly configured LAN router, and refuses
+LlamaForge-owned starts/restarts when that policy is unsafe. Existing manual or
+legacy settings are shown for repair rather than silently rewritten. Routine
+dashboard state is redacted; Client Config, Agent Config, and generated keys are
+deliberate no-store actions. This is tested product behavior in an early preview,
+not a formal security standard or audit certification.
+
+See [Security](https://github.com/dadwritestech/LlamaForge/blob/master/SECURITY.md),
+[Setup](setup.md), [HTTP API](api.md), and [Connect an Agent](agents.md).
+
 ## ik_llama as a second llama-family engine
 
 The Build tab now builds and drives **ik_llama.cpp** alongside stock llama.cpp, switched with one control (`POST /api/engine/switch`). The switch is gated on a capability probe: a binary whose `llama-server` lacks router mode (`--models-preset`) is refused with an explanation rather than taking the router down, and ik_llama keeps its own `models.ini` registry (a `-ikllama` sibling of the main one). Per-model tuning comes along automatically because the knob schema is parsed from whichever binary is active.

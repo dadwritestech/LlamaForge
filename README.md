@@ -118,7 +118,7 @@ Small things that add up when you use it every day:
 - **Inline failure diagnosis** — a failed load parses the router log and shows the real error plus a concrete suggested fix (e.g. "lower n-gpu-layers from 99").
 - **GGUF metadata card** — architecture, parameter size, quant, trained context, layers, heads, and rope, read straight from the file header.
 - **Compare** — pick 2–3 models and see their settings side-by-side with the differences highlighted.
-- **Client config** — one click gives you a copy-paste `curl`, OpenAI-client env vars, and a test JSON payload wired to that model's endpoint and API key.
+- **Client config** — one explicit, no-store action gives you a copy-paste `curl`, OpenAI-client env vars, and a test JSON payload wired to that model's endpoint and API key; the key is not ambient dashboard state.
 - **Download pause/resume** — a 25 GB download that gets interrupted resumes from where it stopped via an HTTP range request.
 - **Auto-load on launch** — pick a favourite model in Setup and it loads itself once the router is ready.
 - **Persistent UI** — the expanded row, unsaved edits, favourites, and last Discover search all survive tab switches and reloads.
@@ -216,8 +216,8 @@ All machine-specific paths live in `config.json` (see `config.example.json`):
 | `models_ini` | the router preset file LlamaForge edits |
 | `model_dirs` | directories to scan for GGUFs (empty = all fixed drives) |
 | `router_port` / `panel_port` | ports for llama.cpp and the dashboard |
-| `router_host` | `127.0.0.1` (default, local only) or `0.0.0.0` (reachable on your LAN) |
-| `router_api_key` | key clients send as `Authorization: Bearer <key>`; strongly recommended (and enforceable) whenever `router_host` isn't `127.0.0.1` |
+| `router_host` | `127.0.0.1` (default, local only) or `0.0.0.0` (LAN); these are the only scopes the Network Access UI configures. |
+| `router_api_key` | plaintext key clients send as `Authorization: Bearer <key>`; a usable key is required for LAN and is not returned in routine dashboard state. |
 | `auto_load_model` | model id to load automatically once the router is ready on launch (`""` = none) |
 | `presets` | named knob sets applied from the Models tab, e.g. `{"coding": {"temp": "0.2"}}` |
 | `wsl_distro` | WSL distro that runs vLLM (`""` = auto-pick the default) — Windows only |
@@ -231,12 +231,15 @@ Most of these are managed from the dashboard (Setup, Build, the Models view, and
 sidebar controls), so you rarely edit `config.json` by hand. The full key list is in
 the in-app **Help** (config.json Reference).
 
-By default everything binds to `127.0.0.1` only. The Setup tab has a **Network
-Access** panel to opt into serving the llama.cpp API/chat UI to other devices on
-your network (e.g. `http://192.168.1.x:8080/`) and restarts the router for you,
-no manual editing needed. A **Require an API key** toggle (on by default) blocks
-LAN access until you set or generate a key; leaving it unchecked exposes the
-router unauthenticated. See [SECURITY.md](SECURITY.md).
+By default everything binds to `127.0.0.1` only. The Setup tab's **Network
+Access** panel can expose only the llama.cpp router at `0.0.0.0` (for example,
+`http://192.168.1.x:8080/`); the dashboard stays loopback-only. LAN always needs
+a usable key, and every LlamaForge-owned start fails closed until that requirement
+is met. Choose explicitly to keep the current key, generate/rotate one, replace
+it, or (for local access only) clear it. Rotation invalidates existing clients;
+switching back to local keeps the key unless you explicitly confirm removal.
+Historical unsupported hosts or unsafe LAN keys remain visible for repair rather
+than being rewritten automatically. See [SECURITY.md](SECURITY.md).
 
 ## How it works
 

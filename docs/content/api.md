@@ -8,7 +8,8 @@ order: 3
 
 The LlamaForge dashboard backend (`backend/server.py`) listens on `panel_port` (default `8090`) and serves the web UI, the `/api/*` management API, and two agent-facing, provider-compatible chat endpoints. All routes below are read directly from `do_GET`/`do_POST` in `backend/server.py`.
 
-`/api/*` request/response bodies are JSON. POST handlers read the body with `json.loads(self.rfile.read(n) or "{}")`, so a POST with no body is treated as `{}`.
+`/api/*` request/response bodies are JSON. Every JSON response has
+`Cache-Control: no-store`.
 
 > [!NOTE]
 > If vLLM support isn't available on the host, every route is first checked by `_vllm_gate()`; requests to `/api/vllm/*` paths return an error response instead of reaching the normal handler.
@@ -30,7 +31,7 @@ These are the endpoints external coding agents (Claude Code, Codex, etc.) talk t
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/api/state` | Full dashboard state: models (llama.cpp + vLLM merged), GPU telemetry, platform, current `config.json`, and onboarding status. |
+| GET | `/api/state` | Dashboard state: models (llama.cpp + vLLM merged), GPU telemetry, platform, public config projection, and onboarding status. `config` is an exact allowlist (`theme`, `cvd`, `auto_load_model`, `vram_bandwidths`, `presets`, `preset_bindings`, `active_engine`) plus `router_api_key_configured`; it is not full `config.json` and never includes the key. |
 | GET | `/api/schema` | The knob schema (available `llama-server` flags), built from `llama-server --help`. |
 | POST | `/api/save` | Save per-model knob overrides into `models.ini` (`config.set_keys`). Reloads the running model if it was loaded. |
 | GET | `/api/presets` | List saved knob presets from `config.json`. |
@@ -80,8 +81,9 @@ These are the endpoints external coding agents (Claude Code, Codex, etc.) talk t
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/api/network` | Current router host/port, whether an API key is set, LAN IP, and whether the router is running. |
-| POST | `/api/network` | Update `router_host`/`router_api_key` in `config.json` and restart the router (`router_ctl.restart`). |
+| GET | `/api/network` | Redacted Network Access status: canonical/legacy access scope, configured host and security/key status, key-present boolean, remediation message, configured port and LAN IP, plus `router_running`/`listener_status`. A listening port is observation only, not process-identity or authentication verification. |
+| POST | `/api/network` | Save a canonical Network Access request and restart the router. Body: `{access_scope: "local"|"lan", key_action: "keep"|"generate"|"replace"|"clear", api_key?: "..."}`. `replace` requires a strong replacement; `clear` is local-only; LAN has no unauthenticated path. For one release, the old `{host, api_key}` shape is accepted only for canonical hosts. A generated key is returned only as `generated_api_key` to that explicit request. Results distinguish saved configuration from `restart_status` (`running`, `starting`, or `failed`) and listener observation. |
+| POST | `/api/client/config` | Deliberately generate client snippets for `{model, backend}`. llama-family output may contain the router key; active vLLM output does not. Unknown, ambiguous, or unloaded vLLM targets are rejected. |
 | GET | `/api/router/log` | Tail of the router's log. |
 | GET | `/api/stats` | Usage stats summary. |
 | POST | `/api/stats/reset` | Reset usage stats. |
@@ -115,8 +117,8 @@ Only reachable when vLLM support is available on the host (`_vllm_gate`).
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/api/agent/config` | Generate connection config (endpoint, key, model) for a named coding agent (query params `agent`, `model`, `small`, `inject`). |
-| POST | `/api/agent/apply` | Write the generated agent config to disk on the machine running the dashboard. |
+| POST | `/api/agent/config` | Deliberately preview connection config for `{agent, model, backend, small, inject}`. It is POST-only; the active llama-family backend is required and vLLM is rejected. |
+| POST | `/api/agent/apply` | Write agent config on the dashboard machine using the same targeting fields (`agent`, `model`, `backend`, `small`, `inject`). It may use the stored key internally but never returns a key. |
 | GET | `/api/wiki/docs` | List context-wiki documents. |
 | GET | `/api/wiki/doc` | Read a single document (query param `name`). |
 | POST | `/api/wiki/doc` | Create/update a document. |
@@ -168,6 +170,12 @@ reachable by any page in your browser. Every request is therefore checked:
   DNS rebinding.
 - `POST` bodies must be `application/json`. A form content type gets **415**,
   which is what stops a cross-site `<form>` from forging a state change.
+- Every POST requires exactly one ASCII-decimal `Content-Length`. Missing length
+  is **411**. Malformed, duplicate, or transfer-encoded framing is **400**; a
+  short body is also **400**. Rejected framing closes the connection.
+- Management POSTs are limited to 4 MiB. `/v1/messages` and
+  `/v1/chat/completions` use a 64 MiB inference-proxy limit. A body over its
+  route-class limit is **413** before it is read or dispatched.
 - `POST /api/config` only accepts an allowlist of user-facing keys. See
   [Security](https://github.com/dadwritestech/LlamaForge/blob/master/SECURITY.md).
 

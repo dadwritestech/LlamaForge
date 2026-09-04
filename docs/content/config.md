@@ -19,8 +19,8 @@ order: 1
 | `model_dirs` | list | `[]` | Directories the Discover/scan feature searches for GGUF files. |
 | `router_port` | int | `8080` | Port `llama-server` (the router) listens on. |
 | `panel_port` | int | `8090` | Port the LlamaForge dashboard (`backend/server.py`) listens on. |
-| `router_host` | string | `"127.0.0.1"` | Router bind address. `127.0.0.1` = local only; `0.0.0.0` = reachable on the LAN. |
-| `router_api_key` | string | `""` | API key required from clients when `router_host` is not `127.0.0.1`. |
+| `router_host` | string | `"127.0.0.1"` | Router bind address. The Network Access UI supports only `127.0.0.1` (local) and `0.0.0.0` (LAN). |
+| `router_api_key` | string | `""` | Plaintext API key required for LAN. It is not returned in ordinary dashboard state. |
 | `wsl_distro` | string | `""` | WSL distro that runs vLLM. Empty string auto-picks the default distro. |
 | `vllm_port` | int | `8081` | Port vLLM serves on inside WSL (localhost-forwarded to Windows). |
 | `cmake_flags` | object | `{}` | Persisted CMake build flags, normally seeded from hardware detection. |
@@ -68,3 +68,17 @@ maps are migrated to the engine that was active when they were saved.
 `config.migrate()` runs once at server startup (`backend/server.py` `main()`) to classify pre-existing installs: a config file with no `ui_mode` key is treated as a legacy install. If `server_bin` is already set, it is stamped `ui_mode: "advanced"` and `onboarded: True`; otherwise it gets `ui_mode: "lite"` and `onboarded: False`, so the onboarding wizard shows. The migration is idempotent — a config that already has `ui_mode` is returned unchanged.
 
 See also [models.ini Format](models-ini.md) for the preset file `models_ini` points at, and [HTTP API](api.md) for the endpoints that read and write these keys.
+
+## Network Access and historical configuration
+
+`POST /api/network` is the supported way to change the router scope and key. It
+uses explicit `keep`, `generate`, `replace`, and local-only `clear` actions;
+newly configured LAN access requires a usable key and LlamaForge-owned starts
+fail closed without one. `config.json` is a normal plaintext file, not an OS
+credential vault.
+
+LlamaForge assesses existing values read-only. A printable older LAN key can
+remain in use as `protected_legacy` and is marked for rotation. A manually edited
+unsupported host, or LAN with an absent or invalid key, remains visible as
+`unsafe_legacy`; it is not auto-rewritten, but future starts and restarts are
+blocked until you generate/replace a key or return the router to local access.

@@ -28,7 +28,11 @@ LlamaForge is a llama.cpp control panel first, but it can also drive [vLLM](http
 
 ## Is my API key or model traffic sent anywhere?
 
-By default everything binds to `127.0.0.1` only. The **Setup** tab has a Network Access panel to opt into serving the llama.cpp API/chat UI to other devices on your network, and a **Require an API key** toggle (on by default) that blocks LAN access until you set or generate a key. See [SECURITY.md](https://github.com/dadwritestech/LlamaForge/blob/master/SECURITY.md) in the repository.
+The dashboard and its management API always bind to `127.0.0.1`. The separate
+llama.cpp router is local by default; the Setup tab can make that router LAN
+accessible at `0.0.0.0`, but a usable API key is backend-enforced for every new
+LAN configuration and LlamaForge-owned start. There is no unauthenticated-LAN
+toggle. See [SECURITY.md](https://github.com/dadwritestech/LlamaForge/blob/master/SECURITY.md) in the repository.
 
 ## Where do I go if something breaks?
 
