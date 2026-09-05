@@ -37,6 +37,25 @@ class TestBuildHardware(unittest.TestCase):
         self.assertAlmostEqual(hw.vram_gb, 32 * osplat.METAL_BUDGET, places=1)
         self.assertEqual(hw.ram_gb, 0.0)
 
+    def test_explicit_hardware_inputs_are_not_replaced_on_macos(self):
+        original_is_mac = osplat.IS_MAC
+        original_mem = osplat.mac_mem_bytes
+        osplat.IS_MAC = True
+        osplat.mac_mem_bytes = lambda: 32 * 1024 ** 3
+        try:
+            hw = vp.build_hardware(
+                cfg={},
+                gpus=[{"name": "RTX 4090", "vram_mib": 24576}],
+                ram_gb=64.0,
+            )
+        finally:
+            osplat.IS_MAC = original_is_mac
+            osplat.mac_mem_bytes = original_mem
+
+        self.assertAlmostEqual(hw.vram_gb, 24.0, delta=0.1)
+        self.assertEqual(hw.ram_gb, 64.0)
+        self.assertEqual(hw.vram_bw, 1008)
+
 
 class TestPredictLocal(unittest.TestCase):
     def _hw(self):

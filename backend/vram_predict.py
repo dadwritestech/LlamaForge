@@ -34,12 +34,13 @@ def build_hardware(cfg=None, gpus=None, ram_gb=None):
     """Assemble a vramwise Hardware from detection + config overrides.
     gpus/ram_gb are injectable for tests; None triggers real detection."""
     cfg = cfg if cfg is not None else config.load()
+    auto_detect = gpus is None and ram_gb is None
     gpus = hardware.detect_gpus() if gpus is None else gpus
     vram_mib = sum((g.get("vram_mib") or 0) for g in gpus)
     ram_gb = hardware.detect_ram_gb() if ram_gb is None else ram_gb
     name = gpus[0]["name"] if gpus else "cpu"
     apple_unified = False
-    if osplat.IS_MAC:
+    if osplat.IS_MAC and auto_detect:
         mem_bytes = osplat.mac_mem_bytes()
         if mem_bytes:
             name = "Apple Silicon (unified memory)"
