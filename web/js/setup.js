@@ -509,6 +509,7 @@ export async function loadSetup() {
     ${!t.present&&!t.installable&&t.hint?`<div class="note" style="margin-top:4px">${esc(t.hint)}</div>`:""}</span></div>`;
   const gpuLines = (hw.gpus||[]).map(g => `<div class="kv"><span class="k">GPU ${esc(g.index)}</span><span class="v">${esc(g.name)} &middot; cc ${esc(g.compute_cap||"?")}</span></div>`).join("");
   const bw = cfgOf().vram_bandwidths || {};
+  const scanDirs = cfgOf().model_dirs || [];
   setHTML(v, `
     <div class="card"><h3>Prerequisites</h3>
       ${Object.entries(p.tools).map(([n,t])=>toolRow(n,t)).join("")}
@@ -534,6 +535,9 @@ export async function loadSetup() {
       </div>
     </div>
     <div class="card"><h3>Scan Drives for Models</h3>
+      <div class="fld"><label>Folders to scan (one per line; blank = all fixed drives)</label>
+        <textarea id="scan-roots" rows="3" style="width:100%;resize:vertical" placeholder="D:/Models&#10;/mnt/models">${esc(scanDirs.join("\n"))}</textarea></div>
+      <div class="actions"><button class="ghost" id="btn-scan-save">Save folders</button><span class="msg" id="scan-save-msg"></span></div>
       <div class="actions"><button id="btn-scan">Scan for GGUF models</button><button class="ghost" id="btn-missing">Check for deleted models</button><span class="msg" id="scan-msg"></span></div>
       <div id="scan-out"></div>
       <div id="missing-out"></div>
@@ -568,6 +572,12 @@ export async function loadSetup() {
     toast(r.ok?"Installed":"Install failed", r.ok?"ok":"err"); loadSetup();
   });
   $("#btn-scan").onclick = scanDrives;
+  $("#btn-scan-save").onclick = async () => {
+    const model_dirs = scanRoots();
+    await api("/api/config", {model_dirs});
+    const msg = $("#scan-save-msg"); msg.className = "msg ok";
+    msg.textContent = model_dirs.length ? `saved ${model_dirs.length}` : "cleared — all drives";
+  };
   $("#btn-missing").onclick = checkMissing;
   const autoSel = $("#auto-load");
   if (autoSel) autoSel.onchange = async () => {
@@ -779,10 +789,17 @@ async function applyAgentConfig(generation) {
 }
 
 /* ---------- drive scanning ---------- */
+function scanRoots() {
+  const el = $("#scan-roots");
+  return el ? el.value.split(/\r?\n/).map(x => x.trim()).filter(Boolean) : [];
+}
+
 async function scanDrives() {
   const msg = $("#scan-msg");
-  msg.className = "msg work"; msg.textContent = "scanning all drives (may take a moment)...";
-  const r = await api("/api/scan", {});
+  const roots = scanRoots();
+  msg.className = "msg work";
+  msg.textContent = roots.length ? `scanning ${roots.length} folder(s)...` : "scanning all fixed drives (may take a moment)...";
+  const r = await api("/api/scan", {roots});
   const known = new Set(models().map(m => m.id));
   const fresh = r.entries.filter(e => !known.has(e.id));
   msg.className = "msg ok"; msg.textContent = `${r.entries.length} found, ${fresh.length} new`;

@@ -8,6 +8,14 @@ order: 1
 
 This page summarizes the most recent additions to LlamaForge. Each entry links to the full reference for that capability. For the longer-term direction, see the project's `ROADMAP.md`.
 
+## Focused scanning and a lighter Models tab
+
+Setup can now persist one or more model folders instead of walking every drive, while an explicit blank list still selects the platform defaults. A llama.cpp model can be **Unregistered** from `models.ini` without deleting its GGUF file. The Models view also avoids polling collapsed logs, shares GPU telemetry through a short cache instead of spawning `nvidia-smi` per browser poll, and keeps the CRT scanline look without the expensive full-viewport blend mode.
+
+Fresh bootstrap runs now accept an existing llama.cpp checkout and derive its build/server paths, removing the hand-edit step reported by WSL2 users.
+
+See [Setup](setup.md), [Models & Tuning](models.md), and [Install](install.md).
+
 ## Fail-closed network and explicit credentials
 
 Network Access now distinguishes the loopback-only dashboard from the router it

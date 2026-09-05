@@ -37,27 +37,14 @@ cfg="$here/config.json"
 if [ -f "$cfg" ]; then
   echo "Using existing config.json"
 else
-  src="$here/llama.cpp"
-  python3 - "$cfg" "$src" "$here" <<'PY'
-import json, os, sys
-cfg_path, src, here = sys.argv[1], sys.argv[2], sys.argv[3]
-cfg = {
-    "llama_src":   src,
-    "build_dir":   os.path.join(src, "build"),
-    "server_bin":  os.path.join(src, "build", "bin", "llama-server"),
-    "models_ini":  os.path.join(here, "models.ini"),
-    "model_dirs":  [],
-    "router_port": 8080,
-    "panel_port":  8090,
-    "router_host": "127.0.0.1",
-    "router_api_key": "",
-    "cmake_flags": {},
-    "git_remote":  "https://github.com/ggml-org/llama.cpp",
-}
-with open(cfg_path, "w") as f:
-    json.dump(cfg, f, indent=2)
-PY
-  echo "Wrote config.json (edit paths there if your models live elsewhere)."
+  default_src="$here/llama.cpp"
+  src="${LLAMAFORGE_LLAMA_SRC:-}"
+  if [ -z "$src" ]; then
+    read -r -p "Existing llama.cpp source directory (Enter for $default_src): " src || true
+  fi
+  src="${src:-$default_src}"
+  python3 "$here/backend/bootstrap_config.py" --config "$cfg" --repo-root "$here" --llama-src "$src"
+  echo "Wrote config.json for $src."
 fi
 
 # --- fetch llama.cpp source if missing ---
