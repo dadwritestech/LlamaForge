@@ -1,7 +1,8 @@
 import conftest_paths  # noqa: F401
 import os, tempfile, threading, unittest
+from unittest import mock
 import urllib.request
-import hub
+import hub, routes
 
 
 class FakeResp:
@@ -91,6 +92,41 @@ class TestResume(unittest.TestCase):
 
     def test_resume_refused_when_no_paused_job(self):
         self.assertFalse(hub.DownloadManager().resume())
+
+
+class HubMtpSidecarTest(unittest.TestCase):
+    def test_files_separates_mtp_and_pairs_only_the_matching_main(self):
+        tree = [
+            {"path": "alpha-q4.gguf", "size": 4},
+            {"path": "beta-q4.gguf", "size": 5},
+            {"path": "mtp-beta-q4.gguf", "size": 1},
+        ]
+        with mock.patch.object(hub, "_get_json", return_value=tree):
+            result = hub.files("owner/repo")
+
+        self.assertEqual(result["mtp"],
+                         [{"path": "mtp-beta-q4.gguf", "size": 1}])
+        choices = {f["path"]: f for f in result["files"]}
+        self.assertNotIn("mtp", choices["alpha-q4.gguf"])
+        self.assertEqual(choices["beta-q4.gguf"]["mtp"], "mtp-beta-q4.gguf")
+
+    def test_download_includes_selected_mtp_sidecar(self):
+        seen = {}
+
+        def start(repo, paths, dest):
+            seen.update(repo=repo, paths=paths, dest=dest)
+            return True
+
+        req = mock.Mock()
+        req.body = {"repo": "owner/repo", "path": "beta-q4.gguf",
+                    "shards": 1, "mtp": "mtp-beta-q4.gguf"}
+        with mock.patch.object(routes.DOWNLOADS, "start", side_effect=start), \
+             mock.patch.object(routes, "download_dir", return_value="/downloads"):
+            status, result = routes.post_hub_download(req)
+
+        self.assertEqual(status, 200)
+        self.assertTrue(result["started"])
+        self.assertEqual(seen["paths"], ["beta-q4.gguf", "mtp-beta-q4.gguf"])
 
 
 if __name__ == "__main__":
