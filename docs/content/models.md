@@ -30,6 +30,7 @@ Because the flag count is entirely a function of your `llama-server` build, Llam
    - To make a preset a model's **default**, click the ◉/○ dot on its chip to *bind* it (`POST /api/presets/bind`). Binding writes the preset's knobs into that model's section now, and — the point of it — editing the preset later re-syncs every model bound to it. The bound chip is highlighted; clicking the dot again unbinds and leaves the knobs in place. Knobs you set by hand afterward still win, since they're written last.
 5. To compare settings across models, click **Compare** above the model list, tick the checkbox on two or more rows, then open the comparison. The table lists every knob key any selected model has explicitly set and highlights cells that differ between models; a blank cell marked "inherit" means that model falls back to the `[*]` default.
 6. To auto-tune a model's knobs based on your hardware, use the **Refine** bar beside Presets: pick an intent (balanced / speed / context / coding), click **Run**, and it benchmarks candidates with real completion requests (~200 tokens each) and applies the fastest config. A results table shows tok/s per candidate and which was chosen.
+7. To remove a stale or unwanted llama.cpp entry, click **Unregister**. This unloads it if necessary and removes only its `models.ini` section and preset binding; the GGUF file remains on disk. vLLM's separate **Delete** action still removes its managed WSL files.
 
 ## Screenshot
 
@@ -46,6 +47,7 @@ Because the flag count is entirely a function of your `llama-server` build, Llam
 | Compare | Models tab, Compare toggle (`web/js/models.js` `openCompare()`) | Client-side diff of `settings` across two or more selected models; no separate endpoint. |
 | Refine | Models tab, Refine bar (`POST /api/autotune/refine`) | Auto-generates knob recommendations for the selected intent, benchmarks candidates with real completion requests (~200 tokens), applies the fastest config. Results table shows tok/s per candidate. |
 | UI density | `ui_mode` in `config.json` (`"lite"` / `"advanced"`) | Lite = curated knob subset; advanced = the full parsed schema. |
+| Unregister | `POST /api/models/unregister` | Removes a llama-family `models.ini` section after unloading it; never deletes its GGUF file. |
 
 ## Troubleshooting
 

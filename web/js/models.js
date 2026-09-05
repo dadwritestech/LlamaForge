@@ -117,7 +117,8 @@ function editorButtons(m) {
   }
   return `<button class="primary" data-act="save">Save + Reload</button>
       ${m.status==="loaded"||m.status==="loading"?`<button class="ghost" data-act="unload">${m.status==="loading"?"Cancel / Unload":"Unload"}</button>`:`<button data-act="load">Load</button>`}
-      <button class="ghost" data-act="client">Client config</button>`;
+      <button class="ghost" data-act="client">Client config</button>
+      <button class="ghost" data-act="unregister" title="remove from models.ini; does not delete the GGUF">Unregister</button>`;
 }
 function editorNote(m) {
   if (m.backend === "vllm")
@@ -673,6 +674,14 @@ export function initModels() {
   const cc = $("#cmp-chip"); if (cc) cc.onclick = () => toggleCompare(cc);
   const cr = $("#cmp-run"); if (cr) cr.onclick = () => openCompare();
   const ua = $("#unload-all"); if (ua) ua.onclick = () => unloadAll();
+  const routerLog = $("#router-log-details");
+  if (routerLog) routerLog.addEventListener("toggle", () => {
+    if (routerLog.open) refreshRouterLog();
+  });
+  const vllmLog = $("#vllm-log-details");
+  if (vllmLog) vllmLog.addEventListener("toggle", () => {
+    if (vllmLog.open) refreshVllmLog();
+  });
 
   document.addEventListener("input", e => {
     // knob-filter box (dynamic, inside an open editor)
@@ -789,6 +798,11 @@ export function initModels() {
         await api("/api/unload", {model: id}); toast("Unloaded", "ok");
       } else if (act === "client") {
         await clientOpening; return;
+      } else if (act === "unregister") {
+        if (!confirm(`Unregister ${id}? Its GGUF file will remain on disk.`)) { btn.disabled = false; return; }
+        msg.className = "msg work"; msg.textContent = "removing from models.ini...";
+        const r = await api("/api/models/unregister", {model: id, backend: beOf(id)});
+        if (r.ok) { toast("Unregistered — file kept on disk", "ok"); setOpenId(null); }
       } else if (act === "vsave") {
         const settings = {}; $$("[data-k]", row).forEach(el => settings[el.dataset.k] = el.value.trim());
         msg.className = "msg work"; msg.textContent = "saving vLLM knobs...";

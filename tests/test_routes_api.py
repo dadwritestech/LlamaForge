@@ -181,6 +181,97 @@ class ScanPruneTest(unittest.TestCase):
         self.assertEqual(config.get_bindings(), {})
 
 
+class ScanRootsTest(unittest.TestCase):
+    def test_explicit_roots_override_saved_directories(self):
+        with mock.patch.object(routes, "cfg", return_value={"model_dirs": ["/saved"]}), \
+             mock.patch.object(routes.scanner, "scan", return_value=[]) as scan:
+            routes.post_scan(Req(body={"roots": ["/chosen"]}))
+        scan.assert_called_once_with(["/chosen"])
+
+    def test_saved_directories_are_used_when_request_has_no_roots(self):
+        with mock.patch.object(routes, "cfg", return_value={"model_dirs": ["/saved"]}), \
+             mock.patch.object(routes.scanner, "scan", return_value=[]) as scan:
+            routes.post_scan(Req(body={}))
+        scan.assert_called_once_with(["/saved"])
+
+    def test_explicit_empty_roots_requests_the_platform_defaults(self):
+        with mock.patch.object(routes, "cfg", return_value={"model_dirs": ["/saved"]}), \
+             mock.patch.object(routes.scanner, "scan", return_value=[]) as scan:
+            routes.post_scan(Req(body={"roots": []}))
+        scan.assert_called_once_with(None)
+
+
+class ModelUnregisterTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.ini = os.path.join(self.tmp, "models.ini")
+        self.model_file = os.path.join(self.tmp, "bogus.gguf")
+        with open(self.model_file, "wb") as f:
+            f.write(b"GGUF")
+        with open(self.ini, "w", encoding="utf-8") as f:
+            f.write(f"[*]\nctx-size = 8192\n\n[bogus]\nmodel = {self.model_file}\n")
+
+    def _backend(self, name="llamacpp"):
+        return type("Backend", (), {"name": name})()
+
+    def test_unregister_removes_registry_entry_without_touching_model_file(self):
+        calls = []
+        with mock.patch.object(routes, "_backend_for", return_value=("bogus", self._backend())), \
+             mock.patch.object(config, "ini_path", return_value=self.ini), \
+             mock.patch.object(routes, "router", side_effect=lambda *a, **k: (calls.append(a), (200, {"data": []}))[1]), \
+             mock.patch.object(routes, "_reconcile_preset_binding"), \
+             mock.patch.object(config, "prune_binding"):
+            status, out = routes.post_model_unregister(Req(body={"model": "bogus"}))
+        self.assertEqual(status, 200)
+        self.assertTrue(out["ok"])
+        self.assertNotIn("bogus", config.read_sections(self.ini))
+        self.assertIn("*", config.read_sections(self.ini))
+        self.assertTrue(os.path.isfile(self.model_file))
+
+    def test_unregister_unloads_loaded_model_before_registry_reload(self):
+        calls = []
+        def router(path, method="GET", body=None, timeout=30):
+            calls.append((path, method, body))
+            if path == "/models":
+                return 200, {"data": [{"id": "bogus", "status": {"value": "loaded"}}]}
+            return 200, {}
+        with mock.patch.object(routes, "_backend_for", return_value=("bogus", self._backend())), \
+             mock.patch.object(config, "ini_path", return_value=self.ini), \
+             mock.patch.object(routes, "router", side_effect=router), \
+             mock.patch.object(routes, "_reconcile_preset_binding"), \
+             mock.patch.object(config, "prune_binding"):
+            routes.post_model_unregister(Req(body={"model": "bogus"}))
+        paths = [c[0] for c in calls]
+        self.assertLess(paths.index("/models/unload"), paths.index("/models?reload=1"))
+
+    def test_unregister_keeps_entry_when_loaded_model_cannot_unload(self):
+        def router(path, method="GET", body=None, timeout=30):
+            if path == "/models":
+                return 200, {"data": [{"id": "bogus", "status": {"value": "loaded"}}]}
+            if path == "/models/unload":
+                return 500, {"error": "busy"}
+            return 200, {}
+        with mock.patch.object(routes, "_backend_for", return_value=("bogus", self._backend())), \
+             mock.patch.object(config, "ini_path", return_value=self.ini), \
+             mock.patch.object(routes, "router", side_effect=router):
+            with self.assertRaises(ApiError) as cm:
+                routes.post_model_unregister(Req(body={"model": "bogus"}))
+        self.assertEqual(cm.exception.status, 409)
+        self.assertIn("bogus", config.read_sections(self.ini))
+
+    def test_unregister_rejects_global_section(self):
+        with mock.patch.object(routes, "_backend_for", return_value=("*", self._backend())):
+            with self.assertRaises(ApiError) as cm:
+                routes.post_model_unregister(Req(body={"model": "*"}))
+        self.assertEqual(cm.exception.status, 400)
+
+    def test_unregister_rejects_vllm_models(self):
+        with mock.patch.object(routes, "_backend_for", return_value=("m", self._backend("vllm"))):
+            with self.assertRaises(ApiError) as cm:
+                routes.post_model_unregister(Req(body={"model": "m"}))
+        self.assertEqual(cm.exception.status, 400)
+
+
 class HubAddTest(unittest.TestCase):
     def test_missing_file_is_a_400(self):
         with self.assertRaises(ApiError) as cm:

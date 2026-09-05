@@ -31,7 +31,7 @@ cd LlamaForge
 powershell -ExecutionPolicy Bypass -File bootstrap.ps1
 ```
 
-`bootstrap.ps1` checks for Python and Git (offering to install Python 3.12 via winget if missing), writes a `config.json` if one does not already exist, offers to clone llama.cpp if `llama_src` is empty, writes a starter `models.ini`, then launches `run.ps1`.
+`bootstrap.ps1` checks for Python and Git (offering to install Python 3.12 via winget if missing), then asks whether to use an existing llama.cpp checkout (Enter keeps the bundled `<LlamaForge>/llama.cpp` default). It derives `build_dir`, detects an existing `llama-server` in common build layouts, writes `config.json`, offers to clone llama.cpp when the selected checkout is absent, writes a starter `models.ini`, then launches `run.ps1`. Set `LLAMAFORGE_LLAMA_SRC` before running the script to supply the checkout non-interactively.
 
 For daily use after the first run, double-click **`LlamaForge.vbs`** — it starts the router and dashboard hidden and opens your browser. To autostart it, put a shortcut to `LlamaForge.vbs` in your Startup folder (`Win+R` -> `shell:startup`).
 
@@ -49,7 +49,7 @@ cd LlamaForge
 ./bootstrap.sh
 ```
 
-`bootstrap.sh` checks for `python3` and `git` (printing the platform-appropriate install command if either is missing — `brew install python@3.12` on macOS, `sudo apt-get install -y python3` as a Linux example), writes `config.json` if absent, offers to clone llama.cpp, writes a starter `models.ini`, then execs `run.sh`.
+`bootstrap.sh` checks for `python3` and `git` (printing the platform-appropriate install command if either is missing — `brew install python@3.12` on macOS, `sudo apt-get install -y python3` as a Linux example), asks whether to use an existing llama.cpp checkout, derives its build and server paths, writes `config.json`, offers to clone llama.cpp when needed, writes a starter `models.ini`, then execs `run.sh`. `LLAMAFORGE_LLAMA_SRC=/path/to/llama.cpp ./bootstrap.sh` supplies the checkout non-interactively.
 
 For daily use after the first run:
 

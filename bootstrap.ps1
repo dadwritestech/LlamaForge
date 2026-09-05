@@ -41,22 +41,16 @@ if (Test-Path $cfgPath) {
   $cfg = Get-Content $cfgPath -Raw | ConvertFrom-Json
   Write-Host "Using existing config.json"
 } else {
-  $src = Join-Path $here "llama.cpp"
-  $cfg = [ordered]@{
-    llama_src   = $src
-    build_dir   = (Join-Path $src "build")
-    server_bin  = (Join-Path $src "build\bin\Release\llama-server.exe")
-    models_ini  = (Join-Path $here "models.ini")
-    model_dirs  = @()
-    router_port = 8080
-    panel_port  = 8090
-    router_host = "127.0.0.1"
-    router_api_key = ""
-    cmake_flags = @{}
-    git_remote  = "https://github.com/ggml-org/llama.cpp"
+  $defaultSrc = Join-Path $here "llama.cpp"
+  $src = $env:LLAMAFORGE_LLAMA_SRC
+  if ([string]::IsNullOrWhiteSpace($src)) {
+    $src = Read-Host "Existing llama.cpp source directory (Enter for $defaultSrc)"
   }
-  ($cfg | ConvertTo-Json -Depth 5) | Set-Content -Encoding UTF8 $cfgPath
-  Write-Host "Wrote config.json (edit paths there if your models live elsewhere)."
+  if ([string]::IsNullOrWhiteSpace($src)) { $src = $defaultSrc }
+  & python (Join-Path $here "backend\bootstrap_config.py") --config $cfgPath --repo-root $here --llama-src $src
+  if ($LASTEXITCODE -ne 0) { throw "Could not create config.json" }
+  $cfg = Get-Content $cfgPath -Raw | ConvertFrom-Json
+  Write-Host "Wrote config.json for $($cfg.llama_src)."
 }
 
 # --- fetch llama.cpp source if missing ---

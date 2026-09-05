@@ -34,6 +34,7 @@ These are the endpoints external coding agents (Claude Code, Codex, etc.) talk t
 | GET | `/api/state` | Dashboard state: models (llama.cpp + vLLM merged), GPU telemetry, platform, public config projection, and onboarding status. `config` is an exact allowlist (`theme`, `cvd`, `auto_load_model`, `vram_bandwidths`, `presets`, `preset_bindings`, `active_engine`) plus `router_api_key_configured`; it is not full `config.json` and never includes the key. |
 | GET | `/api/schema` | The knob schema (available `llama-server` flags), built from `llama-server --help`. |
 | POST | `/api/save` | Save per-model knob overrides into `models.ini` (`config.set_keys`). Reloads the running model if it was loaded. |
+| POST | `/api/models/unregister` | Remove a llama-family model from its `models.ini` registry without deleting the GGUF. Body: `{model, backend}`. Unloads it first when necessary. |
 | GET | `/api/presets` | List saved knob presets from `config.json`. |
 | POST | `/api/presets/save` | Save a named knob preset. |
 | POST | `/api/presets/delete` | Delete a named preset. |
@@ -44,7 +45,7 @@ These are the endpoints external coding agents (Claude Code, Codex, etc.) talk t
 | POST | `/api/autotune/recommend` | Recommend knob values for a model given hardware constraints. Body: `{model, intent}` where `intent` is `balanced`, `speed`, `context`, or `coding`. Returns `{knobs, reasons}`. |
 | POST | `/api/autotune/refine` | Auto-generate knob recommendations, benchmark candidates with real completion requests (~200 tokens), and return the fastest config. Body: `{model, intent}` (knobs optional; generated if omitted). Returns `{knobs, measurements: {candidates: [{knobs, tok_s}], chosen_tok_s}}`. |
 | GET | `/api/scan/missing` | List `models.ini` entries whose GGUF file no longer exists on disk. |
-| POST | `/api/scan` | Scan directories (`model_dirs` by default) for GGUF files. |
+| POST | `/api/scan` | Scan directories for GGUF files. Body `roots` overrides saved `model_dirs`; explicit `roots: []` selects platform defaults. |
 | POST | `/api/scan/apply` | Register scanned entries into `models.ini` and reapply ctx-size defaults. |
 | POST | `/api/scan/prune` | Remove `models.ini` sections whose file is missing (unloading first if loaded). |
 
@@ -54,7 +55,7 @@ These are the endpoints external coding agents (Claude Code, Codex, etc.) talk t
 |---|---|---|
 | GET | `/api/setup` | Prerequisite tool status (git/cmake/ninja/compiler/CUDA) plus hardware recommendation. |
 | POST | `/api/setup/install` | Install a missing prerequisite tool (Windows/macOS only). |
-| GET | `/api/gpus` | Live GPU telemetry via `nvidia-smi`. |
+| GET | `/api/gpus` | GPU telemetry via a shared 10-second `nvidia-smi` cache. |
 | GET | `/api/build/info` | Current commit, available updates, and recommended/saved CMake flags (per `target`: `llamacpp` or `ikllama`). |
 | GET | `/api/build/log` | Tail of the build log plus builder state (`phase` includes `done_warnings` for a partial success). |
 | POST | `/api/build/start` | Start (re)building the target engine with the given (or saved/recommended) CMake flags. |

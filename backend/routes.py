@@ -20,7 +20,7 @@ tables: they write to the socket themselves and stay in server.py.
 """
 import json, os, subprocess, sys, threading, urllib.request, urllib.error, urllib.parse
 
-import config, argspec, hardware, osplat, prereqs, scanner, hub, router_ctl, stats
+import config, argspec, hardware, osplat, prereqs, scanner, hub, router_ctl, stats, telemetry
 import autotune, anthropic_shim, agentsetup, clientsetup, network_policy, wiki, docs
 import vram_predict
 import wsl, vllm_ctl, vllm_registry, vllm_setup, vllm_job, vllm_hub, vllm_download
@@ -230,6 +230,12 @@ def _gpu_telemetry():
             res.append({"index": int(f[0]), "name": f[1], "used": int(f[2]),
                         "total": int(f[3]), "util": int(f[4]), "temp": int(f[5])})
     return res
+
+
+# nvidia-smi startup is most of /api/state's response time (and is slower under
+# WSL2).  A ten-second snapshot keeps the dashboard live without launching a
+# process for every browser poll or every open tab.
+_GPU_TELEMETRY = telemetry.TimedCache(_gpu_telemetry, ttl=10)
 
 
 def _cached_schema(bin_path, cache_holder):
@@ -688,7 +694,7 @@ def _register_ggufs_beside(paths):
 def get_state(req):
     c = cfg()
     s = REGISTRY.state()
-    s["gpus"] = _gpu_telemetry()
+    s["gpus"] = _GPU_TELEMETRY.get()
     s["config"] = _public_config(c)
     s["platform"] = osplat.current()
     s["vllm_supported"] = VLLM_SUPPORTED
@@ -715,7 +721,7 @@ def get_schema(req):
 
 
 def get_gpus(req):
-    return 200, {"gpus": _gpu_telemetry()}
+    return 200, {"gpus": _GPU_TELEMETRY.get()}
 
 
 def get_setup(req):
@@ -1045,6 +1051,35 @@ def post_model_delete(req):
     return (200 if ok else 500), {"ok": ok, "error": err, "backend": backend.name}
 
 
+def post_model_unregister(req):
+    """Remove a llama-family registry entry without deleting its GGUF file."""
+    mid, backend = _backend_for(req)
+    if not mid or mid == "*":
+        raise ApiError(400, "a model id is required")
+    if backend.name not in config.PRESET_ENGINES:
+        raise ApiError(400, "vLLM models use Delete; unregister is for GGUF registries")
+    path = config.ini_path(backend.name)
+    if mid not in config.read_sections(path):
+        raise ApiError(404, "model is not registered")
+
+    status, data = router("/models")
+    loaded = any(
+        m.get("id") == mid and (m.get("status") or {}).get("value") == "loaded"
+        for m in data.get("data", []) if status == 200
+    )
+    if loaded:
+        unload_status, unload_out = router("/models/unload", "POST", {"model": mid})
+        if unload_status != 200:
+            detail = (unload_out or {}).get("error", "router refused to unload it")
+            raise ApiError(409, f"model is still loaded: {detail}")
+    if not config.remove_section(mid, path):
+        raise ApiError(409, "model registry changed; reload and try again")
+    _reconcile_preset_binding(mid, {}, backend.name)
+    config.prune_binding(mid, backend.name)
+    router("/models?reload=1")
+    return 200, {"ok": True, "backend": backend.name}
+
+
 # ---- llama.cpp aliases (kept: this is what the dashboard calls today) -------
 
 def post_save(req):
@@ -1171,7 +1206,8 @@ def post_setup_install(req):
 
 
 def post_scan(req):
-    roots = req.body.get("roots") or cfg().get("model_dirs") or None
+    roots = (req.body.get("roots") or None) if "roots" in req.body \
+        else (cfg().get("model_dirs") or None)
     return 200, {"entries": scanner.scan(roots)}
 
 
@@ -1666,6 +1702,7 @@ POST_ROUTES = {
     "/api/models/unload":       post_model_unload,
     "/api/models/save":         post_model_save,
     "/api/models/delete":       post_model_delete,
+    "/api/models/unregister":   post_model_unregister,
     # llama.cpp-specific aliases
     "/api/save":                post_save,
     "/api/load":                post_load,
