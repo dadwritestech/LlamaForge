@@ -13,7 +13,7 @@ import * as stats from "./stats.js";
 import { loadDiscover } from "./discover.js";
 import { loadWillRun } from "./willrun.js";
 import { loadBuild } from "./build.js";
-import { loadSetup } from "./setup.js";
+import { leaveSetup, loadSetup } from "./setup.js";
 import { loadContext } from "./context.js";
 import { loadDocs } from "./help.js";
 import { initWizard } from "./wizard.js";
@@ -22,6 +22,7 @@ import { initOnboarding } from "./onboarding.js";
 /* ---------- tab loaders ---------- */
 ui.onTabShown("build", loadBuild);
 ui.onTabShown("setup", loadSetup);
+ui.onTabHidden("setup", leaveSetup);
 ui.onTabShown("discover", loadDiscover);
 ui.onTabShown("willrun", loadWillRun);
 ui.onTabShown("stats", stats.loadStats);

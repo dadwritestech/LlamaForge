@@ -1,10 +1,44 @@
 // Setup tab: prerequisites, detected hardware, drive scanning, startup options,
 // LAN access, the agent-connect panel, and vLLM/WSL installation.
 import { $, $$, esc, setHTML, api, toast } from "./core.js";
-import { S, models, config as cfgOf } from "./state.js";
+import { models, config as cfgOf } from "./state.js";
 import { emit } from "./bus.js";
 
 let vllmSetupPoll = null;
+let setupGeneration = 0;
+const setupCleanups = new Set();
+let clearAgentSecret = () => {};
+
+function setupViewActive(generation) {
+  const view = $("#view-setup");
+  return generation === setupGeneration &&
+    Boolean(view && view.classList.contains("active"));
+}
+
+function registerSetupCleanup(generation, cleanup) {
+  if (!setupViewActive(generation)) {
+    cleanup();
+    return () => {};
+  }
+  setupCleanups.add(cleanup);
+  return () => setupCleanups.delete(cleanup);
+}
+
+function invalidateSetup() {
+  setupGeneration += 1;
+  const cleanups = [...setupCleanups];
+  setupCleanups.clear();
+  for (const cleanup of cleanups) cleanup();
+  clearAgentSecret();
+  clearAgentSecret = () => {};
+  const out = $("#ac-out");
+  if (out) setHTML(out, "");
+  return setupGeneration;
+}
+
+export function leaveSetup() {
+  invalidateSetup();
+}
 
 function pollVllmSetup() {
   clearInterval(vllmSetupPoll);
@@ -28,10 +62,446 @@ function pollVllmSetup() {
   vllmSetupPoll = setInterval(tick, 2000);
 }
 
+function networkMarkup(net) {
+  const local = net.access_scope === "local";
+  const hasKey = Boolean(net.has_api_key);
+  const initialAction = hasKey ? "keep" : (local ? "clear" : "generate");
+  const checked = value => initialAction === value ? " checked" : "";
+  const status = net.configured_security_status.replaceAll("_", " ");
+  const remediation = net.remediation_required
+    ? `${net.message || "The stored network configuration must be repaired."}${
+        net.router_running
+          ? " A listener occupies the configured port; its process identity and protection cannot be verified."
+          : ""}`
+    : "";
+  const advisory = !net.remediation_required &&
+    net.configured_security_status === "protected_legacy"
+    ? (net.message || "Rotate this legacy API key when convenient.") : "";
+  return `<section class="card" id="network-access" aria-labelledby="network-title">
+    <h3 id="network-title">Network Access</h3>
+    ${net.remediation_required ? `<div id="net-alert" class="net-alert" role="alert">
+      ${esc(remediation)}
+      <div class="actions">
+        <button type="button" id="net-remediate-generate">Secure with a generated key</button>
+        <button type="button" id="net-remediate-local">Return to local-only</button>
+      </div>
+    </div>` : ""}
+    ${advisory ? `<div id="net-advisory" class="note">${esc(advisory)}</div>` : ""}
+    <div class="net-observation">
+      <p><b>Configured policy:</b> <span id="net-configured">${esc(status)}</span></p>
+      <p><b>Configured endpoint:</b> <span id="net-configured-endpoint">http://${
+        esc(net.host)}:${esc(net.port)}/</span></p>
+      <p><b>Observed listener:</b> <span id="net-runtime">${
+        net.router_running ? "listening on the configured port" : "not listening"}</span></p>
+      <p class="note">A listening port does not prove process identity or authentication.
+        Convenience LAN URL: <b id="net-convenience-url">http://${
+          esc(net.lan_ip || "<lan-ip>")}:${esc(net.port)}/</b></p>
+    </div>
+    <fieldset id="net-scope-group" aria-describedby="net-scope-help net-apply-error">
+      <legend>Access scope</legend>
+      <label><input type="radio" name="net-scope" value="local"${
+        local ? " checked" : ""}> This computer only — recommended</label>
+      <label><input type="radio" name="net-scope" value="lan"${
+        local ? "" : " checked"}> Devices on my local network</label>
+      <p class="note" id="net-scope-help">LAN access always requires a usable API key.</p>
+    </fieldset>
+    <fieldset id="net-auth-group" aria-describedby="net-auth-help net-apply-error">
+      <legend>Authentication</legend>
+      <label><input type="radio" name="net-key-action" value="keep"${
+        checked("keep")} ${hasKey ? "" : "disabled"}> Keep the configured key</label>
+      <label><input type="radio" name="net-key-action" value="generate"${
+        checked("generate")}> Generate a new strong key</label>
+      <label><input type="radio" name="net-key-action" value="replace"${
+        checked("replace")}> Replace with a key I provide</label>
+      <label><input type="radio" name="net-key-action" value="clear"${
+        checked("clear")}> Remove the key (local-only)</label>
+      <p class="note" id="net-auth-help">Blank input never means keep or remove.
+        Rotating a key requires updating every router client after restart.</p>
+      <div class="fld" id="net-replace-wrap" hidden>
+        <label for="net-replace-key">Replacement API key</label>
+        <input id="net-replace-key" type="password" autocomplete="new-password"
+               minlength="32" maxlength="256"
+               aria-describedby="net-replace-help net-apply-error">
+        <div class="hint" id="net-replace-help">32–256 URL-safe characters:
+          letters, digits, dot, underscore, tilde, or hyphen.</div>
+      </div>
+    </fieldset>
+    <div class="actions">
+      <button type="button" class="primary" id="net-apply"
+              aria-describedby="net-apply-error">Apply &amp; Restart Router</button>
+      <span id="net-status" class="msg" role="status" aria-live="polite"></span>
+    </div>
+    <div id="net-apply-error" class="note" role="alert" hidden></div>
+    <div id="net-generated" class="net-generated" hidden>
+      <div>Generated API key — copy it now</div>
+      <code id="net-generated-display" aria-label="Generated API key masked">••••••••••••••••</code>
+      <button type="button" id="net-reveal-generated" aria-pressed="false">Reveal for 30 seconds</button>
+      <button type="button" id="net-copy-generated">Copy</button>
+      <button type="button" id="net-dismiss-generated">Done</button>
+      <div class="note">Copy does not render plaintext. Reveal expires after 30 seconds.
+        Retry, Done, navigation, or Setup rerender clears this one-time value.</div>
+    </div>
+  </section>`;
+}
+
+function confirmNetworkChange(title, message, confirmLabel, generation) {
+  return new Promise(resolve => {
+    const root = $("#modal-root");
+    const returnTo = document.activeElement;
+    setHTML(root, `<dialog id="net-confirm" aria-labelledby="net-confirm-title"
+      aria-describedby="net-confirm-message">
+      <div class="modal">
+        <h3 id="net-confirm-title">${esc(title)}</h3>
+        <p id="net-confirm-message">${esc(message)}</p>
+        <div class="actions">
+          <button type="button" id="net-confirm-cancel">Cancel</button>
+          <button type="button" class="primary" id="net-confirm-accept">${
+            esc(confirmLabel)}</button>
+        </div>
+      </div>
+    </dialog>`);
+    const dialog = $("#net-confirm");
+    const cancel = $("#net-confirm-cancel");
+    const accept = $("#net-confirm-accept");
+    let finished = false;
+    let unregister = () => {};
+    const finish = answer => {
+      if (finished) return;
+      finished = true;
+      unregister();
+      if (dialog.open) dialog.close();
+      setHTML(root, "");
+      if (returnTo && returnTo.isConnected && setupViewActive(generation)) {
+        returnTo.focus();
+      }
+      resolve(answer);
+    };
+    cancel.onclick = () => finish(false);
+    accept.onclick = () => finish(true);
+    dialog.addEventListener("cancel", event => {
+      event.preventDefault();
+      finish(false);
+    });
+    dialog.addEventListener("keydown", event => {
+      if (event.key !== "Tab") return;
+      if (event.shiftKey && document.activeElement === cancel) {
+        event.preventDefault();
+        accept.focus();
+      } else if (!event.shiftKey && document.activeElement === accept) {
+        event.preventDefault();
+        cancel.focus();
+      }
+    });
+    dialog.showModal();
+    cancel.focus();
+    unregister = registerSetupCleanup(generation, () => finish(false));
+  });
+}
+
+const STRONG_NETWORK_KEY = /^[A-Za-z0-9._~-]{32,256}$/;
+
+function networkFailureMessage(scope, listenerObserved = false) {
+  if (listenerObserved) {
+    return scope === "lan"
+      ? "A protected configuration was saved, but restart failed; a listener is present and its process identity and protection are not verified."
+      : "The local-only configuration was saved, but restart failed; a listener is present and its process identity is not verified.";
+  }
+  return scope === "lan"
+    ? "A protected configuration was saved, but the router is stopped; LAN protection is not currently active or verified."
+    : "The local-only configuration was saved, but the router is stopped; its listener is not currently active or verified.";
+}
+
+async function pollNetworkRuntime(root, savedScope, generation) {
+  const status = $("#net-status", root);
+  const runtime = $("#net-runtime", root);
+  const error = $("#net-apply-error", root);
+  let latest = null;
+  for (let attempt = 0; attempt < 10; attempt++) {
+    if (!root.isConnected || !setupViewActive(generation)) return;
+    let net;
+    try {
+      net = await api("/api/network");
+    } catch (requestError) {
+      break;
+    }
+    if (!root.isConnected || !setupViewActive(generation)) return;
+    latest = net;
+    runtime.textContent = net.router_running
+      ? "listening on the configured port"
+      : "not listening";
+    if (net.router_running) {
+      const protection = String(
+        net.configured_security_status || "configured").replaceAll("_", " ");
+      const endpointHost = net.access_scope === "lan"
+        ? (net.lan_ip || "<LAN-IP>") : "127.0.0.1";
+      status.className = "msg ok";
+      status.textContent = `Saved ${protection} settings; listener observed at http://${
+        endpointHost}:${net.port}/.`;
+      return;
+    }
+    await new Promise(resolve => setTimeout(resolve, 500));
+  }
+  if (root.isConnected && setupViewActive(generation)) {
+    status.className = "msg";
+    status.textContent = "";
+    error.hidden = false;
+    error.textContent = `${networkFailureMessage(latest?.access_scope || savedScope)} ` +
+      "Check Router Log for the launch error, then retry Apply.";
+  }
+}
+
+function wireNetwork(net, generation) {
+  const root = $("#network-access");
+  if (!root) return;
+  const status = $("#net-status", root);
+  const error = $("#net-apply-error", root);
+  const apply = $("#net-apply", root);
+  const replaceWrap = $("#net-replace-wrap", root);
+  const replaceInput = $("#net-replace-key", root);
+  const generatedPanel = $("#net-generated", root);
+  const generatedDisplay = $("#net-generated-display", root);
+  const generatedReveal = $("#net-reveal-generated", root);
+  const generatedCopy = $("#net-copy-generated", root);
+  const generatedDismiss = $("#net-dismiss-generated", root);
+
+  const hideGeneratedPanel = () => {
+    generatedDisplay.textContent = "";
+    generatedDisplay.setAttribute("aria-label", "Generated API key cleared");
+    generatedPanel.hidden = true;
+    generatedDismiss.onclick = null;
+  };
+  let clearGenerated = hideGeneratedPanel;
+
+  const installGeneratedSecret = rawSecret => {
+    if (!root.isConnected || !setupViewActive(generation)) return;
+    clearGenerated();
+    const privateKey = {value: String(rawSecret)};
+    let revealTimer = null;
+    let observer = null;
+
+    const destroy = () => {
+      if (revealTimer !== null) clearTimeout(revealTimer);
+      revealTimer = null;
+      privateKey.value = "";
+      generatedDisplay.textContent = "";
+      generatedDisplay.setAttribute("aria-label", "Generated API key cleared");
+      generatedReveal.onclick = null;
+      generatedCopy.onclick = null;
+      generatedDismiss.onclick = null;
+      generatedReveal.disabled = true;
+      generatedCopy.disabled = true;
+      if (observer) observer.disconnect();
+      generatedPanel.hidden = true;
+      clearGenerated = hideGeneratedPanel;
+    };
+
+    const expire = () => {
+      revealTimer = null;
+      privateKey.value = "";
+      generatedDisplay.textContent = "••••••••••••••••";
+      generatedDisplay.setAttribute("aria-label", "Generated API key expired");
+      generatedReveal.textContent = "Expired";
+      generatedReveal.setAttribute("aria-pressed", "false");
+      generatedReveal.disabled = true;
+      generatedCopy.disabled = true;
+      generatedReveal.onclick = null;
+      generatedCopy.onclick = null;
+      if (observer) observer.disconnect();
+      generatedDismiss.onclick = hideGeneratedPanel;
+      clearGenerated = hideGeneratedPanel;
+    };
+
+    generatedDisplay.textContent = "••••••••••••••••";
+    generatedDisplay.setAttribute("aria-label", "Generated API key masked");
+    generatedReveal.textContent = "Reveal for 30 seconds";
+    generatedReveal.setAttribute("aria-pressed", "false");
+    generatedReveal.disabled = false;
+    generatedCopy.disabled = false;
+    generatedPanel.hidden = false;
+
+    generatedCopy.onclick = () => {
+      if (!privateKey.value) return;
+      navigator.clipboard.writeText(privateKey.value).then(() => {
+        status.className = "msg ok";
+        status.textContent = "Generated key copied.";
+      });
+    };
+    generatedReveal.onclick = () => {
+      if (!privateKey.value || revealTimer !== null) return;
+      generatedDisplay.textContent = privateKey.value;
+      generatedDisplay.setAttribute(
+        "aria-label", "Generated API key revealed temporarily");
+      generatedReveal.textContent = "Revealed — expires in 30 seconds";
+      generatedReveal.setAttribute("aria-pressed", "true");
+      generatedReveal.disabled = true;
+      revealTimer = setTimeout(expire, 30_000);
+    };
+    generatedDismiss.onclick = destroy;
+    observer = new MutationObserver(() => {
+      const view = root.closest(".view");
+      if (!root.isConnected || !view || !view.classList.contains("active") ||
+          !setupViewActive(generation)) destroy();
+    });
+    observer.observe(document.body, {
+      childList: true, subtree: true, attributes: true, attributeFilter: ["class"],
+    });
+    clearGenerated = destroy;
+  };
+  registerSetupCleanup(generation, () => {
+    clearGenerated();
+    replaceInput.value = "";
+  });
+
+  const scope = () => $('[name="net-scope"]:checked', root).value;
+  const action = () => $('[name="net-key-action"]:checked', root).value;
+  const chooseAction = value => {
+    const radio = $(`[name="net-key-action"][value="${value}"]`, root);
+    if (radio && !radio.disabled) radio.checked = true;
+  };
+  let invalidControl = null;
+  const clearInvalid = () => {
+    if (!invalidControl) return;
+    invalidControl.removeAttribute("aria-invalid");
+    invalidControl.removeAttribute("aria-errormessage");
+    invalidControl = null;
+  };
+  const showError = (message, focus) => {
+    clearInvalid();
+    error.hidden = false;
+    error.textContent = message;
+    status.className = "msg";
+    status.textContent = "";
+    if (focus) {
+      invalidControl = focus;
+      focus.setAttribute("aria-invalid", "true");
+      focus.setAttribute("aria-errormessage", "net-apply-error");
+      focus.focus();
+    }
+  };
+  const clearError = () => {
+    clearInvalid();
+    error.hidden = true;
+    error.textContent = "";
+  };
+  const sync = () => {
+    const lan = scope() === "lan";
+    const clear = $('[name="net-key-action"][value="clear"]', root);
+    clear.disabled = lan;
+    if (lan && clear.checked) chooseAction(net.has_api_key ? "keep" : "generate");
+    replaceWrap.hidden = action() !== "replace";
+    clearError();
+  };
+
+  $$('[name="net-scope"], [name="net-key-action"]', root).forEach(
+    control => control.onchange = sync);
+  const localRemediation = $("#net-remediate-local", root);
+  if (localRemediation) localRemediation.onclick = () => {
+    $('[name="net-scope"][value="local"]', root).checked = true;
+    sync();
+    chooseAction(net.has_api_key ? "keep" : "clear");
+    sync();
+    apply.focus();
+  };
+  const generateRemediation = $("#net-remediate-generate", root);
+  if (generateRemediation) generateRemediation.onclick = () => {
+    $('[name="net-scope"][value="lan"]', root).checked = true;
+    chooseAction("generate");
+    sync();
+    apply.focus();
+  };
+
+  apply.onclick = async () => {
+    clearError();
+    clearGenerated();
+    const desiredScope = scope();
+    const keyAction = action();
+    if (desiredScope === "lan" && keyAction === "keep" && !net.has_api_key) {
+      const generate = $('[name="net-key-action"][value="generate"]', root);
+      showError("LAN access requires Generate or a valid replacement key.", generate);
+      return;
+    }
+    if (desiredScope === "lan" && keyAction === "clear") {
+      const generate = $('[name="net-key-action"][value="generate"]', root);
+      showError("A key cannot be removed while LAN access is selected.", generate);
+      return;
+    }
+    const body = {access_scope: desiredScope, key_action: keyAction};
+    if (keyAction === "replace") {
+      const replacement = replaceInput.value.trim();
+      if (!STRONG_NETWORK_KEY.test(replacement)) {
+        showError("Enter a 32–256 character URL-safe replacement key.",
+                  replaceInput);
+        return;
+      }
+      body.api_key = replacement;
+      if (net.has_api_key && !await confirmNetworkChange(
+          "Rotate router API key",
+          "Existing clients will stop authenticating after restart until you update them.",
+          "Rotate key", generation)) return;
+    }
+    if (keyAction === "generate" && net.has_api_key &&
+        !await confirmNetworkChange(
+          "Rotate router API key",
+          "Generating a new key immediately invalidates the current key after restart.",
+          "Generate and rotate", generation)) return;
+    if (keyAction === "clear" && net.has_api_key && !await confirmNetworkChange(
+        "Remove router API key",
+        "Local clients will no longer need a key. LAN mode cannot run without one.",
+        "Remove key", generation)) return;
+
+    if (!setupViewActive(generation)) return;
+
+    apply.disabled = true;
+    status.className = "msg work";
+    status.textContent = "Saving safe policy and restarting router...";
+    try {
+      const r = await api("/api/network", body);
+      let issued = r.generated_api_key ? String(r.generated_api_key) : "";
+      delete r.generated_api_key;
+      if (!root.isConnected || !setupViewActive(generation)) {
+        issued = "";
+        return;
+      }
+      $("#net-configured", root).textContent =
+        String(r.configured_security_status || "saved").replaceAll("_", " ");
+      $("#net-configured-endpoint", root).textContent =
+        `http://${r.host || ""}:${r.port == null ? "" : r.port}/`;
+      net.has_api_key = Boolean(r.has_api_key);
+      $('[name="net-key-action"][value="keep"]', root).disabled =
+        !net.has_api_key;
+      if (issued) {
+        installGeneratedSecret(issued);
+        issued = "";
+      }
+      if (!r.ok) {
+        status.className = "msg";
+        status.textContent = "";
+        error.hidden = false;
+        error.textContent = `${networkFailureMessage(
+          r.access_scope, Boolean(r.router_running))} ${
+          r.error || "Open Router Log for details, then retry Apply."}`;
+        $("#net-runtime", root).textContent = r.router_running
+          ? "listener present / not verified" : "not running / not verified";
+        return;
+      }
+      await pollNetworkRuntime(root, r.access_scope, generation);
+    } catch (requestError) {
+      if (root.isConnected && setupViewActive(generation)) {
+        showError("The network change could not be completed.", apply);
+      }
+    } finally {
+      if (root.isConnected && setupViewActive(generation)) apply.disabled = false;
+    }
+  };
+  sync();
+}
+
 export async function loadSetup() {
+  const generation = invalidateSetup();
   const v = $("#view-setup");
   setHTML(v, `<div class="skel">PROBING SYSTEM...</div>`);
   const [s, net, vs] = await Promise.all([api("/api/setup"), api("/api/network"), api("/api/vllm/setup")]);
+  if (!setupViewActive(generation)) return;
   const p = s.prereqs, hw = s.hardware;
   const toolRow = (name, t) => `<div class="kv"><span class="k">${esc(name)}</span>
     <span class="v ${t.present?'ok':'bad'}">${t.present?esc(t.version||"present"):"MISSING"}
@@ -69,33 +539,14 @@ export async function loadSetup() {
       <div id="missing-out"></div>
     </div>
     <div class="card"><h3>Startup</h3>
-      <div class="kv"><span class="k">auto-load a model on launch</span>
+      <div class="kv"><label class="k" for="auto-load">auto-load a model on launch</label>
         <span class="v"><select id="auto-load" style="background:var(--inset);border:1px solid var(--hair);color:var(--ink);font-family:var(--mono);font-size:12px;padding:6px">
           <option value="">none</option>
           ${models().map(m=>`<option value="${esc(m.id)}" ${cfgOf().auto_load_model===m.id?"selected":""}>${esc(m.id)}</option>`).join("")}
         </select></span></div>
       <div class="note">The selected model loads automatically once the router is ready after launch &mdash; handy for always-on setups. An optional tray icon (loaded-model count, quick open) is available if you <b>pip install pystray pillow</b>; without them LlamaForge stays pure-stdlib.</div>
     </div>
-    <div class="card"><h3>Network Access</h3>
-      <div class="kv"><span class="k">router status</span><span class="v ${net.router_running?'ok':'bad'}">${net.router_running?"running":"not running"}</span></div>
-      <div class="kv"><span class="k">currently bound to</span><span class="v">${esc(net.host)}:${esc(net.port)}${net.host!=="127.0.0.1"?" (LAN-accessible)":" (local only)"}</span></div>
-      <div class="kv"><span class="k">this machine's LAN IP</span><span class="v">${esc(net.lan_ip||"not detected")}</span></div>
-      <div class="note">By default the router only answers on 127.0.0.1 (this machine only). Enabling LAN access lets other devices on your network reach it at <b>http://${esc(net.lan_ip||"<lan-ip>")}:${esc(net.port)}/</b> &mdash; with no key set, anyone on your network can use it unauthenticated. An API key is optional but recommended.</div>
-      <div class="actions" style="margin-top:10px">
-        <label style="font-size:11px;color:var(--dim)"><input type="checkbox" id="net-lan" ${net.host!=="127.0.0.1"?"checked":""}> allow access from other devices on my network</label>
-      </div>
-      <div id="net-keyrow" style="display:${net.host!=="127.0.0.1"?"":"none"};margin-top:10px">
-        <label style="font-size:11px;color:var(--dim);display:block;margin-bottom:8px"><input type="checkbox" id="net-require-key" checked> require an API key (won't enable LAN access until a key is set)</label>
-        <div class="fld"><label>API key (clients send it as Authorization: Bearer &lt;key&gt;)</label>
-          <input id="net-apikey" value="" placeholder="${net.has_api_key?"(unchanged - a key is already set)":"leave blank for no key"}">
-        </div>
-      </div>
-      <div class="actions" style="margin-top:10px">
-        <button class="primary" id="btn-net-apply">Apply &amp; Restart Router</button>
-        <button class="ghost" id="btn-net-genkey" style="display:${net.host!=="127.0.0.1"?"":"none"}">Generate Key</button>
-        <span class="msg" id="net-msg"></span>
-      </div>
-    </div>
+    ${networkMarkup(net)}
     <div id="agent-connect" class="card"></div>`
     + (vs.supported === false ? "" : `<div class="card"><h3>vLLM Backend (WSL2)</h3>
       <div class="kv"><span class="k">WSL2</span><span class="v ${vs.wsl.present?'ok':'bad'}">${vs.wsl.present?"installed":"NOT INSTALLED"}</span></div>
@@ -110,6 +561,7 @@ export async function loadSetup() {
       <div class="note">Downloads uv + a standalone Python and installs vLLM into ~/.llamaforge/vllm-venv. Several GB; watch the log.</div>`:""}
       <div class="log" id="vllm-setup-log" style="display:${(vs.setup_job&&vs.setup_job.running)?"":"none"}">${esc(vs.setup_log||"idle")}</div>
     </div>`));
+  wireNetwork(net, generation);
   $$("[data-install]", v).forEach(b => b.onclick = async () => {
     b.disabled = true; b.textContent = "installing...";
     const r = await api("/api/setup/install", {tool: b.dataset.install});
@@ -133,31 +585,6 @@ export async function loadSetup() {
     await api("/api/config", {vram_bandwidths: ov});
     const m = $("#bw-msg"); m.className = "msg ok"; m.textContent = Object.keys(ov).length ? "saved" : "cleared (using defaults)";
   };
-  $("#net-lan").onchange = e => {
-    $("#net-keyrow").style.display = e.target.checked ? "" : "none";
-    $("#btn-net-genkey").style.display = e.target.checked ? "" : "none";
-  };
-  $("#btn-net-genkey").onclick = () => {
-    $("#net-apikey").value = [...crypto.getRandomValues(new Uint8Array(24))]
-      .map(b => b.toString(16).padStart(2,"0")).join("");
-  };
-  $("#btn-net-apply").onclick = async () => {
-    const msg = $("#net-msg"), lan = $("#net-lan").checked;
-    const host = lan ? "0.0.0.0" : "127.0.0.1";
-    const apiKey = $("#net-apikey").value.trim();
-    if (lan && $("#net-require-key").checked && !apiKey && !net.has_api_key) {
-      msg.className = "msg err";
-      msg.textContent = 'set or generate an API key first (or uncheck "require an API key")';
-      return;
-    }
-    msg.className = "msg work"; msg.textContent = "restarting router...";
-    const r = await api("/api/network", {host, api_key: lan?(apiKey||undefined):""});
-    if (r.ok) {
-      msg.className = "msg ok"; msg.textContent = "applied";
-      toast(lan?"LAN access enabled":"LAN access disabled", "ok");
-      setTimeout(loadSetup, 1500);
-    } else { msg.className = "msg err"; msg.textContent = r.error || "failed"; }
-  };
   const distroSel = $("#vllm-distro");
   if (distroSel) distroSel.onchange = () => api("/api/config", {wsl_distro: distroSel.value}).then(() => loadSetup());
   const instBtn = $("#btn-vllm-install");
@@ -168,62 +595,187 @@ export async function loadSetup() {
     else msg.textContent = "already running";
   };
   if (vs.setup_job && vs.setup_job.running) pollVllmSetup();
-  renderAgentConnect();
+  renderAgentConnect(generation);
 }
 
 /* ---------- connect an agent ---------- */
-function agentModelOptions(sel) {
-  return models().map(m => `<option value="${esc(m.id)}"${m.id===sel?" selected":""}>${esc(m.id)}</option>`).join("");
+function agentModels() {
+  const active = cfgOf().active_engine || "llamacpp";
+  return models().filter(m =>
+    (m.backend === "llamacpp" || m.backend === "ikllama") &&
+    m.backend === active);
 }
-function renderAgentConnect() {
-  const host = $("#agent-connect"); if (!host) return;
+
+function agentModelOptions(selected = "") {
+  return agentModels().map(m =>
+    `<option value="${esc(m.id)}"${m.id === selected ? " selected" : ""}>${
+      esc(m.id)}</option>`).join("");
+}
+
+function clearAgentPreview(message = "Choose settings, then show the configuration.") {
+  clearAgentSecret();
+  clearAgentSecret = () => {};
+  const out = $("#ac-out");
+  if (out) setHTML(out, `<div class="note">${esc(message)}</div>`);
+}
+
+function agentRequest() {
+  const agent = $("#ac-agent").value;
+  const model = $("#ac-model").value;
+  const row = agentModels().find(m => m.id === model);
+  if (!row) return null;
+  return {
+    agent,
+    model,
+    backend: row.backend,
+    small: agent === "claude-code" ? $("#ac-small").value : "",
+    inject: agent !== "claude-code" && $("#ac-inject").checked,
+  };
+}
+
+function renderAgentConnect(generation) {
+  const host = $("#agent-connect");
+  if (!host) return;
   setHTML(host, `<h3>Connect an agent</h3>
-    <div class="note">Point a coding agent at your local models. Claude Code uses the
-      Anthropic-compatible endpoint; Codex and pi.dev use the OpenAI-compatible router.</div>
-    <div style="margin-top:8px">
-      <select id="ac-agent">
-        <option value="claude-code">Claude Code</option>
-        <option value="codex">Codex</option>
-        <option value="pi">pi.dev</option>
-      </select>
-      <select id="ac-model">${agentModelOptions()}</select>
-      <select id="ac-small" hidden>${agentModelOptions()}</select>
-      <button id="ac-apply" class="primary">Apply</button>
+    <div class="note">Generate or apply configuration only when requested.
+      Context injection uses this machine's loopback-only panel.</div>
+    <div class="agent-controls">
+      <label>Agent
+        <select id="ac-agent">
+          <option value="claude-code">Claude Code</option>
+          <option value="codex">Codex</option>
+          <option value="pi">pi.dev</option>
+        </select>
+      </label>
+      <label>Model <select id="ac-model">${agentModelOptions()}</select></label>
+      <label id="ac-small-wrap">Small model
+        <select id="ac-small">${agentModelOptions()}</select>
+      </label>
+      <label id="ac-inject-wrap" hidden>
+        <input id="ac-inject" type="checkbox">
+        Inject local context through the panel (this machine only)
+      </label>
+      <button id="ac-show" type="button">Show configuration</button>
+      <button id="ac-apply" type="button" class="primary">Apply</button>
     </div>
     <div id="ac-out" class="agent-out"></div>`);
-  const agentSel = $("#ac-agent"), smallSel = $("#ac-small");
-  const syncSmall = () => { smallSel.hidden = agentSel.value !== "claude-code"; };
-  syncSmall();
-  agentSel.onchange = () => { syncSmall(); loadAgentConfig(); };
-  $("#ac-model").onchange = loadAgentConfig;
-  smallSel.onchange = loadAgentConfig;
-  $("#ac-apply").onclick = applyAgentConfig;
-  loadAgentConfig();
+
+  const sync = () => {
+    const claude = $("#ac-agent").value === "claude-code";
+    $("#ac-small-wrap").hidden = !claude;
+    $("#ac-inject-wrap").hidden = claude;
+    if (claude) $("#ac-inject").checked = false;
+    clearAgentPreview();
+  };
+  $("#ac-agent").onchange = sync;
+  $("#ac-model").onchange = () => clearAgentPreview();
+  $("#ac-small").onchange = () => clearAgentPreview();
+  $("#ac-inject").onchange = () => clearAgentPreview();
+  $("#ac-show").onclick = () => showAgentConfig(generation);
+  $("#ac-apply").onclick = () => applyAgentConfig(generation);
+  sync();
 }
-async function loadAgentConfig() {
-  const agentSel = $("#ac-agent"), modelSel = $("#ac-model"), smallSel = $("#ac-small");
-  if (!agentSel || !modelSel || !smallSel || !modelSel.value) {
-    setHTML($("#ac-out"), `<div class="note">No models available yet &mdash; scan for models above first.</div>`);
+
+async function showAgentConfig(generation) {
+  if (!setupViewActive(generation)) return;
+  const body = agentRequest();
+  if (!body) {
+    clearAgentPreview("No llama-family model is available.");
+    $("#ac-model").focus();
     return;
   }
-  const agent = agentSel.value, model = modelSel.value;
-  const small = smallSel.hidden ? "" : smallSel.value;
-  let q = `/api/agent/config?agent=${encodeURIComponent(agent)}&model=${encodeURIComponent(model)}`;
-  if (small) q += `&small=${encodeURIComponent(small)}`;
-  const r = await api(q);
-  if (r.error) { setHTML($("#ac-out"), `<div class="note" style="color:var(--red)">${esc(r.error)}</div>`); return; }
-  const snip = (label, text) => `<div class="slabel">${esc(label)}</div><div class="snip"><button class="qbtn scopy" data-copytext="${esc(text)}">Copy</button>${esc(text)}</div>`;
-  setHTML($("#ac-out"),
-    `<div class="note">Target: <b>${esc(r.target_path)}</b> &middot; endpoint <b>${esc(r.endpoint)}</b><br>${esc(r.instructions)}</div>`
-    + snip(r.target_path, r.content));
+  const out = $("#ac-out");
+  const stillCurrent = () => {
+    if (!setupViewActive(generation) || !out.isConnected || out !== $("#ac-out")) {
+      return false;
+    }
+    const current = agentRequest();
+    return current !== null && JSON.stringify(current) === JSON.stringify(body);
+  };
+  clearAgentSecret();
+  clearAgentSecret = () => {};
+  setHTML(out,
+    `<div class="note" role="status">Generating configuration...</div>`);
+  let r;
+  try {
+    r = await api("/api/agent/config", body);
+  } catch (requestError) {
+    if (stillCurrent()) {
+      setHTML(out,
+        `<div class="note" role="alert">Agent configuration is unavailable.</div>`);
+    }
+    return;
+  }
+  if (!stillCurrent()) {
+    if (r && typeof r.content === "string") r.content = "";
+    return;
+  }
+  if (r.error) {
+    setHTML(out,
+      `<div class="note" role="alert">${esc(r.error)}</div>`);
+    return;
+  }
+  let privateValue = String(r.content || "");
+  r.content = "";
+  setHTML(out,
+    `<div class="note">Target: <b>${esc(r.target_path)}</b> · endpoint
+      <b>${esc(r.endpoint)}</b><br>${esc(r.instructions)}</div>
+      <div class="slabel">${esc(r.target_path)}</div>
+      <div class="snip"><button type="button" class="qbtn scopy"
+        data-agent-copy-index="0" aria-label="Copy agent configuration">Copy</button>${
+        esc(privateValue)}</div>`);
+  const buttons = $$("[data-agent-copy-index]", out);
+  for (const button of buttons) {
+    button.removeAttribute("data-agent-copy-index");
+    button.onclick = () => {
+      if (!privateValue) return;
+      navigator.clipboard.writeText(privateValue).then(
+        () => toast("Copied to clipboard", "ok"));
+    };
+  }
+  let unregister = () => {};
+  const destroy = () => {
+    privateValue = "";
+    for (const button of buttons) button.onclick = null;
+    if (out.isConnected && out === $("#ac-out")) setHTML(out, "");
+    unregister();
+    if (clearAgentSecret === destroy) clearAgentSecret = () => {};
+  };
+  clearAgentSecret = destroy;
+  unregister = registerSetupCleanup(generation, destroy);
 }
-async function applyAgentConfig() {
-  const agentSel = $("#ac-agent"), modelSel = $("#ac-model"), smallSel = $("#ac-small");
-  if (!modelSel || !modelSel.value) { toast("No model selected", "err"); return; }
-  const small = smallSel.hidden ? "" : smallSel.value;
-  const r = await api("/api/agent/apply", {agent: agentSel.value, model: modelSel.value, small});
-  if (r.error) { toast(r.error, "err"); return; }
-  toast(`${r.action}: ${r.path}${r.backup?` (backup: ${r.backup})`:""}`, "ok");
+
+async function applyAgentConfig(generation) {
+  if (!setupViewActive(generation)) return;
+  const body = agentRequest();
+  if (!body) {
+    clearAgentPreview("No llama-family model is available.");
+    $("#ac-model").focus();
+    return;
+  }
+  const out = $("#ac-out");
+  const stillCurrent = () => {
+    if (!setupViewActive(generation) || !out.isConnected || out !== $("#ac-out")) {
+      return false;
+    }
+    const current = agentRequest();
+    return current !== null && JSON.stringify(current) === JSON.stringify(body);
+  };
+  let r;
+  try {
+    r = await api("/api/agent/apply", body);
+  } catch (requestError) {
+    if (stillCurrent()) setHTML(out,
+      `<div class="note" role="alert">Agent configuration could not be applied.</div>`);
+    return;
+  }
+  if (!stillCurrent()) return;
+  if (r.error) {
+    setHTML(out,
+      `<div class="note" role="alert">${esc(r.error)}</div>`);
+    return;
+  }
+  clearAgentPreview(`${r.action}: ${r.path}${r.backup ? " (backup created)" : ""}`);
 }
 
 /* ---------- drive scanning ---------- */

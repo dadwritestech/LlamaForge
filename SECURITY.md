@@ -1,79 +1,72 @@
 # Security
 
-## Default: local only
+## Control plane and router scope
 
-By default, both processes bind to `127.0.0.1` and are not reachable from
-your network:
+The LlamaForge dashboard and its management API always bind to `127.0.0.1`
+(the `panel_port`, default `8090`). They are a local control plane and are not
+made reachable on the LAN. The separate llama.cpp router (`router_port`, default
+`8080`) has just two LlamaForge-managed scopes: local `127.0.0.1` or LAN
+`0.0.0.0`.
 
-- The LlamaForge dashboard (`backend/server.py`), on `panel_port` (default 8090).
-- The llama.cpp router (`llama-server.exe --models-preset ...`), on `router_port`
-  (default 8080).
+The Setup tab's **Network Access** card changes the router scope, not the
+dashboard. Use remote desktop or SSH to administer LlamaForge from another
+machine; do not expose the panel port.
 
-## Opt-in: LAN access for the router
+## LAN access fails closed
 
-The Setup tab's **Network Access** panel lets you switch the llama.cpp
-router's bind address from `127.0.0.1` to `0.0.0.0`, making it reachable from
-other devices on your network (e.g. to use the chat UI from your phone, or
-point another machine's OpenAI-compatible client at it).
+Every newly configured LAN router requires a usable API key, and every
+LlamaForge-owned router start or restart repeats that policy check before it
+stops or starts a process. There is no unauthenticated-LAN override. Clients use
+`Authorization: Bearer <key>` when the upstream router requires it.
 
-When enabled:
+Network Access has explicit key actions: keep the current key, generate a new
+key, replace it, or clear it (clear is available only for local access). Rotating
+a key invalidates clients that use the old one. Switching back to local keeps a
+key unless the operator separately confirms its removal.
 
-- An **API key is strongly recommended**. A **Require an API key** toggle
-  (on by default) makes the panel refuse to enable LAN access until you set
-  or generate one; the panel can generate a random key for you. If you
-  uncheck the toggle and leave the key blank, the router is served to your
-  network **unauthenticated** - anyone who can reach the port can use it.
-  When a key is set, clients must send `Authorization: Bearer <key>`.
-- `GET /models` (a metadata listing, no prompts or completions) is not
-  covered by the key - this is llama.cpp's own behavior, not
-  LlamaForge-specific. All inference endpoints (`/completion`,
-  `/v1/chat/completions`, etc.) are.
-- The setting is saved in `config.json` and re-applied on every restart
-  (including autostart), so it persists until you turn it back off.
-- Windows Firewall must allow inbound connections to `llama-server.exe` on
-  your network profile; if you're prompted by Windows the first time, allow
-  it for the profile you're actually on (Private/Public).
+Older printable keys may continue to protect an existing LAN configuration and
+are labelled `protected_legacy` with a rotation recommendation. Historical or
+manually edited unsupported hosts, and LAN configurations with an absent or
+invalid key, are assessed read-only as `unsafe_legacy`: LlamaForge does not
+silently rewrite them, but blocks any new start or restart until they are
+repaired. If a port is already occupied, the dashboard leaves its listener
+alone; seeing a listener is not verification of its process identity or of its
+authentication policy.
 
-The **LlamaForge dashboard itself** (port 8090) always stays local-only -
-it can trigger rebuilds, install prerequisites, and edit configuration, so
-it is intentionally not exposed by this feature. If you need to administer
-LlamaForge from another device, use remote desktop / SSH to this machine
-rather than exposing port 8090.
+## Management boundary and credentials
 
-## Threat model for the dashboard
+`/api/state`, `/api/config`, and routine management responses never include the
+router key. Their public config projection is an explicit allowlist plus the
+non-secret `router_api_key_configured` boolean. **Client Config**, **Show
+configuration** for an agent, and server-side **Generate** are deliberate,
+no-store reveal actions; they return credentials only to the initiating explicit
+POST where applicable. Every JSON response has `Cache-Control: no-store`.
 
-Binding to `127.0.0.1` keeps the dashboard off your network, but it does **not**
-put it out of reach: every web page you visit can send requests to
-`http://127.0.0.1:8090`. Since the dashboard's routes rebuild llama.cpp, install
-packages, run commands inside WSL and rewrite configuration, a page you merely
-*visit* must not be able to drive it.
+The panel treats every HTTP request as untrusted input:
 
-So the treated-as-untrusted input is **any HTTP request**, including one from
-your own browser, and the following rules apply:
+- Host and Origin checks keep requests tied to this loopback service and defend
+  against cross-site requests and DNS rebinding.
+- When a POST declares `Content-Type`, it must be `application/json`; declared
+  form or other non-JSON types are rejected with 415. This is defense in depth
+  against form posts. A missing `Content-Type` is not rejected by this guard.
+- POST framing requires one valid `Content-Length`; transfer encoding, malformed
+  or duplicate lengths, short bodies, and oversized requests are rejected and
+  the connection is closed. Management JSON is capped at 4 MiB; the
+  `/v1/messages` and `/v1/chat/completions` inference proxies have a 64 MiB cap
+  for realistic multimodal payloads.
+- `POST /api/config` accepts only a type-checked allowlist. Request data is not
+  interpolated into shell commands.
 
-- **Origin and Host are checked on every request.** A request whose `Origin`
-  names another site is refused (403), as is one whose `Host` is not this
-  loopback service - the latter blocks DNS rebinding, where an attacker's
-  hostname is re-pointed at `127.0.0.1` so their page counts as same-origin.
-- **State-changing requests must be `application/json`.** A cross-site
-  `<form>` can only send `text/plain`, `application/x-www-form-urlencoded` or
-  `multipart/form-data`; requiring JSON means a forged POST needs a CORS
-  preflight it cannot pass. Requests with a form content type get a 415.
-- **`POST /api/config` accepts an allowlist of keys**, each type-checked. Keys
-  naming a program or directory the backend reads (`server_bin`, `llama_src`,
-  `build_dir`, `models_ini`, `wiki_dir`, `docs_dir`) are *not* settable from the
-  browser - `server_bin` in particular is executed as `<server_bin> --help` to
-  build the knob schema. Those belong to `bootstrap` and `config.json`.
-- **Nothing from a request is interpolated into a shell command.** vLLM runs
-  through `bash -lc` inside WSL; model refs, HF repo ids and knob values are
-  bound as positional parameters (`"$1"`), and repo ids are additionally
-  validated against `org/name`. See the module docstring in `backend/wsl.py`.
+## Local limitations
 
-The router's API key is included in `/api/state` so the *Client config* panel can
-show a working `curl`. That is same-origin data on a loopback-only service; it is
-not a secret from the page that is already the dashboard.
+`config.json` stores `router_api_key` as plaintext; it is not encrypted and is
+not an OS credential vault. A process running under the same OS account may be
+able to read that file and inspect the llama-server command line, because the
+upstream process currently receives `--api-key` in argv. Explicit configuration
+previews improve resistance to accidental ambient disclosure, not isolation from
+such a local peer process.
 
 ## Reporting
 
-This is a personal/local tool, not a hosted service. If you find a security
-issue, please open an issue on the repo.
+This is an early-preview personal/local tool, not a hosted service or a security
+certification. If you find a security issue, please open an issue on the repo.

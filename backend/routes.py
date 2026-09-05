@@ -18,10 +18,10 @@ content_type. Raising ApiError(status, message) produces {"error": message}.
 Streaming responses (the Anthropic and OpenAI SSE proxies) are not in these
 tables: they write to the socket themselves and stay in server.py.
 """
-import json, os, subprocess, sys, urllib.request, urllib.error, urllib.parse
+import json, os, subprocess, sys, threading, urllib.request, urllib.error, urllib.parse
 
 import config, argspec, hardware, osplat, prereqs, scanner, hub, router_ctl, stats
-import autotune, anthropic_shim, agentsetup, wiki, docs
+import autotune, anthropic_shim, agentsetup, clientsetup, network_policy, wiki, docs
 import vram_predict
 import wsl, vllm_ctl, vllm_registry, vllm_setup, vllm_job, vllm_hub, vllm_download
 import gguf, diag, backends
@@ -87,6 +87,12 @@ _SCHEMA_KEY = None      # (server_bin, mtime) the cache was built from
 _IK_SCHEMA = None       # cached schema for ik_llama binary
 _IK_SCHEMA_KEY = None
 _VLLM_SCHEMA = None
+
+# Saving router-affecting config and restarting the process is one transaction.
+# ThreadingHTTPServer may run network and engine mutations concurrently; without
+# this boundary, the file and the live router can end up describing different
+# settings.  RLock keeps it safe for future lifecycle helpers to compose.
+_ROUTER_LIFECYCLE_LOCK = threading.RLock()
 
 
 def cfg():          return config.load()
@@ -160,6 +166,15 @@ def _agent_endpoint(agent):
         return f"http://127.0.0.1:{c['panel_port']}"   # shim binds localhost only
     host = router_ctl.lan_ip() if c.get("router_host", "127.0.0.1") != "127.0.0.1" else "127.0.0.1"
     return f"http://{host}:{c['router_port']}/v1"
+
+
+def _agent_endpoint_for(agent, inject, c=None):
+    c = c or cfg()
+    if agent == "claude-code":
+        return f"http://127.0.0.1:{c['panel_port']}"
+    if inject:
+        return f"http://127.0.0.1:{c['panel_port']}/v1"
+    return _llama_client_endpoint(c) + "/v1"
 
 
 _AGENT_CONTEXT_FILE = {"claude-code": ".claude/CLAUDE.md",
@@ -690,10 +705,9 @@ def get_state(req):
 
 
 def _public_config(c):
-    """config.json as the dashboard sees it. The router API key is deliberately
-    included: the Client-config modal shows the exact curl the user needs, and
-    the panel is same-origin and localhost-only."""
-    return dict(c)
+    """Allowlisted browser state. Secret material is available only through
+    deliberate client/agent/network POST actions."""
+    return network_policy.public_config(c)
 
 
 def get_schema(req):
@@ -762,15 +776,24 @@ def get_scan_missing(req):
     return 200, {"missing": missing}
 
 
-def get_network(req):
-    c = cfg()
-    return 200, {
-        "host": c.get("router_host", "127.0.0.1"),
+def _network_status(c, running=None):
+    assessment = network_policy.assess(
+        c.get("router_host", "127.0.0.1"),
+        c.get("router_api_key", ""))
+    if running is None:
+        running = router_ctl.is_running(c["router_port"])
+    out = assessment.public()
+    out.update({
         "port": c["router_port"],
-        "has_api_key": bool(c.get("router_api_key")),
         "lan_ip": router_ctl.lan_ip(),
-        "router_running": router_ctl.is_running(c["router_port"]),
-    }
+        "router_running": bool(running),
+        "listener_status": "listening" if running else "not_listening",
+    })
+    return out
+
+
+def get_network(req):
+    return 200, _network_status(cfg())
 
 
 def get_vllm_log(req):
@@ -823,22 +846,129 @@ def get_presets(req):
     return 200, {"presets": config.get_presets()}
 
 
-def get_agent_config(req):
-    agent = req.q("agent")
-    model = req.q("model")
-    small = req.q("small") or None
-    inject = req.flag("inject")
-    c = cfg()
-    if inject and agent in ("codex", "pi"):
-        host = router_ctl.lan_ip() if c.get("router_host", "127.0.0.1") != "127.0.0.1" else "127.0.0.1"
-        endpoint = f"http://{host}:{c['panel_port']}/v1"
+def _resolve_model_row(mid, hint=""):
+    if not isinstance(mid, str) or not mid.strip():
+        raise ApiError(400, "model is required")
+    mid = mid.strip()
+    if not isinstance(hint, str):
+        raise ApiError(400, "backend must be a string")
+    if hint in backends.LLAMA_FAMILY:
+        hint = REGISTRY.active_engine()
+    elif hint and hint != "vllm":
+        raise ApiError(400, f"unknown backend: {hint}")
+
+    rows = [row for row in REGISTRY.state().get("models", [])
+            if row.get("id") == mid]
+    if hint:
+        rows = [row for row in rows if row.get("backend") == hint]
+    if not rows:
+        raise ApiError(400, f"unknown model/backend: {mid}/{hint or 'unspecified'}")
+    if len(rows) != 1:
+        raise ApiError(409, f"model ownership is ambiguous; supply backend for {mid}")
+    return rows[0], rows[0].get("backend", "")
+
+
+def _llama_client_endpoint(c):
+    assessment = network_policy.assess(
+        c.get("router_host", "127.0.0.1"), c.get("router_api_key", ""))
+    if assessment.access_scope == "local":
+        host = "127.0.0.1"
+    elif assessment.access_scope == "lan":
+        host = router_ctl.lan_ip()
+        if not host:
+            raise ApiError(503, "LAN IP is not available; use local-only or repair networking")
     else:
-        endpoint = _agent_endpoint(agent)
+        raise ApiError(409, "repair the legacy Network Access configuration first")
+    return f"http://{host}:{c['router_port']}"
+
+
+def post_client_config(req):
+    body = req.body or {}
+    unknown = set(body) - {"model", "backend"}
+    if unknown:
+        raise ApiError(400, "unsupported client-config fields: " + ", ".join(sorted(unknown)))
+    row, backend = _resolve_model_row(body.get("model"), body.get("backend", ""))
+    c = cfg()
+    if backend in backends.LLAMA_FAMILY:
+        endpoint = _llama_client_endpoint(c)
+        api_key = c.get("router_api_key", "")
+    elif backend == "vllm":
+        live = next((item for item in vllm_mgr().status()
+                     if item.get("model_id") == row["id"]
+                     and item.get("state") == "ready"), None)
+        if not live or not live.get("endpoint"):
+            raise ApiError(400, f"vLLM model {row['id']} is not ready; load it first")
+        endpoint = live["endpoint"]
+        api_key = ""
+    else:
+        raise ApiError(400, f"unsupported backend: {backend}")
+    shell = "powershell" if osplat.IS_WIN else "posix"
     try:
-        out = agentsetup.generate(agent, endpoint, c.get("router_api_key", ""),
-                                  model, small, inject)
-    except ValueError as e:
-        raise ApiError(400, str(e))
+        out = clientsetup.generate(endpoint, api_key, row["id"], backend, shell)
+    except Exception:
+        raise ApiError(500, "client configuration could not be generated") from None
+    out["model_loaded"] = row.get("status") == "loaded"
+    return 200, out
+
+
+def _resolve_agent_request(body):
+    if not isinstance(body, dict):
+        raise ApiError(400, "agent configuration must be an object")
+    allowed = {"agent", "model", "backend", "small", "inject"}
+    unknown = set(body) - allowed
+    if unknown:
+        raise ApiError(400, "unsupported agent-config fields: " + ", ".join(sorted(unknown)))
+    agent = body.get("agent", "")
+    if not isinstance(agent, str):
+        raise ApiError(400, "agent must be a string")
+    if agent not in agentsetup.AGENTS:
+        raise ApiError(400, f"unknown agent: {agent}")
+    inject = body.get("inject")
+    if not isinstance(inject, bool):
+        raise ApiError(400, "inject must be a boolean")
+    if agent == "claude-code" and inject:
+        raise ApiError(400, "Claude Code always uses the local Anthropic endpoint")
+
+    backend = body.get("backend", "")
+    active = REGISTRY.active_engine()
+    if backend != active or backend not in backends.LLAMA_FAMILY:
+        raise ApiError(400, f"agent setup requires the active llama backend: {active}")
+    row, resolved_backend = _resolve_model_row(body.get("model"), backend)
+    if resolved_backend != active:
+        raise ApiError(400, f"model is not owned by active backend: {row['id']}")
+
+    small = body.get("small", "")
+    if not isinstance(small, str):
+        raise ApiError(400, "small must be a model id")
+    small = small or None
+    if small and agent != "claude-code":
+        raise ApiError(400, "small is only supported for Claude Code")
+    if small:
+        small_row, small_backend = _resolve_model_row(small, backend)
+        if small_backend != active:
+            raise ApiError(400, f"small model is not owned by active backend: {small_row['id']}")
+        small = small_row["id"]
+
+    c = cfg()
+    return {
+        "agent": agent,
+        "model": row["id"],
+        "backend": active,
+        "small": small,
+        "inject": inject,
+        "endpoint": _agent_endpoint_for(agent, inject, c),
+        "api_key": c.get("router_api_key", ""),
+    }
+
+
+def post_agent_config(req):
+    target = _resolve_agent_request(req.body)
+    try:
+        out = agentsetup.generate(
+            target["agent"], target["endpoint"], target["api_key"],
+            target["model"], target["small"], target["inject"])
+    except Exception:
+        raise ApiError(500, "agent configuration could not be generated") from None
     return 200, out
 
 
@@ -1278,21 +1408,59 @@ def _record_server_bin(key, path):
     return True
 
 
+def _network_error(error, secret):
+    text = str(error or "")
+    return text.replace(secret, "[redacted]") if secret else text
+
+
 def post_network(req):
-    c = cfg()
-    host = req.body.get("host", "127.0.0.1")
-    api_key = req.body.get("api_key")
-    if api_key is None:
-        api_key = c.get("router_api_key", "")   # field left blank -> keep existing key
-    c = config.update({"router_host": host, "router_api_key": api_key})
-    sbin = _active_server_bin(c)
-    ini = config.ini_path()
-    ok, err = router_ctl.restart(sbin, ini, c["router_port"],
-                                 host, api_key, LOGDIR)
-    return (200 if ok else 500), {"ok": ok, "error": err, "host": host}
+    with _ROUTER_LIFECYCLE_LOCK:
+        return _post_network_locked(req)
+
+
+def _post_network_locked(req):
+    current = cfg()
+    try:
+        mutation = network_policy.apply_request(current, req.body or {})
+    except ValueError as e:
+        raise ApiError(400, str(e))
+    except Exception:
+        raise ApiError(500, "network change could not be prepared") from None
+
+    try:
+        c = config.update({
+            "router_host": mutation.router_host,
+            "router_api_key": mutation.router_api_key,
+        })
+    except Exception:
+        raise ApiError(500, "network settings could not be saved") from None
+    try:
+        ok, error = router_ctl.restart(
+            _active_server_bin(c), config.ini_path(), c["router_port"],
+            mutation.router_host, mutation.router_api_key, LOGDIR)
+    except Exception as exc:
+        ok, error = False, exc
+    running = router_ctl.is_running(c["router_port"])
+    out = _network_status(c, running)
+    out.update({
+        "ok": bool(ok),
+        "saved": True,
+        "restart_status": ("failed" if not ok else
+                           "running" if running else "starting"),
+    })
+    if error:
+        out["error"] = _network_error(error, mutation.router_api_key)
+    if mutation.generated_api_key is not None:
+        out["generated_api_key"] = mutation.generated_api_key
+    return (200 if ok else 500), out
 
 
 def post_engine_switch(req):
+    with _ROUTER_LIFECYCLE_LOCK:
+        return _post_engine_switch_locked(req)
+
+
+def _post_engine_switch_locked(req):
     """Switch the active engine (llamacpp / ikllama) and restart the router.
 
     Validate the binary BEFORE persisting. `active_engine` steers ini_path(),
@@ -1411,15 +1579,13 @@ def post_count_tokens(req):
 
 
 def post_agent_apply(req):
-    agent = req.body.get("agent", "")
-    model = req.body.get("model", "")
-    small = req.body.get("small") or None
+    target = _resolve_agent_request(req.body if req.body is not None else {})
     try:
-        out = agentsetup.apply(agent, os.path.expanduser("~"),
-                               _agent_endpoint(agent),
-                               cfg().get("router_api_key", ""), model, small)
-    except ValueError as e:
-        raise ApiError(400, str(e))
+        out = agentsetup.apply(
+            target["agent"], os.path.expanduser("~"), target["endpoint"],
+            target["api_key"], target["model"], target["small"])
+    except Exception:
+        raise ApiError(500, "agent configuration could not be applied") from None
     return 200, out
 
 
@@ -1485,7 +1651,6 @@ GET_ROUTES = {
     "/api/model/metadata":    get_model_metadata,
     "/api/model/diag":        get_model_diag,
     "/api/presets":           get_presets,
-    "/api/agent/config":      get_agent_config,
     "/api/wiki/docs":         get_wiki_docs,
     "/api/wiki/doc":          get_wiki_doc,
     "/api/wiki/profiles":     get_wiki_profiles,
@@ -1495,6 +1660,7 @@ GET_ROUTES = {
 }
 
 POST_ROUTES = {
+    "/api/client/config":       post_client_config,
     # engine-agnostic (dispatch on the model's backend)
     "/api/models/load":         post_model_load,
     "/api/models/unload":       post_model_unload,
@@ -1539,6 +1705,7 @@ POST_ROUTES = {
     "/api/vllm/hub/register":   post_vllm_hub_register,
     "/api/vllm/delete":         post_vllm_delete,
     "/v1/messages/count_tokens": post_count_tokens,
+    "/api/agent/config":        post_agent_config,
     "/api/agent/apply":         post_agent_apply,
     "/api/wiki/doc":            post_wiki_doc,
     "/api/wiki/doc/delete":     post_wiki_doc_delete,

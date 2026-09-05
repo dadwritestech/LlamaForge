@@ -111,9 +111,12 @@ export function initDrawer() {
 
 /* ---------- tabs ---------- */
 const tabHandlers = {};
+const tabHiddenHandlers = {};
 /** Register the loader for a tab. main.js wires every view through this, which
  *  is what keeps ui.js free of imports from the views themselves. */
 export function onTabShown(name, fn) { tabHandlers[name] = fn; }
+/** Register cleanup that must run synchronously before a view is hidden. */
+export function onTabHidden(name, fn) { tabHiddenHandlers[name] = fn; }
 
 export function switchTab(name) {
   const t = $(`.tab[data-tab="${name}"]`);
@@ -126,6 +129,12 @@ export function updatePageTitle() {
 }
 export function initTabs() {
   $$(".tab").forEach(t => t.onclick = () => {
+    const previous = $(".tab.active");
+    const previousName = previous ? previous.dataset.tab : "";
+    if (previousName && previousName !== t.dataset.tab) {
+      const hide = tabHiddenHandlers[previousName];
+      if (hide) hide();
+    }
     $$(".tab").forEach(x => x.classList.remove("active"));
     t.classList.add("active");
     $$(".view").forEach(v => v.classList.remove("active"));

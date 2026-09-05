@@ -1,7 +1,10 @@
 // Stats tab: totals, live throughput, a daily activity chart, per-model usage.
-import { $, esc, setHTML, api, toast, fmtNum, fmtDur, fmtAgo } from "./core.js";
+import { $, esc, setHTML, api, toast, fmtNum, fmtDur, fmtAgo, meter } from "./core.js";
+import { createFactRotator, normalizeVram } from "./stats-facts.js";
 
-let statsSort = "tokens", statsRange = 14;
+let statsSort = "tokens", statsRange = 14, statsRequest = 0;
+let gpuRequest = null, lastGpuPayload, hasGpuPayload = false;
+const tokenFact = createFactRotator();
 const SORT_COLS = {tokens:"Total", prompt:"Prompt", generated:"Gen",
                    avg_tps:"Tok/s", runs:"Runs", loaded_secs:"Loaded"};
 
@@ -32,11 +35,48 @@ function statCard(label, val) {
   return `<div class="gpu"><div class="stats" style="margin:0"><span>${esc(label)}</span></div><div style="font-family:var(--disp);font-weight:600;color:var(--ink-strong);font-size:22px;margin-top:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(val)}</div></div>`;
 }
 
+export function renderStatsVram(payload) {
+  const gpus = normalizeVram(payload);
+  if (!gpus.length) return `<div class="stats-vram-empty">VRAM TELEMETRY UNAVAILABLE</div>`;
+  return gpus.map(gpu => { const usedGb = (gpu.used/1024).toFixed(1), totalGb = (gpu.total/1024).toFixed(1);
+    return `<div class="stats-vram-card">
+    <div class="stats-vram-head"><span>${esc(gpu.name)}</span><span>GPU ${esc(gpu.index)}</span></div>
+    <div class="meter" role="progressbar" aria-label="${esc(gpu.name)} VRAM used" aria-valuemin="0" aria-valuenow="${esc(gpu.used)}" aria-valuemax="${esc(gpu.total)}" aria-valuetext="${esc(usedGb)} of ${esc(totalGb)} GB used">${meter(gpu.used, gpu.total)}</div>
+    <div class="stats"><span><b>${esc(usedGb)}</b>/${esc(totalGb)} GB</span><span>FREE <b>${esc((gpu.free/1024).toFixed(1))}</b> GB</span></div>
+  </div>`; }).join("");
+}
+
+export function renderTokenScale(generated, fact, open = false) {
+  const total = `${fmtNum(generated)} GENERATED`;
+  const accessible = `${total} is approximately ${fact.text}. ${fact.assumption}`;
+  return `<div class="token-scale">
+    <span class="token-scale-label">TOKEN SCALE //</span>
+    <span class="token-scale-total">${esc(total)}</span>
+    <span class="token-scale-mark" aria-hidden="true">≈</span>
+    <span class="token-scale-fact">${esc(fact.text)}</span>
+    <details class="token-scale-details"${open ? " open" : ""}>
+      <summary aria-label="${esc(accessible)}">EST.</summary>
+      <div class="token-scale-note"><b>${esc(total)} ≈ ${esc(fact.text)}</b><span>${esc(fact.assumption)}</span></div>
+    </details>
+  </div>`;
+}
+
+function refreshStatsVram() {
+  if (gpuRequest) return;
+  gpuRequest = api("/api/gpus").catch(() => null).then(payload => {
+    lastGpuPayload = payload;
+    hasGpuPayload = true;
+    setHTML($("#stats-vram"), renderStatsVram(payload));
+  }).finally(() => { gpuRequest = null; });
+}
+
 export async function loadStats(silent) {
+  const request = ++statsRequest;
   const v = $("#view-stats");
   if (!silent) setHTML(v, `<div class="skel">LOADING STATS...</div>`);
-  let s;
-  try { s = await api("/api/stats"); } catch (e) { s = null; }
+  refreshStatsVram();
+  const s = await api("/api/stats").catch(() => null);
+  if (request !== statsRequest) return;
   // fetch() doesn't reject on HTTP errors, so a 404/500 arrives as a parsed
   // error body, not an exception - guard on shape, not just the catch.
   if (!s || s.error || !Array.isArray(s.per_model)) {
@@ -47,7 +87,13 @@ export async function loadStats(silent) {
   const rows = [...s.per_model].sort((a,b) => (b[statsSort]||0) - (a[statsSort]||0));
   const daily = s.daily.slice(-statsRange);
   const maxDaily = Math.max(1, ...daily.map(d => d.prompt + d.generated));
+  const fact = tokenFact(t.generated);
+  const oldSummary = $(".token-scale-details summary", v);
+  const restoreDetailsFocus = !!oldSummary && document.activeElement === oldSummary;
+  const detailsOpen = !!$(".token-scale-details", v)?.open;
   setHTML(v, `
+    ${renderTokenScale(t.generated, fact, detailsOpen)}
+    <div class="stats-vram" id="stats-vram" aria-label="GPU VRAM usage">${hasGpuPayload ? renderStatsVram(lastGpuPayload) : `<div class="stats-vram-empty">VRAM TELEMETRY LOADING...</div>`}</div>
     <div class="gpus" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr))">
       ${statCard("Tokens processed", fmtNum(t.tokens))}
       ${statCard("Generated", fmtNum(t.generated))}
@@ -97,4 +143,5 @@ export async function loadStats(silent) {
         </div></div>`).join("")}</div>`
       :`<div class="note">No models have logged usage yet.</div>`}
     </div>`);
+  if (restoreDetailsFocus) $(".token-scale-details summary", v)?.focus({preventScroll: true});
 }

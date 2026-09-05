@@ -6,7 +6,7 @@ install packages and rewrite configuration. These tests drive a real
 ThreadingHTTPServer the way a hostile page would.
 """
 import conftest_paths  # noqa: F401
-import json, threading, unittest, urllib.error, urllib.request
+import json, socket, threading, unittest, urllib.error, urllib.request
 from http.server import ThreadingHTTPServer
 from unittest import mock
 
@@ -90,6 +90,41 @@ class LiveServerTest(unittest.TestCase):
         except urllib.error.HTTPError as e:
             return e.code, json.loads(e.read().decode() or "{}")
 
+    def _raw(self, head, body=b"", shutdown_write=True):
+        import socket
+        with socket.create_connection(("127.0.0.1", self.port), timeout=10) as sock:
+            sock.sendall(head + body)
+            if shutdown_write:
+                sock.shutdown(socket.SHUT_WR)
+            chunks = []
+            while True:
+                part = sock.recv(65536)
+                if not part:
+                    break
+                chunks.append(part)
+        raw = b"".join(chunks)
+        header, _, payload = raw.partition(b"\r\n\r\n")
+        lines = header.decode("iso-8859-1").split("\r\n")
+        status = int(lines[0].split()[1])
+        headers = {}
+        for line in lines[1:]:
+            if ":" in line:
+                key, value = line.split(":", 1)
+                headers[key.lower()] = value.strip()
+        return status, headers, payload
+
+    def _raw_post(self, path, content_length=None, extra_headers=(), body=b""):
+        lines = [
+            f"POST {path} HTTP/1.1",
+            f"Host: 127.0.0.1:{self.port}",
+            "Content-Type: application/json",
+        ]
+        if content_length is not None:
+            lines.append(f"Content-Length: {content_length}")
+        lines.extend(extra_headers)
+        head = ("\r\n".join(lines) + "\r\n\r\n").encode("ascii")
+        return self._raw(head, body)
+
     # ---------------------------------------------------------------- happy
     def test_same_origin_get_is_dispatched(self):
         status, body = self._req(
@@ -105,6 +140,93 @@ class LiveServerTest(unittest.TestCase):
         status, body = self._req("/api/_probe", "POST", data={"hello": "world"})
         self.assertEqual(status, 200)
         self.assertEqual(body["body"], {"hello": "world"})
+
+    def test_json_responses_are_no_store(self):
+        status, body = self._req("/api/_probe")
+        self.assertEqual(status, 200)
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{self.port}/api/_probe",
+            headers={"Host": f"127.0.0.1:{self.port}"})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            self.assertEqual(resp.headers["Cache-Control"], "no-store")
+
+    def test_missing_content_length_is_411_and_closes(self):
+        status, headers, _ = self._raw_post("/api/_probe")
+        self.assertEqual(status, 411)
+        self.assertEqual(headers.get("connection"), "close")
+        self.assertEqual(self.seen, [])
+
+    def test_management_limit_is_selected_before_read(self):
+        limit = 128
+        body = b'{"x":"' + b"a" * (limit - 8) + b'"}'
+        self.assertEqual(len(body), limit)
+        with mock.patch.object(server, "MAX_MANAGEMENT_JSON_BODY_BYTES", limit):
+            status, _, _ = self._raw_post("/api/_probe", limit, body=body)
+            self.assertEqual(status, 200)
+            self.seen.clear()
+            status, headers, _ = self._raw_post("/api/_probe", limit + 1)
+        self.assertEqual(status, 413)
+        self.assertEqual(headers.get("connection"), "close")
+        self.assertEqual(self.seen, [])
+
+    def test_proxy_payload_above_management_limit_uses_proxy_limit(self):
+        prefix = b'{"model":"m","messages":[],"pad":"'
+        suffix = b'"}'
+        body = prefix + b"a" * (256 - len(prefix) - len(suffix)) + suffix
+        self.assertEqual(len(body), 256)
+        with mock.patch.object(server, "MAX_MANAGEMENT_JSON_BODY_BYTES", 96), \
+             mock.patch.object(server, "MAX_PROXY_JSON_BODY_BYTES", 256), \
+             mock.patch.object(routes, "_router_openai", return_value=(200, {"ok": True})):
+            status, _, payload = self._raw_post(
+                "/v1/chat/completions", len(body), body=body)
+        self.assertEqual(status, 200)
+        self.assertIn(b'"ok": true', payload)
+
+    def test_proxy_over_its_limit_is_413_without_read(self):
+        with mock.patch.object(server, "MAX_PROXY_JSON_BODY_BYTES", 256):
+            status, headers, _ = self._raw_post("/v1/messages", 257)
+        self.assertEqual(status, 413)
+        self.assertEqual(headers.get("connection"), "close")
+
+    def test_invalid_and_duplicate_lengths_never_dispatch(self):
+        for value in ("-1", "+1", "nope", "1x", "2 ", "2\t"):
+            with self.subTest(value=value):
+                status, headers, _ = self._raw_post("/api/_probe", value)
+                self.assertEqual(status, 400)
+                self.assertEqual(headers.get("connection"), "close")
+        duplicate = (
+            f"POST /api/_probe HTTP/1.1\r\n"
+            f"Host: 127.0.0.1:{self.port}\r\n"
+            "Content-Type: application/json\r\n"
+            "Content-Length: 2\r\nContent-Length: 2\r\n\r\n{}"
+        ).encode("ascii")
+        status, headers, _ = self._raw(duplicate)
+        self.assertEqual(status, 400)
+        self.assertEqual(headers.get("connection"), "close")
+        self.assertEqual(self.seen, [])
+
+    def test_thousands_of_leading_zeroes_are_zero_length(self):
+        status, _, _ = self._raw_post("/api/_probe", "0" * 5000)
+        self.assertEqual(status, 200)
+        self.assertEqual(self.seen[-1].body, {})
+
+    def test_thousands_of_nonzero_length_digits_are_413_without_dispatch(self):
+        status, headers, _ = self._raw_post("/api/_probe", "9" * 5000)
+        self.assertEqual(status, 413)
+        self.assertEqual(headers.get("connection"), "close")
+        self.assertEqual(self.seen, [])
+
+    def test_transfer_encoding_and_short_body_close_without_dispatch(self):
+        status, headers, _ = self._raw_post(
+            "/api/_probe", None, extra_headers=("Transfer-Encoding: chunked",),
+            body=b"2\r\n{}\r\n0\r\n\r\n")
+        self.assertEqual(status, 400)
+        self.assertEqual(headers.get("connection"), "close")
+        status, headers, _ = self._raw_post("/api/_probe", 20, body=b"{}")
+        self.assertEqual(status, 400)
+        self.assertEqual(headers.get("connection"), "close")
+        self.assertEqual(self.seen, [])
+        self.assertEqual(self._req("/api/_probe")[0], 200)
 
     def test_unknown_path_404s(self):
         status, _ = self._req("/api/nope")
@@ -137,6 +259,20 @@ class LiveServerTest(unittest.TestCase):
                                   headers={"Content-Type": ctype})
             self.assertEqual(status, 415, ctype)
         self.assertEqual(self.seen, [])
+
+    def test_secret_preview_posts_share_origin_and_json_guards(self):
+        for path in ("/api/client/config", "/api/agent/config"):
+            with self.subTest(path=path, guard="origin"):
+                status, _ = self._req(
+                    path, method="POST", data={},
+                    headers={"Origin": "https://evil.example",
+                             "Content-Type": "application/json"})
+                self.assertEqual(status, 403)
+            with self.subTest(path=path, guard="content-type"):
+                status, _ = self._req(
+                    path, method="POST", data={},
+                    headers={"Content-Type": "application/x-www-form-urlencoded"})
+                self.assertEqual(status, 415)
 
     def test_malformed_json_is_a_400_not_a_crash(self):
         url = f"http://127.0.0.1:{self.port}/api/_probe"

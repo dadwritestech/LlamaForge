@@ -39,3 +39,5 @@ jobs:
           node-version: "20"
       - name: Check every frontend module parses
         run: for f in web/js/*.js; do node --check "$f" || exit 1; done
+      - name: Run frontend behavior tests
+        run: node --test tests/*.mjs

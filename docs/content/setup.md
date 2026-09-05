@@ -39,6 +39,45 @@ The tab also surfaces `hardware.recommend()`'s detected CPU/GPU (shared with the
 5. Click **Check for deleted models** to find registry entries whose backing file no longer exists on disk, then prune the ones you confirm.
 6. Optionally pick a model under **Startup** to auto-load when LlamaForge launches.
 
+## Network Access
+
+The Network Access card controls the llama.cpp router, never the dashboard: the
+panel and management API stay on `127.0.0.1`. Choose **This computer only** for
+the router's `127.0.0.1` scope or **Devices on my local network** for its
+`0.0.0.0` scope. LAN selection requires a usable key before Apply is enabled.
+
+Choose one unambiguous key action: **Keep current key**, **Generate / rotate**,
+**Replace**, or **Remove**. Remove is available only with local access; moving
+from LAN back to local otherwise retains the key. Generating or replacing over an
+existing key, and removing an existing key, each require confirmation. Rotation
+warns because clients using the previous key will stop authenticating. A generated
+key is returned only by that explicit Generate action: it starts masked, can be
+copied without displaying plaintext, and its one-time reveal expires after 30
+seconds. Retry, Done, navigation, or a Setup rerender clears the value and its
+copy closure.
+
+Older printable LAN keys are retained as `protected_legacy` so an upgrade does
+not force an immediate client outage, but the card recommends rotation. Unsupported
+manual hosts and LAN configurations with an absent or invalid key are displayed as
+`unsafe_legacy`, not silently rewritten. Repair them by generating/replacing the
+key or returning to local-only; new router starts and restarts remain blocked until
+then.
+
+Applying saves a validated safe configuration and requests a restart. The status
+separates saved settings from observed listener state: a port being occupied does
+not prove that it belongs to LlamaForge or enforces the expected key. If restart
+fails, the saved protected configuration remains, but the router is stopped or
+unverified rather than claimed as active: “A protected configuration was saved,
+but the router is stopped; LAN protection is not currently active or verified.”
+
+## Connect an Agent
+
+Changing an agent or model selection does not fetch credentials. Press **Show
+configuration** to make the explicit POST preview, then choose **Apply** only if
+you want LlamaForge to write the agent's local config file. Agent setup supports
+the active llama-family backend; vLLM agent setup is deferred. Context injection
+for Codex and pi uses the loopback panel endpoint, so it is local-machine-only.
+
 ## Screenshot
 
 ![Setup tab](docs/img/setup.png)
@@ -60,5 +99,11 @@ The tab also surfaces `hardware.recommend()`'s detected CPU/GPU (shared with the
 ## Troubleshooting
 
 If **Install** doesn't appear for a missing tool, no supported package manager was found for your OS (Windows without winget or choco, macOS without Homebrew) — use the tool's download URL shown next to it instead. If a Windows install reports "winget failed" then falls through to choco, check the combined output shown in the toast/log for the underlying error (often a source-agreement prompt or an already-installed conflicting version). If the drive scan finds nothing on Windows, confirm your models sit on a fixed (non-removable, non-network) drive — `list_drives()` skips those by design. If **Check for deleted models** reports an entry you know still exists, verify the `model` path in `models.ini` matches the file's real location; a moved file reads as "deleted" until you re-scan and re-apply it.
+
+If Network Access says settings were saved but router start is not verified,
+read the displayed start error and router log, then use Retry after fixing it.
+The port check only observes a listener; it cannot prove listener ownership or
+authentication. An `unsafe_legacy` warning means LlamaForge deliberately refused
+to start/restart until the configured host and key are repaired.
 
 See also [Build & Update](build.md) for the same hardware detection used to pick CMake flags, and [vLLM Backend](vllm.md) for the WSL2 install flow shown at the bottom of this tab on Windows.

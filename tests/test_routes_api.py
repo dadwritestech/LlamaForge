@@ -205,6 +205,67 @@ class HubAddTest(unittest.TestCase):
                          ["a.gguf", "b.gguf"])       # .txt not registered
 
 
+class PublicConfigProjectionTest(unittest.TestCase):
+    def setUp(self):
+        self.secret = "projection-secret-" + "p" * 32
+        self.stored = {
+            "theme": "dark",
+            "cvd": True,
+            "auto_load_model": "llama-fixture",
+            "vram_bandwidths": {"vram_bw": 900.0},
+            "presets": {"fast": {"temp": "0.2"}},
+            "preset_bindings": {"llamacpp": {"llama-fixture": "fast"}},
+            "active_engine": "llamacpp",
+            "router_api_key": self.secret,
+            "router_host": "0.0.0.0",
+            "router_port": 8080,
+            "panel_port": 8090,
+            "server_bin": "private-server",
+            "future_secret": "private-future-value",
+        }
+
+    def test_projection_is_exact_allowlist_and_never_returns_key(self):
+        out = routes._public_config(self.stored)
+        self.assertEqual(set(out), {
+            "theme", "cvd", "auto_load_model", "vram_bandwidths",
+            "presets", "preset_bindings", "active_engine",
+            "router_api_key_configured",
+        })
+        self.assertTrue(out["router_api_key_configured"])
+        self.assertNotIn(self.secret, repr(out))
+        self.assertNotIn("router_api_key", out)
+
+    def test_state_uses_the_same_projection(self):
+        registry = mock.Mock()
+        registry.state.return_value = {"models": [], "global": {}}
+        registry.enabled.return_value = []
+        with mock.patch.object(routes, "cfg", return_value=self.stored), \
+             mock.patch.object(routes, "REGISTRY", registry), \
+             mock.patch.object(routes, "_gpu_telemetry", return_value=[]), \
+             mock.patch.object(routes.os.path, "exists", return_value=True):
+            status, out = routes.get_state(Req())
+        self.assertEqual(status, 200)
+        self.assertEqual(out["config"], routes._public_config(self.stored))
+        self.assertNotIn(self.secret, repr(out))
+
+    def test_successful_config_post_uses_the_same_projection(self):
+        updated = dict(self.stored, theme="light")
+        with mock.patch.object(config, "update", return_value=updated):
+            status, out = routes.post_config(Req(body={"theme": "light"}))
+        self.assertEqual(status, 200)
+        self.assertEqual(out["config"], routes._public_config(updated))
+        self.assertNotIn(self.secret, repr(out))
+
+
+class ExplicitSecretRouteTableTest(unittest.TestCase):
+    def test_agent_preview_get_is_removed_and_posts_are_present(self):
+        self.assertNotIn("/api/agent/config", routes.GET_ROUTES)
+        self.assertIs(routes.POST_ROUTES["/api/agent/config"],
+                      routes.post_agent_config)
+        self.assertIs(routes.POST_ROUTES["/api/client/config"],
+                      routes.post_client_config)
+
+
 class RouteTableTest(unittest.TestCase):
     def test_every_route_maps_to_a_callable(self):
         for table in (routes.GET_ROUTES, routes.POST_ROUTES):

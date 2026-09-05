@@ -28,7 +28,7 @@ LlamaForge runs two local HTTP services:
 | Dashboard (panel) | `http://127.0.0.1:8090` | The LlamaForge backend and web UI — Models, Stats, Discover, Build, Setup tabs. Always binds to `127.0.0.1` only. |
 | Router | `http://127.0.0.1:8080` | llama.cpp's own server process, started by LlamaForge with `--models-preset models.ini`. Serves the OpenAI-compatible API and llama.cpp's chat UI. |
 
-Both ports, along with the bind address, are configured by the `panel_port`, `router_port`, and `router_host` keys in `config.json` (defaults `8090`, `8080`, and `127.0.0.1`). The router's bind address can be widened to `0.0.0.0` from the Setup tab's Network Access panel to reach it from other devices on your LAN; the dashboard itself never leaves `127.0.0.1`.
+Both ports, along with the bind address, are configured by the `panel_port`, `router_port`, and `router_host` keys in `config.json` (defaults `8090`, `8080`, and `127.0.0.1`). The Setup tab's Network Access panel supports only local `127.0.0.1` and LAN `0.0.0.0` router scopes. LAN requires a usable API key and LlamaForge-owned starts fail closed until it is configured; the dashboard itself never leaves `127.0.0.1`.
 
 Clients — `curl`, an OpenAI SDK, or any OpenAI-compatible chat client — talk to the router, not the dashboard. The dashboard's job is configuration: it writes model presets into `models.ini`, starts and stops the router, and reads back the router's own metrics endpoint for the Stats tab.
 

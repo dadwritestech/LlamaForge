@@ -5,21 +5,26 @@ process bound to a port; Linux/macOS use lsof.
 """
 import os, signal, subprocess, time, socket
 
-import osplat
+import network_policy, osplat
 
 CREATE_NO_WINDOW = 0x08000000
 
 def lan_ip():
     """Best-effort local-network IP (no traffic sent; just picks the
     interface the OS would use to reach the internet)."""
-    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    s = None
     try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         s.connect(("8.8.8.8", 80))
         return s.getsockname()[0]
     except Exception:
         return None
     finally:
-        s.close()
+        if s is not None:
+            try:
+                s.close()
+            except Exception:
+                pass
 
 # ---------------------------------------------------------------- capability
 # The router is driven as `<server_bin> --models-preset <ini> --models-max 1`.
@@ -96,6 +101,9 @@ def stop(port, timeout=10):
     return _pid_on_port(port) is None
 
 def start(server_bin, models_ini, port, host, api_key, logdir):
+    reason = network_policy.start_error(host, api_key)
+    if reason:
+        return False, reason
     if not server_bin or not os.path.exists(server_bin):
         return False, "server_bin not found - build llama.cpp first"
     # Port 8080 is a popular default (XAMPP, Apache, other dev servers). Without
@@ -127,5 +135,8 @@ def start(server_bin, models_ini, port, host, api_key, logdir):
     return True, ""
 
 def restart(server_bin, models_ini, port, host, api_key, logdir):
+    reason = network_policy.start_error(host, api_key)
+    if reason:
+        return False, reason
     stop(port)
     return start(server_bin, models_ini, port, host, api_key, logdir)

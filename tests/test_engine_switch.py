@@ -7,6 +7,7 @@ pointed at an engine that cannot start.
 """
 import conftest_paths  # noqa: F401
 import os
+import threading
 import unittest
 from unittest import mock
 
@@ -66,6 +67,31 @@ class EngineSwitchRouteTest(unittest.TestCase):
         self.assertEqual(self.saved["active_engine"], "ikllama")
         self.restart.assert_called_once()
         self.assertEqual(self.restart.call_args[0][0], "/opt/ik/llama-server")
+
+    def test_engine_switch_uses_shared_router_transaction_lock(self):
+        """Engine and network changes must not cross their router restarts."""
+        entered = threading.Event()
+        result = []
+
+        def load():
+            entered.set()
+            return dict(self.base, **self.saved)
+
+        def switch():
+            result.append(routes.post_engine_switch(Req(body={"engine": "llamacpp"})))
+
+        with mock.patch.object(routes, "cfg", side_effect=load), \
+             mock.patch.object(os.path, "exists", return_value=True), \
+             mock.patch.object(routes.router_ctl, "supports_router_mode", return_value=True):
+            with routes._ROUTER_LIFECYCLE_LOCK:
+                worker = threading.Thread(target=switch)
+                worker.start()
+                self.assertFalse(entered.wait(0.25))
+            worker.join(2)
+
+        self.assertFalse(worker.is_alive())
+        self.assertTrue(entered.is_set())
+        self.assertEqual(result[0][0], 200)
 
 
 class IniPathTest(unittest.TestCase):

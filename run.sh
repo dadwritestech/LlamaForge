@@ -60,15 +60,19 @@ fi
 
 # 1. llama.cpp router (only if not already up)
 if ! listening "$router_port"; then
-  if [ -x "$server_bin" ]; then
-    args=(--models-preset "$models_ini" --models-max 1 --offline
-          --host "$router_host" --port "$router_port" --metrics)
-    [ -n "$api_key" ] && args+=(--api-key "$api_key")
-    nohup "$server_bin" "${args[@]}" \
-      >>"$logdir/router.out.log" 2>>"$logdir/router.err.log" </dev/null &
-    echo "started llama.cpp router on $router_host:$router_port"
+  if python3 "$here/backend/network_policy.py" --preflight "$cfg"; then
+    if [ -x "$server_bin" ]; then
+      args=(--models-preset "$models_ini" --models-max 1 --offline
+            --host "$router_host" --port "$router_port" --metrics)
+      [ -n "$api_key" ] && args+=(--api-key "$api_key")
+      nohup "$server_bin" "${args[@]}" \
+        >>"$logdir/router.out.log" 2>>"$logdir/router.err.log" </dev/null &
+      echo "started llama.cpp router on $router_host:$router_port"
+    else
+      echo "server_bin not found ($server_bin) - open the dashboard Build tab to build llama.cpp first."
+    fi
   else
-    echo "server_bin not found ($server_bin) - open the dashboard Build tab to build llama.cpp first."
+    echo "Router not started: repair Network Access in the dashboard." >&2
   fi
 else
   # Something already holds the router port. If it isn't a llama-server, the
@@ -90,6 +94,12 @@ if ! listening "$panel_port"; then
 fi
 
 # 3. open the dashboard
-sleep 2
-url="http://127.0.0.1:$panel_port/"
-if [ "$(uname)" = "Darwin" ]; then open "$url"; else xdg-open "$url" >/dev/null 2>&1 || echo "open $url"; fi
+if [ -z "${LLAMAFORGE_NO_BROWSER:-}" ]; then
+  sleep 2
+  url="http://127.0.0.1:$panel_port/"
+  if [ "$(uname)" = "Darwin" ]; then
+    open "$url"
+  else
+    xdg-open "$url" >/dev/null 2>&1 || echo "open $url"
+  fi
+fi
