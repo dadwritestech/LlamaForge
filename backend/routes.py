@@ -602,7 +602,22 @@ def _clean_settings(updates):
 def _persist_scanned_entries(entries):
     """Persist scanner fields and reconcile only LlamaForge-owned MTP keys."""
     existing = config.read_sections()
-    
+    for e in entries:
+        keys = {
+            "model": e["model"],
+            "mmproj": e.get("mmproj") or None,
+            "embeddings": "true" if e.get("embeddings") else None,
+        }
+        desired_mtp = {
+            "spec-draft-model": e.get("draft_model"),
+            "spec-type": "draft-mtp" if e.get("draft_mtp") else None,
+        }
+        keys.update(config.reconcile_mtp_autowire(
+            e["id"], existing.get(e["id"]), desired_mtp))
+        config.set_keys(e["id"], keys)
+    return entries
+
+
 def _reconcile_preset_binding(mid, preset, engine=None):
     """Apply only preset defaults LlamaForge still owns for one model.
 
@@ -643,25 +658,6 @@ def _reconcile_preset_binding(mid, preset, engine=None):
             config.set_keys(mid, updates, path)
     config.set_binding_snapshot(mid, owned, engine)
     return updates
-
-
-def _register_ggufs_beside(paths):
-    """Add scanner-derived entries to models.ini and reload the router."""
-    entries = scanner.build_entries(paths)
-    for e in entries:
-        keys = {
-            "model": e["model"],
-            "mmproj": e.get("mmproj") or None,
-            "embeddings": "true" if e.get("embeddings") else None,
-        }
-        desired_mtp = {
-            "spec-draft-model": e.get("draft_model"),
-            "spec-type": "draft-mtp" if e.get("draft_mtp") else None,
-        }
-        keys.update(config.reconcile_mtp_autowire(
-            e["id"], existing.get(e["id"]), desired_mtp))
-        config.set_keys(e["id"], keys)
-    return entries
 
 
 def _register_ggufs_beside(paths):
