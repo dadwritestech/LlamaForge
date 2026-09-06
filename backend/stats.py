@@ -105,7 +105,14 @@ class StatsTracker:
         return f"http://127.0.0.1:{config.load()['router_port']}"
 
     def _get(self, path, timeout=4):
-        with urllib.request.urlopen(self._base() + path, timeout=timeout) as r:
+        c = config.load()
+        headers = {}
+        key = c.get("router_api_key", "")
+        if key:
+            headers["Authorization"] = "Bearer " + key
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{c['router_port']}" + path, headers=headers)
+        with urllib.request.urlopen(req, timeout=timeout) as r:
             return r.read().decode(errors="replace")
 
     def _router_state(self):

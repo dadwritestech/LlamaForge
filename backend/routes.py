@@ -195,10 +195,15 @@ def _wiki_export(body):
 
 # ---------- router proxy ----------
 def router(path, method="GET", body=None, timeout=30):
-    url = router_base() + path
+    c = cfg()
+    url = f"http://127.0.0.1:{c['router_port']}" + path
     data = json.dumps(body).encode() if body is not None else None
+    headers = {"Content-Type": "application/json"}
+    key = c.get("router_api_key", "")
+    if key:
+        headers["Authorization"] = "Bearer " + key
     req = urllib.request.Request(url, data=data, method=method,
-                                 headers={"Content-Type": "application/json"})
+                                 headers=headers)
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
             return r.status, json.loads(r.read().decode() or "{}")
@@ -416,8 +421,12 @@ def _autotune_refine(body):
         payload = {"model": mid, "prompt": prompt, "n_predict": 200, "stream": True}
         url = router_base() + "/completion"
         data = json.dumps(payload).encode()
+        headers = {"Content-Type": "application/json"}
+        key = cfg().get("router_api_key", "")
+        if key:
+            headers["Authorization"] = "Bearer " + key
         req = urllib.request.Request(url, data=data, method="POST",
-                                     headers={"Content-Type": "application/json"})
+                                     headers=headers)
         tokens = 0
         first_tok = None
         last_tok = None
