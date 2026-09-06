@@ -1,6 +1,7 @@
 import conftest_paths  # noqa: F401
 import json, os, tempfile, unittest, urllib.error
 import stats
+from unittest import mock
 
 
 class RouterCase(unittest.TestCase):
@@ -38,6 +39,32 @@ class RouterCase(unittest.TestCase):
 
 
 class TestRouterMetricsScrape(RouterCase):
+    def test_router_scrapes_include_configured_bearer_key(self):
+        seen = {}
+
+        class Response:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                pass
+
+            def read(self):
+                return b'{"data": []}'
+
+        def open_request(request, timeout=4):
+            seen["authorization"] = (request.get_header("Authorization")
+                                      if hasattr(request, "get_header") else None)
+            return Response()
+
+        with mock.patch.object(stats.config, "load", return_value={
+                "router_port": 8080, "router_api_key": "secret-key"}), \
+             mock.patch.object(stats.urllib.request, "urlopen",
+                               side_effect=open_request):
+            self.tr._get("/models")
+
+        self.assertEqual(seen["authorization"], "Bearer secret-key")
+
     def test_router_up_and_tokens_attributed(self):
         self._wire(prompt=10, gen=20)
         self.tr.poll_once()                       # baseline

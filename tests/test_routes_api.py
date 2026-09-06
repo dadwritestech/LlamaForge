@@ -4,11 +4,41 @@ Each handler is now a plain function of Req -> (status, payload), so these run
 with no socket and no live router.
 """
 import conftest_paths  # noqa: F401
-import os, tempfile, unittest
+import json, os, tempfile, unittest
 from unittest import mock
 
 import config, routes
 from routes import Req, ApiError
+
+
+class RouterAuthenticationTest(unittest.TestCase):
+    def test_internal_router_requests_include_configured_bearer_key(self):
+        seen = {}
+
+        class Response:
+            status = 200
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                pass
+
+            def read(self):
+                return json.dumps({"data": []}).encode()
+
+        def open_request(request, timeout=30):
+            seen["authorization"] = request.get_header("Authorization")
+            return Response()
+
+        with mock.patch.object(routes, "cfg", return_value={
+                "router_port": 8080, "router_api_key": "secret-key"}), \
+             mock.patch.object(routes.urllib.request, "urlopen",
+                               side_effect=open_request):
+            status, _ = routes.router("/models")
+
+        self.assertEqual(status, 200)
+        self.assertEqual(seen["authorization"], "Bearer secret-key")
 
 
 class ConfigAllowlistTest(unittest.TestCase):
