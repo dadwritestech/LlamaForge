@@ -709,6 +709,7 @@ def get_state(req):
     s["vllm_supported"] = VLLM_SUPPORTED
     s["backends"] = [b.name for b in REGISTRY.enabled()]
     s["active_engine"] = c.get("active_engine", "llamacpp")
+    s["chat_port"] = c.get("chat_port", 8091)
     s["config_error"] = config.LOAD_ERROR
     s["onboarding"] = {
         "server_bin_ok": bool(c.get("server_bin")) and os.path.exists(c["server_bin"]),

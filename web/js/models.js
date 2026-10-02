@@ -117,6 +117,7 @@ function editorButtons(m) {
   }
   return `<button class="primary" data-act="save">Save + Reload</button>
       ${m.status==="loaded"||m.status==="loading"?`<button class="ghost" data-act="unload">${m.status==="loading"?"Cancel / Unload":"Unload"}</button>`:`<button data-act="load">Load</button>`}
+      ${m.status==="loaded"?`<button data-act="chat">Chat</button>`:""}
       <button class="ghost" data-act="client">Client config</button>
       <button class="ghost" data-act="unregister" title="remove from models.ini; does not delete the GGUF">Unregister</button>`;
 }
@@ -317,7 +318,8 @@ function quickBtn(m) {
   const q = loadQ.findIndex(j => j.id === m.id);
   if (q >= 0) return `<span class="qbadge">QUEUED #${q+1}</span>`;
   if (m.status === "loading") return `<button class="qbtn stop" data-quick="stop" data-qid="${esc(m.id)}">Cancel</button>`;
-  if (m.status === "loaded") return `<button class="qbtn stop" data-quick="unload" data-qid="${esc(m.id)}">Unload</button>`;
+  if (m.status === "loaded") return `${(m.backend || "llamacpp") === "llamacpp"
+    ? `<button class="qbtn load" data-quick="chat" data-qid="${esc(m.id)}">Chat</button>` : ""}<button class="qbtn stop" data-quick="unload" data-qid="${esc(m.id)}">Unload</button>`;
   return `<button class="qbtn load" data-quick="load" data-qid="${esc(m.id)}">Load</button>`;
 }
 function beOf(id) {
@@ -343,6 +345,7 @@ async function processQ() {
 async function quickAction(act, id) {
   const be = beOf(id);
   if (act === "load") { enqueueLoad(id); return; }
+  if (act === "chat") { emit("chat", id); return; }
   if (act === "unload") {
     await api(be === "vllm" ? "/api/vllm/unload" : "/api/unload", {model: id});
     toast("Unloaded", "ok"); await refresh(true); return;
@@ -775,6 +778,7 @@ export function initModels() {
     const btn = e.target.closest("#view-models button[data-act]");
     if (!btn) return;
     const row = btn.closest(".row"), id = row.dataset.id, msg = $("[data-msg]", row), act = btn.dataset.act;
+    if (act === "chat") { emit("chat", id); return; }
     const clientOpening = act === "client"
       ? openClientConfig(id, row.dataset.backend) : null;
     btn.disabled = true;

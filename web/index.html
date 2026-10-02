@@ -117,6 +117,10 @@ body.app{display:grid;grid-template-columns:var(--nav-w) 1fr;min-height:100vh;ma
   padding:14px 0;border-bottom:1px solid var(--hair);margin-bottom:16px;position:sticky;top:0;background:var(--bg);z-index:5}
 #page-title{font-family:var(--disp);font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-strong);font-size:15px}
 .view{display:none}.view.active{display:block}
+#view-chat.active{display:flex;flex-direction:column;height:calc(100vh - 90px);min-height:420px}
+.chat-bar{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:0 0 8px;font-size:12px}
+.chat-bar a{color:var(--amber);text-decoration:none}.chat-bar a:hover{text-decoration:underline}
+.chat-frame{flex:1;width:100%;border:1px solid var(--hair);border-radius:6px;background:var(--panel)}
 .gpus{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:22px}
 @media(max-width:720px){.gpus{grid-template-columns:1fr}}
 .gpu{background:var(--panel);border:1px solid var(--hair);padding:14px 16px}
@@ -251,6 +255,7 @@ button:disabled{opacity:.4;cursor:not-allowed}
 .qbtn.load{border-color:var(--amber-dim);color:var(--amber-text)}
 .qbtn.load:hover{background:var(--amber);color:var(--on-amber)}
 .qbtn.stop:hover{border-color:var(--red);color:var(--red)}
+.qbtn+.qbtn{margin-left:6px}
 .qbadge{font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--cyan-text);white-space:nowrap}
 /* keyboard-selected row (#10) */
 .row.sel{border-color:var(--cyan);box-shadow:inset 3px 0 0 var(--cyan)}
@@ -418,6 +423,7 @@ body.mode-lite .advanced-only{display:none !important}
   </div>
   <div class="side-nav">
     <div class="tab navitem active" data-tab="models"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><line x1="4" y1="7" x2="20" y2="7"/><circle cx="9" cy="7" r="2"/><line x1="4" y1="17" x2="20" y2="17"/><circle cx="15" cy="17" r="2"/></svg><span class="label">Models</span></div>
+    <div class="tab navitem" data-tab="chat"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 5h16v11H9l-5 4z"/><line x1="8" y1="9" x2="16" y2="9"/><line x1="8" y1="12" x2="13" y2="12"/></svg><span class="label">Chat</span></div>
     <div class="tab navitem" data-tab="stats"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><line x1="6" y1="20" x2="6" y2="12"/><line x1="12" y1="20" x2="12" y2="6"/><line x1="18" y1="20" x2="18" y2="14"/></svg><span class="label">Stats</span></div>
     <div class="tab navitem" data-tab="discover"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="11" cy="11" r="6"/><line x1="16" y1="16" x2="21" y2="21"/></svg><span class="label">Discover</span></div>
     <div class="tab navitem" data-tab="willrun"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M13 2 4 14h6l-1 8 9-12h-6z"/></svg><span class="label">Will it run?</span></div>
@@ -473,6 +479,7 @@ body.mode-lite .advanced-only{display:none !important}
       <div class="log" id="vllm-log" style="margin:0;border-top:1px solid var(--hair)">idle</div>
     </details>
   </div>
+  <div class="view" id="view-chat"><div class="skel">OPENING CHAT...</div></div>
   <div class="view" id="view-stats"><div class="skel">LOADING STATS...</div></div>
   <div class="view" id="view-discover"><div class="skel">LOADING...</div></div>
   <div class="view" id="view-willrun"><div class="skel">READY</div></div>
