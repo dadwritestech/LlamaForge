@@ -16,10 +16,12 @@ import { loadBuild } from "./build.js";
 import { leaveSetup, loadSetup } from "./setup.js";
 import { loadContext } from "./context.js";
 import { loadDocs } from "./help.js";
+import { loadChat } from "./chat.js";
 import { initWizard } from "./wizard.js";
 import { initOnboarding } from "./onboarding.js";
 
 /* ---------- tab loaders ---------- */
+ui.onTabShown("chat", loadChat);
 ui.onTabShown("build", loadBuild);
 ui.onTabShown("setup", loadSetup);
 ui.onTabHidden("setup", leaveSetup);

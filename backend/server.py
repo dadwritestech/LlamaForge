@@ -12,7 +12,7 @@ Pure Python stdlib.
 import json, os, urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-import config, wiki, anthropic_shim
+import config, wiki, anthropic_shim, chatproxy
 import routes
 from routes import ApiError, Req
 
@@ -383,6 +383,7 @@ def main():
     except Exception:
         pass
     stats.TRACKER.start()   # background usage poller
+    chatproxy.serve(routes.cfg)   # Chat tab: llama.cpp's web UI on its own origin
     try:                    # optional tray icon (no-op unless pystray+pillow present)
         import tray
         if tray.available():

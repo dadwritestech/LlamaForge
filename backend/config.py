@@ -30,6 +30,7 @@ DEFAULTS = {
     "model_dirs":  [],                       # directories to scan for GGUFs
     "router_port": 8080,
     "panel_port":  8090,
+    "chat_port":   8091,                      # llama.cpp's chat UI, proxied on its own origin
     "router_host": "127.0.0.1",               # 127.0.0.1 = local only, 0.0.0.0 = reachable on the LAN
     "router_api_key": "",                     # required by clients when router_host != 127.0.0.1
     "wsl_distro":  "",                        # WSL distro that runs vLLM ("" = auto-pick default)

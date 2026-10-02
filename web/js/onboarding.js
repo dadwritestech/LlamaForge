@@ -14,7 +14,7 @@ function renderOnboarding(s) {
     {done: ob.model_count > 0, label: "Get models", tab: "discover", btn: "Open Discover",
      hint: "Discover downloads from huggingface.co with VRAM-fit ratings, or scan your drives from Setup."},
     {done: anyLoaded, label: "Load a model", tab: "models", btn: "",
-     hint: "Expand a model below, tune knobs if you like, and hit Load. Chat + API live on the router port."},
+     hint: "Expand a model below, tune knobs if you like, and hit Load. Then press Chat on it, or point any OpenAI client at the router port."},
   ];
   // once every step has been completed once, stay hidden for good (a later
   // unload shouldn't resurrect the checklist)
