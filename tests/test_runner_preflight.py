@@ -55,8 +55,7 @@ class RunnerIntegrationMixin:
     runner_name = ""
 
     def setUp(self):
-        self.tmp_obj = tempfile.TemporaryDirectory()
-        self.tmp = pathlib.Path(self.tmp_obj.name)
+        self.tmp = pathlib.Path(tempfile.mkdtemp())
         self.backend = self.tmp / "backend"
         self.backend.mkdir()
         shutil.copy2(ROOT / "backend" / "network_policy.py",
@@ -101,13 +100,19 @@ class RunnerIntegrationMixin:
             json.dumps(config), encoding="utf-8")
 
     def tearDown(self):
-        for _ in range(20):
+        # The runner starts the panel stub detached, with its cwd in backend/.
+        # On Windows that directory stays locked until the stub exits, and
+        # Python 3.10's TemporaryDirectory.cleanup() turns the lock into a
+        # RecursionError - so own the directory and retry a plain rmtree.
+        for _ in range(60):
             try:
-                self.tmp_obj.cleanup()
+                shutil.rmtree(self.tmp)
                 return
-            except PermissionError:
+            except FileNotFoundError:
+                return
+            except OSError:
                 time.sleep(0.05)
-        self.tmp_obj.cleanup()
+        shutil.rmtree(self.tmp, ignore_errors=True)
 
     def _environment(self, reported_listener=-1):
         env = os.environ.copy()
