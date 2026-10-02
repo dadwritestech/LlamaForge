@@ -1,5 +1,8 @@
 <p align="center">
-  <img src="docs/hero.png" alt="LlamaForge - a control panel for llama.cpp" width="100%">
+  <picture>
+    <source srcset="docs/hero.webp" type="image/webp">
+    <img src="docs/hero.png" alt="LlamaForge - a control panel for llama.cpp" width="100%">
+  </picture>
 </p>
 
 <p align="center">
