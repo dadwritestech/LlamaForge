@@ -34,3 +34,6 @@ marketing/
 docs/linkedin/
 docs/linkedin-carousel.pdf
 docs/x-header.*
+
+# downloaded prebuilt engines
+engines/

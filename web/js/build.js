@@ -3,6 +3,7 @@
 // Also surfaces the vLLM pip package version, since updating it is a build-ish
 // concern rather than a setup one.
 import { $, esc, setHTML, api, toast, agoText, fmtDur } from "./core.js";
+import { mountEngineCard } from "./engine.js";
 
 let buildPoll = null;
 let _target = localStorage.getItem("build_target") || "llamacpp";
@@ -53,7 +54,8 @@ export async function loadBuild(force) {
         ${!isActive?`<button class="ghost" id="btn-switch-engine">Switch to ${esc(label)}</button>`:''}
       </span>
     </div>
-    <div class="card"><h3>Current Build · ${esc(label)}</h3>
+    ${_target === "llamacpp" ? `<div id="engine-prebuilt"></div>` : ""}
+    <div class="card"><h3>${_target === "llamacpp" ? "Or build from source" : "Current Build"} · ${esc(label)}</h3>
       <div class="kv"><span class="k">commit</span><span class="v">${esc(cur.hash||"?")} &middot; ${esc((cur.subject||"").slice(0,60))}</span></div>
       <div class="kv"><span class="k">branch</span><span class="v">${esc(cur.branch||"?")}</span></div>
       <div class="kv"><span class="k">date</span><span class="v">${esc(cur.date||"?")}</span></div>
@@ -82,6 +84,8 @@ export async function loadBuild(force) {
       ${vver.installed&&vver.installed.present&&vver.latest&&vver.latest!==vver.installed.version?`<div class="actions"><button class="primary" id="btn-vllm-update">Update vLLM to ${esc(vver.latest)}</button><span class="msg" id="vllm-upd-msg"></span></div>`:`<div class="note">${vver.installed&&vver.installed.present?"vLLM is up to date.":"Install vLLM from the Setup tab first."}</div>`}
       <div class="log" id="vllm-update-log" style="display:none">idle</div>
     </div>`));
+
+  mountEngineCard($("#engine-prebuilt"), {force});
 
   // Target toggle
   $("#btn-tgt-llamacpp").onclick = () => { setTarget("llamacpp"); loadBuild(); };

@@ -9,8 +9,8 @@ function renderOnboarding(s) {
   const ob = s.onboarding || {};
   const anyLoaded = (s.models||[]).some(m => m.status === "loaded");
   const steps = [
-    {done: ob.server_bin_ok, label: "Build llama.cpp", tab: "build", btn: "Open Build",
-     hint: "Setup tab checks prerequisites; Build tab compiles with flags auto-detected for your hardware."},
+    {done: ob.server_bin_ok, label: "Install llama.cpp", tab: "build", btn: "Open Engine",
+     hint: "One click downloads the official build for your GPU (verified, no compiler). Or build from source on the same tab."},
     {done: ob.model_count > 0, label: "Get models", tab: "discover", btn: "Open Discover",
      hint: "Discover downloads from huggingface.co with VRAM-fit ratings, or scan your drives from Setup."},
     {done: anyLoaded, label: "Load a model", tab: "models", btn: "",

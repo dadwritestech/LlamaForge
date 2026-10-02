@@ -18,13 +18,13 @@ content_type. Raising ApiError(status, message) produces {"error": message}.
 Streaming responses (the Anthropic and OpenAI SSE proxies) are not in these
 tables: they write to the socket themselves and stay in server.py.
 """
-import json, os, subprocess, sys, threading, urllib.request, urllib.error, urllib.parse
+import json, os, re, subprocess, sys, threading, time, urllib.request, urllib.error, urllib.parse
 
 import config, argspec, hardware, osplat, prereqs, scanner, hub, router_ctl, stats, telemetry
 import autotune, anthropic_shim, agentsetup, clientsetup, network_policy, wiki, docs
 import vram_predict
 import wsl, vllm_ctl, vllm_registry, vllm_setup, vllm_job, vllm_hub, vllm_download
-import gguf, diag, backends
+import gguf, diag, backends, prebuilt
 from builder import BuildManager
 
 # vLLM is managed through WSL2, so the whole vLLM surface is Windows-only.
@@ -1674,6 +1674,119 @@ def post_wiki_export(req):
     return (400 if out.get("error") else 200), out
 
 
+
+# ============================================================ prebuilt engine
+# Official ggml-org binaries: the no-compiler path (see prebuilt.py).
+
+ENGINES_DIR = os.path.join(ROOT, "engines", "llama.cpp")
+
+
+def _activate_prebuilt(sbin):
+    """Point llama.cpp at a prebuilt binary and (re)start the router on it.
+
+    Unlike _record_server_bin this overwrites: installing or picking a build
+    is an explicit user choice. Runs on the installer thread, hence update()."""
+    with _ROUTER_LIFECYCLE_LOCK:
+        c = config.update({"server_bin": sbin, "active_engine": "llamacpp"})
+        try:
+            ok, err = router_ctl.restart(sbin, config.ini_path(), c["router_port"],
+                                         c.get("router_host", "127.0.0.1"),
+                                         c.get("router_api_key", ""), LOGDIR)
+        except Exception as e:
+            ok, err = False, str(e)
+        return ok, err
+
+
+PREBUILT = prebuilt.Installer(ROOT, LOGDIR, on_installed=_activate_prebuilt)
+_PREBUILT_CACHE = {}            # channel -> (expires_at, result)
+_PREBUILT_LOCK = threading.Lock()
+PREBUILT_TTL, PREBUILT_FAIL_TTL = 900, 60
+
+
+def _prebuilt_latest(channel, force=False):
+    now = time.time()
+    with _PREBUILT_LOCK:
+        hit = _PREBUILT_CACHE.get(channel)
+        if hit and hit[0] > now and not force:
+            return hit[1]
+    plat, gpus, driver = prebuilt._detect()
+    try:
+        rel = prebuilt.resolve(channel, plat=plat, gpus=gpus, driver=driver)
+        pick = prebuilt.choose(rel["assets"], plat, gpus, driver)
+        size = sum(int((a or {}).get("size") or 0) for a in (pick["bin"], pick["cudart"]))
+        out = {"ok": True, "tag": rel["tag"], "label": rel["label"],
+               "published": rel["published"], "variant": pick["variant"],
+               "reason": pick["reason"], "alternatives": pick["alternatives"],
+               "download_bytes": size}
+        ttl = PREBUILT_TTL
+    except Exception as e:
+        out, ttl = {"ok": False, "error": str(e)}, PREBUILT_FAIL_TTL
+    out.update(platform="-".join(plat), driver_cuda=".".join(map(str, driver)) if driver else "",
+               gpus=[g.get("name", "") for g in gpus])
+    with _PREBUILT_LOCK:
+        _PREBUILT_CACHE[channel] = (now + ttl, out)
+    return out
+
+
+def _build_num(tag):
+    m = re.match(r"^b(\d+)$", tag or "")
+    return int(m.group(1)) if m else -1
+
+
+def get_engine_prebuilt(req):
+    channel = req.q("channel") or cfg().get("prebuilt_channel", "nightly")
+    if channel not in prebuilt.CHANNELS:
+        raise ApiError(400, f"unknown channel: {channel}")
+    active = cfg().get("server_bin", "")
+    installs = prebuilt.list_installs(ENGINES_DIR, active)
+    latest = _prebuilt_latest(channel, force=req.flag("force"))
+    current = next((i for i in installs if i["active"]), None)
+    return 200, {
+        "channel": channel,
+        "latest": latest,
+        "installs": installs,
+        "active_bin": active,
+        "using_prebuilt": bool(current),
+        # bNNNN tags compare numerically; anything else never claims "newer"
+        "update_available": bool(latest.get("ok") and current and
+                                 _build_num(latest["tag"]) > _build_num(current.get("tag"))),
+    }
+
+
+def get_engine_prebuilt_status(req):
+    s = PREBUILT.progress()
+    s["log"] = PREBUILT.tail(120)
+    return 200, s
+
+
+def post_engine_prebuilt_install(req):
+    channel = req.body.get("channel") or "nightly"
+    if channel not in prebuilt.CHANNELS:
+        raise ApiError(400, f"unknown channel: {channel}")
+    variant = req.body.get("variant") or None
+    config.update({"prebuilt_channel": channel})
+    started = PREBUILT.start(channel, variant)
+    with _PREBUILT_LOCK:
+        _PREBUILT_CACHE.clear()
+    return 200, {"started": started}
+
+
+def post_engine_prebuilt_cancel(req):
+    return 200, {"cancelled": PREBUILT.cancel()}
+
+
+def post_engine_prebuilt_use(req):
+    """Switch to an already-installed build (update rollback). Only directories
+    list_installs() reports are accepted - never an arbitrary path."""
+    want = os.path.normcase(os.path.abspath(req.body.get("dir") or ""))
+    inst = next((i for i in prebuilt.list_installs(ENGINES_DIR)
+                 if os.path.normcase(os.path.abspath(i["dir"])) == want), None)
+    if not inst or not inst.get("server_bin"):
+        raise ApiError(404, "no such installed build")
+    ok, err = _activate_prebuilt(inst["server_bin"])
+    return 200, {"ok": ok, "error": err, "server_bin": inst["server_bin"]}
+
+
 # =================================================================== the tables
 
 GET_ROUTES = {
@@ -1683,6 +1796,8 @@ GET_ROUTES = {
     "/api/setup":             get_setup,
     "/api/build/info":        get_build_info,
     "/api/build/log":         get_build_log,
+    "/api/engine/prebuilt":   get_engine_prebuilt,
+    "/api/engine/prebuilt/status": get_engine_prebuilt_status,
     "/api/hub/progress":      get_hub_progress,
     "/api/router/log":        get_router_log,
     "/api/stats":             get_stats,
@@ -1740,6 +1855,9 @@ POST_ROUTES = {
     "/api/config":              post_config,
     "/api/network":             post_network,
     "/api/engine/switch":       post_engine_switch,
+    "/api/engine/prebuilt/install": post_engine_prebuilt_install,
+    "/api/engine/prebuilt/cancel":  post_engine_prebuilt_cancel,
+    "/api/engine/prebuilt/use":     post_engine_prebuilt_use,
     "/api/vllm/load":           post_vllm_load,
     "/api/vllm/unload":         post_vllm_unload,
     "/api/vllm/setup/install":  post_vllm_setup_install,

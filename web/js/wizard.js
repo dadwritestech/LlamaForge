@@ -4,6 +4,7 @@ import { $, esc, setHTML, api, toast } from "./core.js";
 import { S, models } from "./state.js";
 import { on, emit } from "./bus.js";
 import { switchTab, applyMode } from "./ui.js";
+import { mountEngineCard } from "./engine.js";
 
 const WIZ = {step:0, engine:null, model:null, intent:"balanced", rec:null,
   steps:["engine","hardware","model","tune","load"]};
@@ -21,18 +22,23 @@ function wizRender() {
 
 function wizEngine(body) {
   setHTML(body, `<div class="wizard-step"><h2>llama.cpp engine</h2>
-    <p>Do you already have a llama.cpp build?</p>
-    <label><input type="radio" name="eng" value="have" checked> Yes, I have one built</label><br>
-    <label><input type="radio" name="eng" value="clone"> No — clone &amp; build it for me</label>
-    <div style="margin-top:10px">
-      <label>Flavor:
-        <select id="eng-flavor">
-          <option value="official">official llama.cpp</option>
-          <option value="fork">mainline fork</option>
-          <option value="ik" disabled>ik_llama (coming soon)</option>
-        </select>
-      </label>
-    </div></div>`);
+    <p>LlamaForge drives llama.cpp. How do you want to get it?</p>
+    <label><input type="radio" name="eng" value="prebuilt" checked> Download the official build for this PC
+      <span class="note" style="display:inline;margin:0">(recommended, about a minute, no compiler)</span></label><br>
+    <label><input type="radio" name="eng" value="have"> I already have llama-server built</label><br>
+    <label><input type="radio" name="eng" value="source"> Build from source (Build tab, needs CMake + a compiler)</label>
+    <div id="wiz-engine-card" style="margin-top:10px"></div></div>`);
+  const card = $("#wiz-engine-card");
+  const sync = () => {
+    const v = (document.querySelector('input[name="eng"]:checked') || {}).value;
+    card.style.display = v === "prebuilt" ? "" : "none";
+    if (v === "prebuilt" && !card.dataset.mounted) {
+      card.dataset.mounted = "1";
+      mountEngineCard(card, {compact: true, onDone: () => emit("refresh", true)});
+    }
+  };
+  body.querySelectorAll('input[name="eng"]').forEach(r => r.onchange = sync);
+  sync();
 }
 
 function wizHardware(body) {
@@ -97,8 +103,8 @@ async function wizNext() {
   const kind = WIZ.steps[WIZ.step];
   if (kind === "engine") {
     const sel = document.querySelector('input[name="eng"]:checked');
-    WIZ.engine = sel ? sel.value : "have";
-    // "clone" path reuses the Build tab flow; minimal wizard triggers it then continues.
+    WIZ.engine = sel ? sel.value : "prebuilt";
+    // a prebuilt install keeps running in the background while the wizard moves on
   }
   if (kind === "model") {
     const sel = $("#wiz-model"); if (sel) WIZ.model = sel.value;
