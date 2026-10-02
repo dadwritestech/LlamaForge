@@ -1,0 +1,43 @@
+name: Bug report
+description: Something broke or behaved unexpectedly
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for taking the time! The more of this you fill in, the faster it gets fixed.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: OS
+      options: [Windows, Windows (WSL2), Linux, macOS]
+    validations:
+      required: true
+  - type: input
+    id: gpu
+    attributes:
+      label: GPU(s) and VRAM
+      placeholder: e.g. RTX 4090 24 GB, or "CPU only", or "M3 Max 64 GB"
+  - type: input
+    id: engine
+    attributes:
+      label: Engine and build
+      description: Shown on the Build tab.
+      placeholder: e.g. llama.cpp b11351, ik_llama, vLLM 0.x
+  - type: input
+    id: model
+    attributes:
+      label: Model (if relevant)
+      placeholder: e.g. unsloth/Qwen3.6-27B-GGUF Q4_K_M
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Router log or browser console output. Remove any API keys first.
+      render: text

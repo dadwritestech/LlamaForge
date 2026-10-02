@@ -1,0 +1,20 @@
+name: Feature request
+description: Suggest an idea or improvement
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: Describe the problem or workflow first; a proposed solution is optional.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: Idea
+  - type: textarea
+    id: context
+    attributes:
+      label: Your setup (optional)
+      placeholder: OS, GPU, engine, how you use LlamaForge
