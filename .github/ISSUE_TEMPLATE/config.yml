@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Questions & show-and-tell
+    url: https://github.com/dadwritestech/LlamaForge/discussions
+    about: Setup help, "will it run?" questions, and sharing your rig — Discussions is the place.
+  - name: Documentation
+    url: https://dadwritestech.github.io/LlamaForge/
+    about: Guides for first run, models, build, agents and more.

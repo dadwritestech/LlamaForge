@@ -23,3 +23,14 @@ docs/superpowers/
 # docs site build output + local-only working docs
 site/
 docs/content/_*.md
+
+# local logs, scratch benchmarks and other agents' notes
+*.log
+tools/bench-out/
+AGENTS.md
+
+# marketing drafts / assets that aren't published from the repo
+marketing/
+docs/linkedin/
+docs/linkedin-carousel.pdf
+docs/x-header.*
