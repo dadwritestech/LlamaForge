@@ -8,6 +8,15 @@ order: 1
 
 This page summarizes the most recent additions to LlamaForge. Each entry links to the full reference for that capability. For the longer-term direction, see the project's `ROADMAP.md`.
 
+## v0.15: llama.cpp sizes memory, honest diagnosis, safer by default
+
+- **llama.cpp's `--fit` decides context, GPU layers and split.** LlamaForge no longer pins `ctx-size`, `n-gpu-layers` or `tensor-split`. Auto-tune clears them, and the old `[*] ctx-size = 150000` pin is removed once on upgrade. See [First Run](first-run.md) and [models.ini Format](models-ini.md).
+- **Load failures quote the attempt that failed.** The diagnosis reads only the last load of that model from the router log and quotes llama.cpp's own error line. If a value you pinned turned fit off, the out-of-memory hint names it. See [Troubleshooting](troubleshooting.md).
+- **Split GGUFs count all their shards** in sizes and fit estimates. Speed and fit badges are labelled as rough estimates.
+- **A download ends in Load & Chat**, and a first run with no models suggests starters sized to your VRAM.
+- **Security:** the router always runs with an API key, and CORS is localhost-only unless you opt into LAN. Recipes import only allowlisted tuning knobs. `stop` and uninstall touch only processes and files LlamaForge owns. Vulnerabilities can be reported privately (see `SECURITY.md`).
+- The running version is shown next to the logo and requested in bug reports.
+
 ## Community recipe gallery
 
 Click **browse recipes** on the Profiles strip to see tested setups people have shared: the model, the hardware it ran on, what the key knobs do, and an **on this machine** badge when you already have the file. **Import** runs the normal recipe import, so a missing model downloads from Hugging Face and the same knob filter applies. The list comes live from the repo's `recipes/` folder, so a merged recipe appears without a release; offline, LlamaForge shows the copy that shipped with your version. To add yours, export it with ↗ and open a pull request (see `recipes/README.md`).
