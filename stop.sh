@@ -5,7 +5,9 @@
 here="$(cd "$(dirname "$0")" && pwd)"
 cfg="$here/config.json"
 
-getcfg() { python3 -c "import json;print(json.load(open('$cfg')).get('$1',''))"; }
+# The one-line installer records which Python it found (python3 may be too old on macOS).
+PY="${LLAMAFORGE_PYTHON:-$(cat "$here/.lf-python" 2>/dev/null || echo python3)}"
+getcfg() { "$PY" -c "import json;print(json.load(open('$cfg')).get('$1',''))"; }
 
 kill_port() {
   local port="$1" label="$2" pids

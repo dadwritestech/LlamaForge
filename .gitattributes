@@ -2,3 +2,13 @@
 # even when the repo is cloned/committed from Windows.
 *.sh text eol=lf
 *.ps1 text eol=crlf
+
+# Release archives (what install.ps1 / install.sh download) carry the app,
+# not the test suite or README media.
+tests/ export-ignore
+.github/ export-ignore
+docs/*.gif export-ignore
+docs/*.mp4 export-ignore
+docs/*.webp export-ignore
+docs/*.png export-ignore
+docs/hero.html export-ignore

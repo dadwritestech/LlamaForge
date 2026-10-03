@@ -41,3 +41,67 @@ jobs:
         run: for f in web/js/*.js; do node --check "$f" || exit 1; done
       - name: Run frontend behavior tests
         run: node --test tests/*.mjs
+
+  # The one-line installers, end to end on a clean runner: install, update in
+  # place, launch through the real launcher, stop, uninstall (keeping data).
+  installer:
+    name: installer / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        if: runner.os != 'Windows'
+        with:
+          python-version: "3.12"
+      - name: Windows (private embeddable Python)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          git archive --format=zip --prefix=LlamaForge-ci/ -o "$env:RUNNER_TEMP\rel.zip" HEAD
+          $env:LLAMAFORGE_HOME = "$env:RUNNER_TEMP\lfhome"
+          $env:LLAMAFORGE_ARCHIVE = "$env:RUNNER_TEMP\rel.zip"
+          $env:LLAMAFORGE_REF = "ci"
+          $env:LLAMAFORGE_NO_LAUNCH = "1"
+          $env:LLAMAFORGE_FORCE_EMBED_PYTHON = "1"
+          Get-Content -Raw .\install.ps1 | Invoke-Expression
+          Get-Content -Raw .\install.ps1 | Invoke-Expression
+          if (-not (Test-Path "$env:LLAMAFORGE_HOME\python\python.exe")) { throw "no private Python" }
+          $env:LLAMAFORGE_NO_BROWSER = "1"
+          & powershell -NoProfile -ExecutionPolicy Bypass -File "$env:LLAMAFORGE_HOME\run.ps1"
+          Start-Sleep -Seconds 6
+          $s = Invoke-RestMethod http://127.0.0.1:8090/api/state
+          if ($s.onboarding.server_bin_ok) { throw "a fresh install should have no engine yet" }
+          $owner = (Get-NetTCPConnection -LocalPort 8090 -State Listen).OwningProcess | Select-Object -First 1
+          $exe = (Get-Process -Id $owner).Path
+          if (-not $exe.StartsWith($env:LLAMAFORGE_HOME)) { throw "panel ran on $exe, not the private Python" }
+          & powershell -NoProfile -ExecutionPolicy Bypass -File "$env:LLAMAFORGE_HOME\stop.ps1"
+          "n" | powershell -NoProfile -ExecutionPolicy Bypass -File "$env:LLAMAFORGE_HOME\uninstall.ps1"
+          if (Test-Path "$env:LLAMAFORGE_HOME\backend") { throw "uninstall left the app behind" }
+          if (-not (Test-Path "$env:LLAMAFORGE_HOME\config.json")) { throw "uninstall removed the user's settings" }
+          if (Test-Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\LlamaForge") { throw "Apps & Features entry left behind" }
+      - name: Linux / macOS
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euxo pipefail
+          git archive --format=tar.gz --prefix=LlamaForge-ci/ -o "$RUNNER_TEMP/rel.tar.gz" HEAD
+          export LLAMAFORGE_HOME="$RUNNER_TEMP/lfhome" LLAMAFORGE_ARCHIVE="$RUNNER_TEMP/rel.tar.gz"
+          export LLAMAFORGE_REF=ci LLAMAFORGE_NO_LAUNCH=1
+          sh install.sh
+          sh install.sh
+          lf="$HOME/.local/bin/llamaforge"
+          test -x "$lf"
+          if [ "$RUNNER_OS" = macOS ]; then plutil -lint "$HOME/Applications/LlamaForge.app/Contents/Info.plist"; fi
+          LLAMAFORGE_NO_BROWSER=1 "$lf"
+          sleep 6
+          curl -fsS http://127.0.0.1:8090/api/state | python3 -c "import json,sys; assert not json.load(sys.stdin)['onboarding']['server_bin_ok']"
+          "$lf" stop
+          echo n | "$lf" uninstall
+          test ! -e "$LLAMAFORGE_HOME/backend"
+          test -f "$LLAMAFORGE_HOME/config.json"
+          test ! -e "$lf"

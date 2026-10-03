@@ -20,7 +20,9 @@ if [ ! -f "$cfg" ]; then
   echo "Set your llama.cpp paths and model folders in the dashboard's Setup tab."
 fi
 
-getcfg() { python3 -c "import json;print(json.load(open('$cfg')).get('$1',''))"; }
+# The one-line installer records which Python it found (python3 may be too old on macOS).
+PY="${LLAMAFORGE_PYTHON:-$(cat "$here/.lf-python" 2>/dev/null || echo python3)}"
+getcfg() { "$PY" -c "import json;print(json.load(open('$cfg')).get('$1',''))"; }
 
 listening() { lsof -ti "tcp:$1" -sTCP:LISTEN >/dev/null 2>&1; }
 
@@ -60,7 +62,7 @@ fi
 
 # 1. llama.cpp router (only if not already up)
 if ! listening "$router_port"; then
-  if python3 "$here/backend/network_policy.py" --preflight "$cfg"; then
+  if "$PY" "$here/backend/network_policy.py" --preflight "$cfg"; then
     if [ -x "$server_bin" ]; then
       args=(--models-preset "$models_ini" --models-max 1 --offline
             --host "$router_host" --port "$router_port" --metrics)
@@ -69,7 +71,7 @@ if ! listening "$router_port"; then
         >>"$logdir/router.out.log" 2>>"$logdir/router.err.log" </dev/null &
       echo "started llama.cpp router on $router_host:$router_port"
     else
-      echo "server_bin not found ($server_bin) - open the dashboard Build tab to build llama.cpp first."
+      echo "no llama.cpp engine yet - install one from the dashboard (Build / Update tab)."
     fi
   else
     echo "Router not started: repair Network Access in the dashboard." >&2
@@ -88,7 +90,7 @@ fi
 
 # 2. LlamaForge backend (dashboard)
 if ! listening "$panel_port"; then
-  (cd "$here/backend" && nohup python3 server.py \
+  (cd "$here/backend" && nohup "$PY" server.py \
     >>"$logdir/panel.out.log" 2>>"$logdir/panel.err.log" </dev/null &)
   echo "started LlamaForge dashboard on port $panel_port"
 fi
