@@ -325,6 +325,28 @@ class HubAddTest(unittest.TestCase):
         self.assertEqual(sorted(os.path.basename(p) for p in seen["paths"]),
                          ["a.gguf", "b.gguf"])       # .txt not registered
 
+    def test_the_downloaded_file_comes_first(self):
+        """'Load & Chat' loads added[0]: it must be what was just fetched."""
+        tmp = tempfile.mkdtemp()
+        for n in ("a.gguf", "b.gguf"):
+            open(os.path.join(tmp, n), "w").close()
+        entries = lambda paths: [{"id": os.path.basename(p)[0], "model": p} for p in sorted(paths)]
+        with mock.patch.object(routes.scanner, "build_entries", side_effect=entries), \
+             mock.patch.object(config, "set_keys"), \
+             mock.patch.object(config, "apply_ctx_defaults"), \
+             mock.patch.object(routes, "router", lambda *a, **k: (200, {})):
+            added = routes._register_download(os.path.join(tmp, "b.gguf"))
+        self.assertEqual(added, ["b", "a"])
+
+    def test_finished_downloads_register_themselves(self):
+        self.assertIs(routes.DOWNLOADS.on_done, routes._register_download)
+
+    def test_starters_are_sized_to_this_gpu(self):
+        with mock.patch.object(routes, "total_vram_mib", return_value=8192):
+            status, out = routes.get_starters(Req())
+        self.assertEqual((status, out["vram_mib"]), (200, 8192))
+        self.assertEqual(len(out["starters"]), 3)
+
 
 class PublicConfigProjectionTest(unittest.TestCase):
     def setUp(self):

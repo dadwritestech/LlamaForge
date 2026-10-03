@@ -86,6 +86,19 @@ export function loadDiscover() {
   if (discoverLoaded) return;
   discoverLoaded = true;
   setHTML($("#view-discover"), `
+    <div class="card" id="hub-dlcard" style="display:none"><h3>Download</h3>
+      <div class="kv"><span class="k">file</span><span class="v" id="dl-file">-</span></div>
+      <div class="meter" style="margin-top:8px" id="dl-meter"></div>
+      <div class="kv"><span class="k">progress</span><span class="v" id="dl-prog">-</span></div>
+      <div class="actions" id="dl-run" style="display:none">
+        <button class="ghost" id="dl-pause">Pause</button>
+        <button class="ghost" id="dl-resume" style="display:none">Resume</button>
+        <button class="ghost" id="dl-cancel">Cancel download</button>
+      </div>
+      <div class="actions" id="dl-done" style="display:none">
+        <button class="primary" id="dl-add">Load &amp; Chat</button><span class="msg" id="dl-msg"></span>
+      </div>
+    </div>
     <div id="feed"></div>
     <div class="card"><h3>Discover models on huggingface.co</h3>
       <div class="toolbar">
@@ -107,19 +120,7 @@ export function loadDiscover() {
         FITS = full GPU offload with headroom &middot; TIGHT = loads but little room for context &middot; CPU OFFLOAD = larger than VRAM, will use system RAM (slower).</div>
     </div>
     <div id="hub-results"></div>
-    <div class="card" id="hub-dlcard" style="display:none"><h3>Download</h3>
-      <div class="kv"><span class="k">file</span><span class="v" id="dl-file">-</span></div>
-      <div class="meter" style="margin-top:8px" id="dl-meter"></div>
-      <div class="kv"><span class="k">progress</span><span class="v" id="dl-prog">-</span></div>
-      <div class="actions" id="dl-run" style="display:none">
-        <button class="ghost" id="dl-pause">Pause</button>
-        <button class="ghost" id="dl-resume" style="display:none">Resume</button>
-        <button class="ghost" id="dl-cancel">Cancel download</button>
-      </div>
-      <div class="actions" id="dl-done" style="display:none">
-        <button class="primary" id="dl-add">Add to my models</button><span class="msg" id="dl-msg"></span>
-      </div>
-    </div>`);
+`);
   $("#dl-cancel").onclick = async () => { const r = await api("/api/hub/cancel", {}); toast(r.ok?"Cancelling...":"No download running", r.ok?"ok":"err"); };
   $("#dl-pause").onclick = async () => { const r = await api("/api/hub/pause", {}); toast(r.ok?"Pausing...":"No download running", r.ok?"ok":"err"); };
   $("#dl-resume").onclick = async () => {
@@ -189,7 +190,34 @@ async function hubDownload(repo, path, shards, mmproj, mtp) {
   toast("Download started", "ok");
   $("#hub-dlcard").style.display = ""; $("#dl-done").style.display = "none";
   $("#dl-run").style.display = ""; dlPrev = null;
+  $("#hub-dlcard").scrollIntoView({behavior: "smooth", block: "start"});
   ggufDlPoll();
+}
+
+// A finished download is already in My Models (the backend registers it, 01 #4);
+// the card's one job is "Load & Chat". If registering failed, the button
+// retries it first and says why.
+function dlFinished(added, regErr, retry) {
+  $("#dl-done").style.display = "";
+  const m = $("#dl-msg"), btn = $("#dl-add");
+  if (added.length) {
+    m.className = "msg ok"; m.textContent = "added to My Models: " + added[0];
+    emit("refresh", true);
+  } else {
+    m.className = "msg err"; m.textContent = regErr ? "not added: " + regErr.slice(0,100) : "";
+  }
+  btn.disabled = false;
+  btn.onclick = async () => {
+    btn.disabled = true;
+    let ids = added;
+    if (!ids.length) {
+      m.className = "msg work"; m.textContent = "adding to your models...";
+      ids = await retry();
+      if (!ids.length) { m.className = "msg err"; m.textContent = "could not add it - see Setup > diagnostics"; btn.disabled = false; return; }
+    }
+    m.className = "msg work"; m.textContent = "loading " + ids[0] + "...";
+    emit("load-chat", ids[0]);
+  };
 }
 
 // GGUF download progress loop, shared by a fresh download and by Resume.
@@ -202,6 +230,7 @@ function ggufDlPoll() {
     const pct = s.total ? Math.round(100*s.downloaded/s.total) : 0;
     setHTML($("#dl-meter"), meter(s.downloaded, Math.max(s.total,1)));
     $("#dl-prog").textContent = s.phase==="done" ? "complete"
+      : s.phase==="registering" ? "complete - adding to your models..."
       : s.phase==="failed" ? ("FAILED: " + s.error.slice(0,80))
       : s.phase==="cancelled" ? "cancelled"
       : s.phase==="paused" ? `paused at ${(s.downloaded/1e9).toFixed(2)} / ${(s.total/1e9).toFixed(2)} GB (${pct}%)`
@@ -213,13 +242,9 @@ function ggufDlPoll() {
     if (s.phase === "paused") clearInterval(dlPoll);
     if (s.phase === "cancelled") { clearInterval(dlPoll); toast("Download cancelled", "ok"); }
     if (s.phase === "done") {
-      clearInterval(dlPoll); $("#dl-done").style.display = "";
-      $("#dl-add").onclick = async () => {
-        const m = $("#dl-msg"); m.className = "msg work"; m.textContent = "registering...";
-        const rr = await api("/api/hub/add", {path: s.finished_path});
-        if (rr.ok) { m.className = "msg ok"; m.textContent = "added: " + rr.added.join(", "); toast("Model added to registry","ok"); emit("refresh", true); }
-        else { m.className = "msg err"; m.textContent = rr.error || "failed"; }
-      };
+      clearInterval(dlPoll);
+      dlFinished(s.added || [], s.register_error,
+                 () => api("/api/hub/add", {path: s.finished_path}).then(rr => rr.added || []));
     }
     if (s.phase === "failed") clearInterval(dlPoll);
   }, 1000);
@@ -276,13 +301,11 @@ async function vllmHubDownload(repo, sizeBytes, quant) {
       : s.phase==="failed" ? ("FAILED: " + (s.error||"").slice(0,80))
       : `${(s.downloaded/1e9).toFixed(2)} / ${(s.total/1e9).toFixed(2)} GB (${pct}%)${dlSpeed(s)}`;
     if (s.phase === "done") {
-      clearInterval(dlPoll); $("#dl-done").style.display = "";
-      $("#dl-add").onclick = async () => {
-        const m = $("#dl-msg"); m.className = "msg work"; m.textContent = "registering...";
-        const rr = await api("/api/vllm/hub/register", {repo, size_bytes: sizeBytes, quant});
-        if (rr.ok) { m.className = "msg ok"; m.textContent = "added: " + rr.added; toast("vLLM model registered","ok"); emit("refresh", true); }
-        else { m.className = "msg err"; m.textContent = rr.error || "failed"; }
-      };
+      clearInterval(dlPoll);
+      const rr = await api("/api/vllm/hub/register", {repo, size_bytes: sizeBytes, quant});
+      dlFinished(rr.ok ? [rr.added] : [], rr.ok ? "" : (rr.error || "registration failed"),
+                 () => api("/api/vllm/hub/register", {repo, size_bytes: sizeBytes, quant})
+                         .then(r => r.ok ? [r.added] : []));
     }
     if (s.phase === "failed") clearInterval(dlPoll);
   }, 1000);

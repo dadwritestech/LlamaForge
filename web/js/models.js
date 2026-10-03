@@ -342,8 +342,27 @@ async function processQ() {
   try { await api(beOf(job.id) === "vllm" ? "/api/vllm/load" : "/api/load", {model: job.id}); } catch (e) {}
   loadQ.shift(); loadBusy = false;
   await refresh(true);
+  if (chatAfterLoad.delete(job.id)) {
+    const m = modelRows().find(x => x.id === job.id);
+    if (m && m.status === "loaded") {
+      if ((m.backend || "llamacpp") === "llamacpp") emit("chat", job.id);
+      else toast(`${job.id} is loaded`, "ok");
+    } else {
+      toast(`${job.id} did not load - open it in My Models for the reason`, "err");
+    }
+  }
   processQ();
 }
+// Discover's "Load & Chat" after a download: refresh first so a just-registered
+// model (and whether it is vLLM) is known, then load it and open Chat.
+const chatAfterLoad = new Set();
+on("load-chat", async id => {
+  await refresh(true);
+  chatAfterLoad.add(id);
+  const m = modelRows().find(x => x.id === id);
+  if (m && m.status === "loaded") { chatAfterLoad.delete(id); if ((m.backend || "llamacpp") === "llamacpp") emit("chat", id); return; }
+  enqueueLoad(id);
+});
 async function quickAction(act, id) {
   const be = beOf(id);
   if (act === "load") { enqueueLoad(id); return; }

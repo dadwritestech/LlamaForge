@@ -140,12 +140,17 @@ class DownloadManager:
         self.lock = threading.Lock()
         self._job = None       # (repo, paths, dest_dir) - kept so resume() can rerun
         self.state = self._idle_state()
+        # Called with the finished file before phase turns "done"; returns the
+        # model ids it registered. A download that needs a separate "Add to my
+        # models" click was a dead end when the tab was closed (review 01 #4).
+        self.on_done = None
 
     @staticmethod
     def _idle_state():
         return {"running": False, "repo": "", "file": "", "done_files": 0,
                 "total_files": 0, "downloaded": 0, "total": 0, "cancel": False,
-                "paused": False, "error": "", "finished_path": "", "phase": "idle"}
+                "paused": False, "error": "", "finished_path": "", "phase": "idle",
+                "added": [], "register_error": ""}
 
     def progress(self):
         return dict(self.state)
@@ -238,8 +243,15 @@ class DownloadManager:
                     continue
                 self._fetch(url, dest)
                 if not final: final = dest
+            added, reg_err = [], ""
+            if self.on_done and final:
+                self.state.update(phase="registering", finished_path=final)
+                try:
+                    added = list(self.on_done(final) or [])
+                except Exception as e:   # the file is fine; only the registry write failed
+                    reg_err = str(e)
             self.state.update(done_files=len(paths), phase="done",
-                              finished_path=final)
+                              finished_path=final, added=added, register_error=reg_err)
         except Paused:
             self.state.update(phase="paused", error="")
         except Cancelled:
