@@ -82,6 +82,8 @@ body.app{display:grid;grid-template-columns:var(--nav-w) 1fr;min-height:100vh;ma
 :root[data-nav="rail"] .side-settings .cvd-toggle{display:none}
 :root[data-nav="rail"] .settings-rail{display:flex}
 :root[data-nav="rail"] .nav-toggle{margin-left:0}
+/* the 52px rail can't fit logo + toggle side by side: stack them (#18) */
+:root[data-nav="rail"] .side-head{flex-direction:column;gap:8px;padding:4px 0 10px;align-self:stretch}
 /* expanded hides the rail settings icons */
 :root:not([data-nav="rail"]) .settings-rail{display:none}
 #sidebar,.navitem,.brand-word{transition:none}
@@ -91,7 +93,8 @@ body.app{display:grid;grid-template-columns:var(--nav-w) 1fr;min-height:100vh;ma
 .brand-word{font-family:var(--disp);font-weight:700;letter-spacing:.12em;color:var(--ink-strong);white-space:nowrap}
 .brand-word span{color:var(--amber)}
 .nav-toggle{margin-left:auto;background:transparent;border:1px solid var(--hair);color:var(--dim);
-  cursor:pointer;width:22px;height:22px;border-radius:4px;font:inherit;line-height:1}
+  cursor:pointer;width:22px;height:22px;padding:0;flex:none;border-radius:4px;font:inherit;line-height:1;
+  display:inline-flex;align-items:center;justify-content:center}
 .nav-toggle:hover{color:var(--amber);border-color:var(--amber)}
 .nav-hint{position:absolute;left:56px;top:14px;z-index:50;background:var(--panel2);color:var(--ink);
   border:1px solid var(--amber);border-radius:6px;padding:6px 10px;font-size:11px;white-space:nowrap;
@@ -404,6 +407,7 @@ body.mode-lite .advanced-only{display:none !important}
   :root #sidebar .settings-rail{display:flex}
   .navitem{justify-content:center;padding:9px 0;gap:0}
   #nav-toggle{display:none}                  /* no manual expand below 900 */
+  :root #sidebar .side-head{padding:4px 0 10px;align-self:stretch;justify-content:center}
 }
 @media (max-width:600px){
   body.app{grid-template-columns:1fr}        /* content full-width; sidebar overlays */
@@ -416,6 +420,7 @@ body.mode-lite .advanced-only{display:none !important}
   body.drawer-open #sidebar .side-settings .mode-toggle,
   body.drawer-open #sidebar .side-settings .cvd-toggle{display:flex}
   body.drawer-open #sidebar .settings-rail{display:none}
+  body.drawer-open #sidebar .side-head{flex-direction:row;justify-content:flex-start;padding:4px 6px 12px}
   #nav-menu{display:inline-flex}
 }
 </style>
