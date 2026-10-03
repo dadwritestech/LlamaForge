@@ -14,6 +14,8 @@ gets built next.
 - **In-app updates** — installer copies see new LlamaForge releases in the
   dashboard: **Update now** installs it (settings, models and engines kept),
   **Restart now** relaunches the panel while loaded models keep serving. (v0.11.0)
+- **Launch profiles** — save a model + preset + pinned llama.cpp build as a named
+  profile and launch it from a ▶ chip; pinned builds survive update pruning. (v0.12.0)
 - **One-line installers** — `irm …/install.ps1 | iex` (Windows) and
   `curl …/install.sh | sh` (Linux/macOS): no git, admin or compiler. A private,
   SHA-256-pinned Python on Windows when needed; Start menu / Apps & Features,
@@ -102,10 +104,7 @@ gets built next.
 
 ## Next (in progress)
 
-- **Named launch profiles** — save a *model + engine + settings* combo and launch
-  it in one click. Knob **presets** and [binding one as a model's default](https://github.com/dadwritestech/LlamaForge/issues/2)
-  shipped as the first steps; the remaining piece is a single named profile that
-  also carries the engine and model choice.
+- Nothing claimed right now: see Planned, and open an issue if something matters to you.
 
 ## Planned
 

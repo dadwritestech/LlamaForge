@@ -49,6 +49,7 @@ DEFAULTS = {
     "active_engine": "llamacpp",              # which binary the router uses: llamacpp | ikllama
     "auto_load_model": "",                    # model id to load automatically on launch ("" = none)
     "presets":     {},                       # named knob sets: {name: {knob: value}}
+    "profiles":    {},                       # {name: {model, backend, preset, engine}}
     "preset_bindings": {},                    # {model_id: preset_name} auto-applied on bind/edit
     "mtp_auto_owned": {},                     # {engine: {model_id: {key: value}}}
     "preset_binding_snapshots": {},           # {engine: {model_id: {knob: owned_value}}}
@@ -444,6 +445,56 @@ def delete_preset(name):
                 snapshots.pop(engine)
         cfg["preset_bindings"] = all_binds
         cfg["preset_binding_snapshots"] = snapshots
+        for prof in (cfg.get("profiles") or {}).values():
+            if isinstance(prof, dict) and prof.get("preset") == name:
+                prof["preset"] = ""        # the profile still launches, without it
+        save(cfg)
+        return True
+
+# ---------------- launch profiles ----------------
+# A profile is model + (optional) preset + (optional) pinned prebuilt engine,
+# launched in one click. The engine is stored as the install's directory name
+# under engines/, never a path, so a profile can only ever point at a build
+# list_installs() reports.
+
+def get_profiles():
+    p = load().get("profiles")
+    return p if isinstance(p, dict) else {}
+
+def save_profile(name, prof):
+    name = (name or "").strip()
+    prof = prof or {}
+    model = str(prof.get("model") or "").strip()
+    engine = str(prof.get("engine") or "").strip()
+    if not name:
+        raise ValueError("profile name is required")
+    if not model:
+        raise ValueError("profile needs a model")
+    if engine and (engine != os.path.basename(engine) or engine in (".", "..")
+                   or "/" in engine or "\\" in engine):
+        raise ValueError(f"not an engine build name: {engine!r}")
+    clean = {"model": model,
+             "backend": str(prof.get("backend") or "llamacpp").strip(),
+             "preset": str(prof.get("preset") or "").strip(),
+             "engine": engine}
+    with _LOCK:
+        cfg = load()
+        profiles = cfg.get("profiles")
+        if not isinstance(profiles, dict):
+            profiles = {}
+        profiles[name] = clean
+        cfg["profiles"] = profiles
+        save(cfg)
+        return profiles
+
+def delete_profile(name):
+    with _LOCK:
+        cfg = load()
+        profiles = cfg.get("profiles")
+        if not (isinstance(profiles, dict) and name in profiles):
+            return False
+        del profiles[name]
+        cfg["profiles"] = profiles
         save(cfg)
         return True
 

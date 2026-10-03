@@ -237,11 +237,13 @@ def list_installs(root, active_bin=None):
     return out
 
 
-def prune_installs(root, keep=KEEP_INSTALLS, active_bin=None):
-    """Delete all but the newest `keep` installs, never the active one."""
+def prune_installs(root, keep=KEEP_INSTALLS, active_bin=None, protect=()):
+    """Delete all but the newest `keep` installs, never the active one or a
+    `protect`ed dir (builds a launch profile pins)."""
     removed = []
+    spare = {os.path.normcase(os.path.abspath(d)) for d in protect}
     for i, inst in enumerate(list_installs(root, active_bin)):
-        if i < keep or inst["active"]:
+        if i < keep or inst["active"] or os.path.normcase(os.path.abspath(inst["dir"])) in spare:
             continue
         shutil.rmtree(inst["dir"], ignore_errors=True)
         removed.append(inst["dir"])
@@ -321,6 +323,7 @@ class Installer:
         self.dl_dir = os.path.join(root, "engines", "_dl")
         self.on_installed = on_installed
         self.detect = detect            # () -> (plat, gpus, driver); tests stub it
+        self.protected = lambda: []     # () -> install dirs pruning must keep
         os.makedirs(log_dir, exist_ok=True)
         self.log_path = os.path.join(log_dir, "engine-install.log")
         self.lock = threading.Lock()
@@ -496,7 +499,7 @@ class Installer:
             self.state["phase"] = "activating"
             if self.on_installed:
                 self.on_installed(sbin)
-            removed = prune_installs(self.engines, active_bin=sbin)
+            removed = prune_installs(self.engines, active_bin=sbin, protect=self.protected())
             for d in removed:
                 self._log(f"pruned old install {os.path.basename(d)}")
             self.state.update(phase="done", server_bin=sbin)

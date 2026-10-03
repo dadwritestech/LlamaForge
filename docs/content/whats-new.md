@@ -8,6 +8,12 @@ order: 1
 
 This page summarizes the most recent additions to LlamaForge. Each entry links to the full reference for that capability. For the longer-term direction, see the project's `ROADMAP.md`.
 
+## One-click launch profiles
+
+Save a model, a preset, and (optionally) a specific installed llama.cpp build as a named **profile** from the model's editor, then launch the whole combination from a ▶ chip above the model list. If the pinned build isn't the active one, LlamaForge switches to it, waits for the router, applies the preset, and loads the model. That's useful when a new llama.cpp release regresses one model and you want to keep it on the build that worked. Builds a profile pins are kept out of the automatic pruning after an update.
+
+See [Models & Tuning](models.md) and [HTTP API](api.md).
+
 ## Focused scanning and a lighter Models tab
 
 Setup can now persist one or more model folders instead of walking every drive, while an explicit blank list still selects the platform defaults. A llama.cpp model can be **Unregistered** from `models.ini` without deleting its GGUF file. The Models view also avoids polling collapsed logs, shares GPU telemetry through a short cache instead of spawning `nvidia-smi` per browser poll, and keeps the CRT scanline look without the expensive full-viewport blend mode.
