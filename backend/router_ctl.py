@@ -172,5 +172,10 @@ def restart(server_bin, models_ini, port, host, api_key, logdir, local_key=""):
     reason = network_policy.start_error(host, api_key)
     if reason:
         return False, reason
+    # Without a way to see the old router, stop() finds nothing, start() sees a
+    # free port, and the old router keeps serving the old settings.
+    if not osplat.IS_WIN and not osplat.port_tool():
+        return False, ("can't see which process holds the router port - install "
+                       "lsof, or iproute2 (ss), or psmisc (fuser)")
     stop(port)
     return start(server_bin, models_ini, port, host, api_key, logdir, local_key)

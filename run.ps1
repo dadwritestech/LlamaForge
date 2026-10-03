@@ -4,6 +4,16 @@
 $ErrorActionPreference = "Stop"
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 
+$logDir = Join-Path $here "logs"
+New-Item -ItemType Directory -Force -Path $logDir | Out-Null
+# LlamaForge.vbs runs this hidden, so a failure here used to be invisible: keep
+# a transcript, and exit non-zero so the launcher can say where to look.
+try { Start-Transcript -Path (Join-Path $logDir "launcher.log") -Force | Out-Null } catch { }
+trap {
+  Write-Host "LlamaForge failed to start: $_" -ForegroundColor Red
+  exit 1
+}
+
 # config.json is per-machine and deliberately not in the repo. Without this the
 # first run died on a raw "Get-Content: path does not exist" exception that said
 # nothing about config.example.json sitting right next to it.
@@ -55,9 +65,12 @@ $LfPython = Resolve-LlamaForgePython
 $pythonFile = $LfPython.File
 
 function Listening($port){ [bool](Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue) }
-
-$logDir = Join-Path $here "logs"
-New-Item -ItemType Directory -Force -Path $logDir | Out-Null
+function Port-Owner($port) {
+  $ownerPid = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue |
+              Select-Object -First 1 -ExpandProperty OwningProcess
+  $name = if ($ownerPid) { (Get-Process -Id $ownerPid -ErrorAction SilentlyContinue).ProcessName }
+  [PSCustomObject]@{ Pid = $ownerPid; Name = $name }
+}
 
 # 1. llama.cpp / ik_llama router (only if not already up)
 if (-not (Listening $cfg.router_port)) {
@@ -135,11 +148,9 @@ if (-not (Listening $cfg.router_port)) {
   # Something already holds the router port. If it isn't a llama-server, the
   # dashboard would come up with every model "offline" and no stated reason -
   # port 8080 collides with XAMPP/Apache and plenty of other dev servers.
-  $ownerPid = Get-NetTCPConnection -LocalPort $cfg.router_port -State Listen -ErrorAction SilentlyContinue |
-              Select-Object -First 1 -ExpandProperty OwningProcess
-  $ownerName = if ($ownerPid) { (Get-Process -Id $ownerPid -ErrorAction SilentlyContinue).ProcessName }
-  if ($ownerName -and $ownerName -notmatch "llama") {
-    Write-Host "port $($cfg.router_port) is already in use by '$ownerName' (PID $ownerPid)." -ForegroundColor Yellow
+  $owner = Port-Owner $cfg.router_port
+  if ($owner.Name -and $owner.Name -notmatch "llama") {
+    Write-Host "port $($cfg.router_port) is already in use by '$($owner.Name)' (PID $($owner.Pid))." -ForegroundColor Yellow
     Write-Host "The router was not started. Stop that process, or change router_port in the Setup tab." -ForegroundColor Yellow
   }
 }
@@ -153,10 +164,27 @@ if (-not (Listening $cfg.panel_port)) {
                 -RedirectStandardOutput (Join-Path $logDir "panel.out.log") `
                 -RedirectStandardError  (Join-Path $logDir "panel.err.log")
   Write-Host "started LlamaForge dashboard on port $($cfg.panel_port)"
+} else {
+  # Opening the browser on whatever else holds the port looked like LlamaForge
+  # had turned into some other app.
+  $owner = Port-Owner $cfg.panel_port
+  if ($owner.Name -and $owner.Name -notmatch "^python") {
+    Write-Host "port $($cfg.panel_port) is already in use by '$($owner.Name)' (PID $($owner.Pid))." -ForegroundColor Yellow
+    Write-Host "The dashboard was not started. Stop that process, or change panel_port in config.json." -ForegroundColor Yellow
+    exit 1
+  }
 }
 
-# 3. open the dashboard
+# 3. open the dashboard, once it is actually up
 if (-not $env:LLAMAFORGE_NO_BROWSER) {
-  Start-Sleep -Seconds 2
+  $deadline = (Get-Date).AddSeconds(20)
+  while (-not (Listening $cfg.panel_port) -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 500 }
+  if (-not (Listening $cfg.panel_port)) {
+    Write-Host "The dashboard did not come up on port $($cfg.panel_port). From logs\panel.err.log:" -ForegroundColor Red
+    Get-Content (Join-Path $logDir "panel.err.log") -Tail 15 -ErrorAction SilentlyContinue |
+      ForEach-Object { Write-Host "  $_" }
+    exit 1
+  }
   Start-Process "http://127.0.0.1:$($cfg.panel_port)/"
 }
+try { Stop-Transcript | Out-Null } catch { }

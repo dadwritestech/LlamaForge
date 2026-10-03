@@ -165,6 +165,24 @@ class ScriptsTest(unittest.TestCase):
         self.assertIn("router.pid", self.read("run.ps1"))
         self.assertIn("router.pid", self.read("run.sh"))
 
+    def test_windows_launch_failures_are_visible(self):
+        """'I click the icon and nothing happens' (review 05 #4)."""
+        run = self.read("run.ps1")
+        self.assertIn("launcher.log", run)
+        self.assertIn("panel.err.log", run)
+        self.assertIn('-notmatch "^python"', run)      # a foreign app on the panel port
+        vbs = self.read("LlamaForge.vbs")
+        self.assertIn(", 0, True)", vbs)               # waits for run.ps1's exit code
+        self.assertIn("MsgBox", vbs)
+
+    def test_installers_never_fall_back_to_master(self):
+        """A branch install records no version and never gets an update (05 #2)."""
+        for name in ("install.ps1", "install.sh"):
+            text = self.read(name)
+            self.assertIn("/releases/latest", text, name)
+            self.assertNotIn('"master"', text, name)
+            self.assertIn("LLAMAFORGE_REF", text, name)
+
     def test_launchers_no_longer_pin_context(self):
         for name in ("run.ps1", "run.sh"):
             self.assertNotIn("ctx-size", self.read(name), name)
