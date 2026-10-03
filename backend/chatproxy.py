@@ -23,8 +23,11 @@ ALLOWED_HOSTS = {"127.0.0.1", "localhost", "[::1]", "::1"}
 MAX_BODY_BYTES = 64 * 1024 * 1024         # image attachments travel inline
 # Request headers worth passing upstream. Everything else - Cookie, the
 # browser's own Authorization, Origin, hop-by-hop headers - stays behind.
-_FWD_REQ = ("content-type", "accept", "if-none-match", "if-modified-since",
-            "last-event-id", "cache-control")
+# accept-encoding matters: llama-server only has a gzipped copy of its web UI
+# and refuses ("gzip is not supported by this browser") without it. The body
+# is relayed untouched with its Content-Encoding, so nothing is decoded here.
+_FWD_REQ = ("content-type", "accept", "accept-encoding", "if-none-match",
+            "if-modified-since", "last-event-id", "cache-control")
 # Response headers worth passing back. Content-Length is handled separately.
 _FWD_RESP = ("content-type", "cache-control", "etag", "last-modified",
              "content-encoding", "cross-origin-embedder-policy",
