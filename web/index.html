@@ -355,6 +355,10 @@ body.mode-lite .advanced-only{display:none !important}
 .wizard-nav{display:flex;gap:8px;justify-content:flex-end;margin-top:20px}
 .wizard-step h2{margin:0 0 8px;color:var(--amber-text);font-family:var(--disp);letter-spacing:.08em;text-transform:uppercase;font-size:15px}
 .wizard-rationale{font-size:12px;color:var(--dim)}
+.starter{border:1px solid var(--hair);border-radius:8px;padding:10px 12px;margin:8px 0;display:flex;gap:12px;align-items:center;justify-content:space-between}
+.starter.rec{border-color:var(--amber)}
+.starter .t{font-weight:600;color:var(--ink-strong)}
+.starter .b{font-size:12px;color:var(--dim)}
 .docs-wrap{display:grid;grid-template-columns:180px 1fr 160px;gap:16px}
 @media (max-width:1100px){ .docs-wrap{grid-template-columns:1fr} .docs-pagetoc{display:none} }
 .docs-nav nav a,.docs-pagetoc a{display:block;color:var(--dim);text-decoration:none;padding:2px 0;font-size:12px}
@@ -528,7 +532,7 @@ body.mode-lite .advanced-only{display:none !important}
     <div id="wizard-body"></div>
     <div class="wizard-nav">
       <button id="wiz-back">Back</button>
-      <button id="wiz-skip">Skip to Advanced</button>
+      <button id="wiz-skip">Skip (I'll set up later)</button>
       <button id="wiz-next" class="primary">Next</button>
     </div>
   </div>

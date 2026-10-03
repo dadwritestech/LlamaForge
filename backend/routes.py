@@ -22,7 +22,7 @@ import json, os, re, subprocess, sys, threading, time, urllib.request, urllib.er
 
 import config, argspec, hardware, osplat, prereqs, scanner, hub, router_ctl, stats, telemetry
 import autotune, anthropic_shim, agentsetup, clientsetup, network_policy, wiki, docs
-import feed, selfupdate, appinstall, profiles, recipes, gallery
+import feed, selfupdate, appinstall, profiles, recipes, gallery, starters
 import vram_predict
 import wsl, vllm_ctl, vllm_registry, vllm_setup, vllm_job, vllm_hub, vllm_download
 import gguf, diag, backends, prebuilt
@@ -773,6 +773,11 @@ def get_build_log(req):
 
 def get_hub_progress(req):
     return 200, DOWNLOADS.progress()
+
+
+def get_starters(req):
+    vram = total_vram_mib()
+    return 200, {"vram_mib": vram, "starters": starters.pick(vram)}
 
 
 def get_router_log(req):
@@ -1526,16 +1531,28 @@ def post_hub_resume(req):
     return 200, {"ok": DOWNLOADS.resume()}
 
 
-def post_hub_add(req):
-    """Register a finished download in models.ini."""
-    path = req.body.get("path", "")
-    if not path or not os.path.exists(path):
-        raise ApiError(400, "file not found")
+def _register_download(path):
+    """Register a finished download (and its folder's shards/mmproj) in
+    models.ini. Returns the model ids added, the downloaded file's first so
+    "Load & Chat" loads what was just fetched."""
     folder = os.path.dirname(path)
     entries = _register_ggufs_beside(
         [os.path.join(folder, f) for f in os.listdir(folder)
          if f.lower().endswith(".gguf")])
-    return 200, {"ok": True, "added": [e["id"] for e in entries]}
+    same = lambda e: os.path.normcase(os.path.abspath(e["model"])) == os.path.normcase(os.path.abspath(path))
+    return [e["id"] for e in sorted(entries, key=lambda e: not same(e))]
+
+
+DOWNLOADS.on_done = _register_download
+
+
+def post_hub_add(req):
+    """Register a finished download in models.ini (kept for older panels;
+    downloads now register themselves when they finish)."""
+    path = req.body.get("path", "")
+    if not path or not os.path.exists(path):
+        raise ApiError(400, "file not found")
+    return 200, {"ok": True, "added": _register_download(path)}
 
 
 def post_stats_reset(req):
@@ -2015,6 +2032,7 @@ GET_ROUTES = {
     "/api/engine/prebuilt":   get_engine_prebuilt,
     "/api/engine/prebuilt/status": get_engine_prebuilt_status,
     "/api/hub/progress":      get_hub_progress,
+    "/api/starters":          get_starters,
     "/api/router/log":        get_router_log,
     "/api/stats":             get_stats,
     "/api/scan/missing":      get_scan_missing,
