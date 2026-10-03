@@ -64,6 +64,11 @@ they next update their bundled engine. LlamaForge runs the **official llama.cpp
 release itself** (or your own build/fork), so a new model is one **Update** click away,
 and it puts a real UI over every server flag instead of a curated subset.
 
+<p align="center">
+  <img src="docs/screenshot-new-this-week.png" alt="Discover opens on New this week: model architectures llama.cpp just merged, each marked IN YOUR ENGINE or UPDATE ENGINE against your build, above Hugging Face GGUFs trending in the last 14 days" width="100%">
+  <br><sub>Discover opens on what llama.cpp just learned to run, checked against the engine you have.</sub>
+</p>
+
 | | **LlamaForge** | LM Studio | Ollama |
 |---|---|---|---|
 | Open source | ✅ MIT | ❌ proprietary app | ✅ MIT |
