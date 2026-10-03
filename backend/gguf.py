@@ -7,7 +7,30 @@ and seek past every value we don't care about - never reading the multi-GB
 tensor payload, and never loading giant arrays (like the tokenizer vocab) into
 memory. Any malformed/unreadable file degrades to None; this module never raises.
 """
+import os
+import re
 import struct
+
+_SHARD = re.compile(r"^(.*)-(\d{5})-of-(\d{5})\.gguf$", re.I)
+
+
+def total_size(path):
+    """Bytes on disk for the whole model. A split GGUF is registered by its
+    first shard (foo-00001-of-00003.gguf), so sum every sibling shard that is
+    present. The one function here that raises: OSError if `path` is gone,
+    same as os.path.getsize, which it replaces."""
+    size = os.path.getsize(path)
+    m = _SHARD.match(os.path.basename(path))
+    if not m:
+        return size
+    stem, n = m.group(1), int(m.group(3))
+    d = os.path.dirname(path)
+    for i in range(1, n + 1):
+        sib = os.path.join(d, f"{stem}-{i:05d}-of-{n:05d}.gguf")
+        if os.path.normcase(sib) != os.path.normcase(path) and os.path.exists(sib):
+            size += os.path.getsize(sib)
+    return size
+
 
 # Context-size policy tiers (see default_ctx).
 CTX_FULL     = 150000   # baseline default for models that support it

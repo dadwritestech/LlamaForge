@@ -43,7 +43,7 @@ async function runEstimate() {
   const tb = p.time_budget_ms || {};
   setHTML($("#wr-out"), `
     <div class="kv"><span class="k">regime</span><span class="v"><span class="tag" style="color:${col};border-color:${col}">${esc(label)}</span></span></div>
-    <div class="kv"><span class="k">speed</span><span class="v">~${esc(String(p.tok_s))} tok/s <span class="tag">${esc(p.usability || "")}</span></span></div>
+    <div class="kv"><span class="k">speed</span><span class="v">~${esc(String(p.tok_s))} tok/s <span style="color:var(--dim)">(rough estimate)</span> <span class="tag">${esc(p.usability || "")}</span></span></div>
     <div class="kv"><span class="k">time / token</span><span class="v">disk ${esc(String(tb.disk))}ms &middot; weights ${esc(String(tb.weight_read))}ms &middot; compute ${esc(String(tb.compute))}ms</span></div>
     <div class="note" style="margin-top:8px">${esc(p.note || "")} ${p.confidence !== "high" ? "(estimate)" : ""}</div>`);
 }

@@ -77,9 +77,9 @@ const REGIME_LABEL = {
 function predictBadge(p) {
   if (!p || p.confidence === "unknown" || !p.regime) return "";
   const [txt, col] = REGIME_LABEL[p.regime] || ["?", ""];
-  const tok = (p.tok_s != null) ? `~${esc(String(p.tok_s))} tok/s` : "";
+  const tok = (p.tok_s != null) ? `rough ~${esc(String(p.tok_s))} tok/s` : "";
   const faint = (p.confidence === "low") ? "opacity:.6" : "";
-  return `<span class="tag" style="color:${col};border-color:${col};${faint}" title="${esc(p.note || "")}">${esc(txt)}${tok ? " &middot; " + tok : ""}</span>`;
+  return `<span class="tag" style="color:${col};border-color:${col};${faint}" title="${esc((p.note ? p.note + " " : "") + "Speed is a rough estimate from memory bandwidth, not a measurement.")}">${esc(txt)}${tok ? " &middot; " + tok : ""}</span>`;
 }
 
 export function loadDiscover() {

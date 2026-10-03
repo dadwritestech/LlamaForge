@@ -126,7 +126,7 @@ function wizTune(body) {
       <option value="coding">Coding</option>
     </select>
     <button id="wiz-tune-run">Auto-tune</button>
-    <button id="wiz-tune-refine" hidden>Refine by benchmarking (~1 min)</button>
+    <button id="wiz-tune-refine" hidden title="Refine tries a few variants with a short generation test and keeps the best. A quick check, not llama-bench.">Refine with a quick test (~1 min)</button>
     <div id="wiz-tune-out"></div></div>`);
   $("#wiz-tune-run").onclick = async () => {
     WIZ.intent = $("#wiz-intent").value;
