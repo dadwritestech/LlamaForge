@@ -35,6 +35,17 @@ fetch() {  # fetch URL FILE
   else die "need curl or wget"; fi
 }
 
+latest_tag() {  # the tag github.com/<repo>/releases/latest redirects to
+  if command -v curl >/dev/null 2>&1; then
+    url="$(curl -fsSIL -o /dev/null -w '%{url_effective}' "https://github.com/$REPO/releases/latest" 2>/dev/null)"
+  else
+    url="$(wget -S --spider "https://github.com/$REPO/releases/latest" 2>&1 |
+           sed -n 's/^ *[Ll]ocation: *\([^ ]*\).*/\1/p' | tail -n 1)"
+  fi
+  url="$(printf '%s' "$url" | tr -d '\r')"
+  case "$url" in */releases/tag/?*) printf '%s\n' "${url##*/}" ;; esac
+}
+
 printf '\n  \033[33mLlamaForge installer\033[0m\n'
 say "-> $DEST"
 echo
@@ -67,12 +78,18 @@ if [ -n "${LLAMAFORGE_ARCHIVE:-}" ]; then
   say "[2/4] LlamaForge: from $ARCHIVE"
 else
   REF="${LLAMAFORGE_REF:-}"
+  # The latest release's tag, from the redirect github.com/<repo>/releases/latest
+  # answers with - the API is rate-limited (60/h per IP, shared behind NAT/VPN),
+  # so it is only the second try. Never fall back to master: a copy installed
+  # from a branch records no version and is never offered an update again.
+  [ -n "$REF" ] || REF="$(latest_tag)"
   if [ -z "$REF" ]; then
     fetch "https://api.github.com/repos/$REPO/releases/latest" "$TMP/latest.json" 2>/dev/null || true
     REF="$("$PY" -c 'import json,sys
 try: print(json.load(open(sys.argv[1]))["tag_name"])
-except Exception: print("master")' "$TMP/latest.json")"
+except Exception: pass' "$TMP/latest.json" 2>/dev/null)"
   fi
+  [ -n "$REF" ] || die "could not find the latest LlamaForge release (GitHub unreachable or rate-limited). Retry in a few minutes, or pin one: LLAMAFORGE_REF=v0.15.0"
   case "$REF" in v[0-9]*) KIND=tags ;; *) KIND=heads ;; esac
   VERSION="$REF"
   ARCHIVE="$TMP/llamaforge.tar.gz"

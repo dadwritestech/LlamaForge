@@ -154,9 +154,33 @@ def parse_lsof_pids(text):
     return [int(x) for x in text.split() if x.strip().isdigit()]
 
 
-def pid_on_port_posix(port):
-    out = run_text(["lsof", "-ti", f"tcp:{port}", "-sTCP:LISTEN"])
-    pids = parse_lsof_pids(out)
+def parse_ss_pids(text):
+    """`ss -ltnpH sport = :port` output -> [pid, ...] from its users:((...)) column."""
+    return [int(p) for p in re.findall(r"\bpid=(\d+)", text)]
+
+
+def port_tool():
+    """Which of lsof / ss / fuser this machine has, or None. lsof is missing on
+    Arch, minimal Debian/Fedora and most containers; without any of them stop,
+    restart and update silently found nothing (review 05 #3)."""
+    import shutil
+    for tool in ("lsof", "ss", "fuser"):
+        if shutil.which(tool):
+            return tool
+    return None
+
+
+def pid_on_port_posix(port, tool=None):
+    tool = tool or port_tool()
+    port = int(port)
+    if tool == "lsof":
+        pids = parse_lsof_pids(run_text(["lsof", "-ti", f"tcp:{port}", "-sTCP:LISTEN"]))
+    elif tool == "ss":
+        pids = parse_ss_pids(run_text(["ss", "-ltnpH", f"sport = :{port}"]))
+    elif tool == "fuser":     # pids on stdout, the "8080/tcp:" label on stderr
+        pids = parse_lsof_pids(run_text(["fuser", f"{port}/tcp"]))
+    else:
+        pids = []
     return pids[0] if pids else None
 
 

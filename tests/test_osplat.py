@@ -75,6 +75,31 @@ class TestPosixPort(unittest.TestCase):
         self.assertEqual(osplat.parse_lsof_pids(""), [])
         self.assertEqual(osplat.parse_lsof_pids("garbage\n"), [])
 
+    def test_parse_ss_pids(self):
+        line = ('LISTEN 0 4096 127.0.0.1:8080 0.0.0.0:* '
+                'users:(("llama-server",pid=4321,fd=3))\n')
+        self.assertEqual(osplat.parse_ss_pids(line), [4321])
+        self.assertEqual(osplat.parse_ss_pids("LISTEN 0 4096 *:8080 *:*\n"), [])
+
+    def test_falls_back_when_lsof_is_missing(self):
+        """Arch, minimal Debian/Fedora and containers ship no lsof (05 #3)."""
+        from unittest import mock
+        seen = []
+        def fake(cmd, timeout=10):
+            seen.append(cmd[0])
+            return {"ss": 'LISTEN 0 1 *:8080 *:* users:(("python3",pid=77,fd=5))',
+                    "fuser": " 88"}.get(cmd[0], "")
+        with mock.patch.object(osplat, "run_text", side_effect=fake):
+            self.assertEqual(osplat.pid_on_port_posix(8080, tool="ss"), 77)
+            self.assertEqual(osplat.pid_on_port_posix(8080, tool="fuser"), 88)
+            with mock.patch("shutil.which", side_effect=lambda t: t == "ss"):
+                self.assertEqual(osplat.port_tool(), "ss")
+                self.assertEqual(osplat.pid_on_port_posix(8080), 77)
+            with mock.patch("shutil.which", return_value=None):
+                self.assertIsNone(osplat.port_tool())
+                self.assertIsNone(osplat.pid_on_port_posix(8080))
+        self.assertNotIn("lsof", seen)
+
 
 class TestPkg(unittest.TestCase):
     def test_install_hint(self):

@@ -24,7 +24,20 @@ fi
 PY="${LLAMAFORGE_PYTHON:-$(cat "$here/.lf-python" 2>/dev/null || echo python3)}"
 getcfg() { "$PY" -c "import json;print(json.load(open('$cfg')).get('$1',''))"; }
 
-listening() { lsof -ti "tcp:$1" -sTCP:LISTEN >/dev/null 2>&1; }
+# lsof is missing on Arch, minimal Debian/Fedora and containers: then ss, then
+# fuser, then a plain connect. Without the fallbacks a running panel looked
+# absent, so a second one was started over it and failed to bind.
+listening() {
+  if command -v lsof >/dev/null 2>&1; then lsof -ti "tcp:$1" -sTCP:LISTEN >/dev/null 2>&1
+  elif command -v ss >/dev/null 2>&1; then ss -ltnH "sport = :$1" 2>/dev/null | grep -q .
+  elif command -v fuser >/dev/null 2>&1; then fuser "$1/tcp" >/dev/null 2>&1
+  else (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null; fi
+}
+port_owner() {
+  if command -v lsof >/dev/null 2>&1; then lsof -ti "tcp:$1" -sTCP:LISTEN 2>/dev/null | head -1
+  elif command -v ss >/dev/null 2>&1; then ss -ltnpH "sport = :$1" 2>/dev/null | sed -n 's/.*pid=\([0-9]*\).*/\1/p' | head -1
+  fi
+}
 
 router_port="$(getcfg router_port)"
 panel_port="$(getcfg panel_port)"
@@ -84,7 +97,7 @@ if ! listening "$router_port"; then
 else
   # Something already holds the router port. If it isn't a llama-server, the
   # dashboard would come up with every model "offline" and no stated reason.
-  owner="$(lsof -ti "tcp:$router_port" -sTCP:LISTEN 2>/dev/null | head -1)"
+  owner="$(port_owner "$router_port")"
   owner_name="$(ps -p "${owner:-0}" -o comm= 2>/dev/null || true)"
   case "$owner_name" in
     *llama*|"") ;;

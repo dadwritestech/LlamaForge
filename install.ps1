@@ -92,11 +92,27 @@ function Install-LlamaForge {
       Write-Host "  [2/4] LlamaForge: from $archive"
     } else {
       $ref = $env:LLAMAFORGE_REF
+      # The latest release's tag, from the redirect github.com/<repo>/releases/latest
+      # answers with - the API is rate-limited (60/h per IP, shared behind NAT/VPN),
+      # so it is only the second try. Never fall back to master: a copy installed
+      # from a branch records no version and is never offered an update again.
+      if (-not $ref) {
+        try {
+          $q = [System.Net.HttpWebRequest]::Create("https://github.com/$repo/releases/latest")
+          $q.Method = "HEAD"; $q.AllowAutoRedirect = $false; $q.UserAgent = "LlamaForge-installer"
+          $r = $q.GetResponse()
+          if ($r.Headers["Location"] -match '/releases/tag/([^/?#]+)$') { $ref = $Matches[1] }
+          $r.Close()
+        } catch { }
+      }
       if (-not $ref) {
         try {
           $ref = (Invoke-RestMethod -UseBasicParsing -Headers @{ "User-Agent" = "LlamaForge-installer" } `
                     -Uri "https://api.github.com/repos/$repo/releases/latest").tag_name
-        } catch { $ref = "master" }
+        } catch { }
+      }
+      if (-not $ref) {
+        throw "Could not find the latest LlamaForge release (GitHub unreachable or rate-limited). Retry in a few minutes, or pin one: `$env:LLAMAFORGE_REF = 'v0.15.0'"
       }
       $kind = if ($ref -match '^v\d') { "tags" } else { "heads" }
       $version = $ref

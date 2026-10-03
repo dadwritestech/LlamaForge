@@ -112,8 +112,8 @@ def pid_on_port(port):
                     f"-ErrorAction SilentlyContinue | Select-Object -First 1 "
                     f"-ExpandProperty OwningProcess)"]).strip()
     else:
-        out = _run(["lsof", "-ti", f"tcp:{int(port)}", "-sTCP:LISTEN"]).split()
-        out = out[0] if out else ""
+        import osplat
+        return osplat.pid_on_port_posix(port)
     return int(out) if out.isdigit() and int(out) > 0 else None
 
 
@@ -205,6 +205,12 @@ def stop(root):
     cfg.setdefault("router_port", 8080)
     cfg.setdefault("panel_port", 8090)
     logdir = os.path.join(root, "logs")
+    if not IS_WIN:
+        import osplat
+        if not osplat.port_tool():
+            print("can't tell what is listening on LlamaForge's ports: install lsof, "
+                  "or iproute2 (ss), or psmisc (fuser), then run stop again", file=sys.stderr)
+            return 1
     steps = plan(cfg, logdir, table(), pid_on_port)
     for label, pid in steps:
         kill(pid)
