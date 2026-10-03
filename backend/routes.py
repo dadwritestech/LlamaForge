@@ -22,7 +22,7 @@ import json, os, re, subprocess, sys, threading, time, urllib.request, urllib.er
 
 import config, argspec, hardware, osplat, prereqs, scanner, hub, router_ctl, stats, telemetry
 import autotune, anthropic_shim, agentsetup, clientsetup, network_policy, wiki, docs
-import feed, selfupdate, appinstall, profiles, recipes
+import feed, selfupdate, appinstall, profiles, recipes, gallery
 import vram_predict
 import wsl, vllm_ctl, vllm_registry, vllm_setup, vllm_job, vllm_hub, vllm_download
 import gguf, diag, backends, prebuilt
@@ -1276,15 +1276,25 @@ def post_profiles_export(req):
     prof = config.get_profiles().get(name)
     if prof is None:
         raise ApiError(404, f"unknown profile: {name}")
-    section = config.read_sections().get(prof["model"])
+    sections = config.read_sections()
+    section = sections.get(prof["model"])
     if section is None:
         raise ApiError(400, f"{prof['model']} is no longer in models.ini")
+    # what actually runs: the [*] defaults under the model's own section
+    section = {**sections.get("*", {}), **section}
     try:
         recipe = recipes.export(name, prof, section, config.get_presets(),
                                 prebuilt.list_installs(ENGINES_DIR, cfg().get("server_bin", "")))
     except ValueError as e:
         raise ApiError(400, str(e))
     return 200, {"ok": True, "recipe": recipe}
+
+
+def get_recipes_gallery(req):
+    """Community recipes (recipes/ in the repo), live from GitHub or bundled."""
+    files, source = gallery.files(os.path.join(ROOT, "recipes"), force=req.flag("force"))
+    return 200, {"source": source,
+                 "recipes": gallery.entries(files, config.read_sections(), _known_knobs())}
 
 
 def _known_knobs():
@@ -1971,6 +1981,7 @@ GET_ROUTES = {
     "/api/vllm/version":      get_vllm_version,
     "/api/vllm/hub/progress": get_vllm_hub_progress,
     "/api/feed":              get_feed,
+    "/api/recipes/gallery":   get_recipes_gallery,
     "/api/app/update":        lambda req: (200, APP_UPDATE.progress()),
     "/api/model/metadata":    get_model_metadata,
     "/api/model/diag":        get_model_diag,

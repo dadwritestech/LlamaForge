@@ -43,6 +43,7 @@ These are the endpoints external coding agents (Claude Code, Codex, etc.) talk t
 | POST | `/api/profiles/delete` | Delete a launch profile (the model and its settings stay). |
 | POST | `/api/profiles/launch` | Launch a profile: switch to its pinned build if needed, apply its preset, load its model. Returns `{ok, step, error, switched_engine, model}`. |
 | POST | `/api/profiles/export` | A profile as a shareable recipe `{llamaforge_recipe: 1, name, model, settings, engine}`. Paths, hosts and keys are never included. |
+| GET | `/api/recipes/gallery` | Community recipes `{source: "github"\|"bundled", recipes: [{id, title, hardware, author, notes, model, settings, engine, dropped, have, recipe}]}`. `recipe` is ready to POST to `/api/profiles/import`. `?force=1` skips the 6 h cache. |
 | POST | `/api/profiles/import` | Import a recipe `{recipe, download?}`. Creates a preset and profile, or returns `{missing}` when the model isn't here; `download: true` starts fetching it from the recipe's Hugging Face repo. Unsafe or unknown knobs come back in `dropped`. |
 | POST | `/api/presets/bind` | Bind a preset as a model's default (materializes its knobs; `name: ""` unbinds). Re-saving a bound preset re-syncs every model using it. |
 | GET | `/api/model/metadata` | GGUF metadata for a model id (query param `model`). |

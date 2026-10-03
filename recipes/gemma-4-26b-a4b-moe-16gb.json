@@ -1,0 +1,30 @@
+{
+  "llamaforge_recipe": 1,
+  "name": "gemma-4-26b-a4b-moe-16gb",
+  "model": {
+    "id": "gemma-4-26b-a4b-it-mxfp4_moe",
+    "file": "gemma-4-26B-A4B-it-MXFP4_MOE.gguf",
+    "hf_repo": "unsloth/gemma-4-26B-A4B-it-GGUF"
+  },
+  "settings": {
+    "cache-type-k": "q8_0",
+    "cache-type-v": "q4_0",
+    "ctx-size": "90000",
+    "flash-attn": "on",
+    "jinja": "true",
+    "mmap": "false",
+    "n-cpu-moe": "10",
+    "n-gpu-layers": "99",
+    "no-mmproj": "false",
+    "parallel": "1",
+    "temp": "1.0",
+    "top-p": "0.9"
+  },
+  "engine": null,
+  "about": {
+    "title": "Gemma 4 26B-A4B (MXFP4 MoE) on one 16 GB GPU, 90k context",
+    "hardware": "RTX 5060 Ti 16 GB + system RAM",
+    "author": "dadwritestech",
+    "notes": "n-cpu-moe 10 keeps the expert weights of the first 10 layers in system RAM, so the rest plus a 90k q8_0/q4_0 KV cache fit in 16 GB. More VRAM: lower n-cpu-moe. Load fails: raise it."
+  }
+}

@@ -1,7 +1,8 @@
 // Launch profiles: a strip above the model list. One click switches to the
 // profile's pinned engine build (if any), applies its preset, loads its model.
 // Saved from a model's editor ("Save as profile"), which emits "profile-save".
-// Profiles share as recipes (readable JSON, backend/recipes.py) and import back.
+// Profiles share as recipes (readable JSON, backend/recipes.py) and import back;
+// "browse recipes" lists the community gallery (repo recipes/ folder, backend/gallery.py).
 import { $, esc, setHTML, api, toast } from "./core.js";
 import { config as cfgOf } from "./state.js";
 import { on, emit } from "./bus.js";
@@ -29,6 +30,7 @@ function render() {
       + `&#9654; ${esc(n)}`
       + (P[n].backend === "vllm" ? "" : `<span class="px" data-prof-share="${esc(n)}" title="share as a recipe">&#8599;</span>`)
       + `<span class="px" data-prof-del="${esc(n)}" title="delete profile">&times;</span></span>`).join("")}
+    <span class="pchip" data-prof-gallery title="tested setups shared by the community">&#9776; browse recipes</span>
     <span class="pchip" data-prof-import title="paste a recipe someone shared">+ import recipe</span>
   </div>`);
 }
@@ -104,7 +106,39 @@ async function openShare(name) {
 
 function stopPoll() { if (importPoll) { clearInterval(importPoll); importPoll = null; } }
 
-function openImport() {
+const SHARE_URL = "https://github.com/dadwritestech/LlamaForge/tree/master/recipes#share-yours";
+
+async function openGallery(force = false) {
+  const r = await api("/api/recipes/gallery" + (force ? "?force=1" : ""));
+  const list = (r && r.recipes) || [];
+  const knobs = s => Object.entries(s).slice(0, 8).map(([k, v]) => `<code>${esc(k)}=${esc(v)}</code>`).join(" ")
+    + (Object.keys(s).length > 8 ? ` <span style="color:var(--dim)">+${Object.keys(s).length - 8} more</span>` : "");
+  const card = (e, i) => `<div class="rcard">
+      <div style="display:flex;gap:8px;align-items:baseline">
+        <b style="flex:1">${esc(e.title)}</b>
+        ${e.have ? `<span class="rhave" title="this model file is already registered here">on this machine</span>` : ""}
+        <button data-gal-import="${i}">Import</button>
+      </div>
+      <div class="rmeta">${esc(e.model.file || "")}${e.model.hf_repo ? " · " + esc(e.model.hf_repo) : ""}</div>
+      <div class="rmeta">Tested on ${esc(e.hardware || "unspecified hardware")}${e.author ? " · by " + esc(e.author) : ""}</div>
+      ${e.notes ? `<div class="rnotes">${esc(e.notes)}</div>` : ""}
+      <div class="rknobs">${knobs(e.settings)}</div>
+    </div>`;
+  const m = showModal("Community recipes", `
+    <div class="note" style="margin-top:0">Setups people have run on their own hardware. Import one to get the same model
+      (downloaded from Hugging Face if missing) and the same settings as a profile. Only tuning knobs are imported.
+      ${r && r.source === "bundled" ? " <b>Offline:</b> showing the copy that shipped with this version." : ""}</div>
+    <div class="rlist">${list.length ? list.map(card).join("") : `<div class="note">No recipes found.</div>`}</div>
+    <div class="note rfoot" style="display:flex;gap:12px">
+      <a href="${SHARE_URL}" target="_blank" rel="noopener">Share yours &#8599;</a>
+      <a href="#" id="gal-refresh">refresh</a></div>`);
+  $("#gal-refresh").onclick = ev => { ev.preventDefault(); openGallery(true); };
+  document.querySelectorAll("[data-gal-import]").forEach(b => {
+    b.onclick = () => { const e = list[+b.dataset.galImport]; m.close(); openImport(JSON.stringify(e.recipe, null, 2)); };
+  });
+}
+
+function openImport(prefill = "") {
   stopPoll();
   const m = showModal("Import a recipe", `
     <div class="note" style="margin-top:0">Paste a LlamaForge recipe. It becomes a preset and a profile. Unsafe knobs
@@ -115,6 +149,7 @@ function openImport() {
   const msg = $("#prof-imp-msg"), btn = $("#prof-import");
   const say = html => setHTML(msg, html);
   $("#prof-paste").focus();
+  if (prefill) { $("#prof-paste").value = prefill; }
 
   const done = r => {
     const notes = [];
@@ -171,6 +206,7 @@ function openImport() {
     say(esc(r.error || "import failed"));
   };
   btn.onclick = () => run(false);
+  if (prefill) run(false);
 }
 
 export function initProfiles() {
@@ -189,6 +225,7 @@ export function initProfiles() {
     const share = e.target.closest("#profiles [data-prof-share]");
     if (share) { e.stopPropagation(); openShare(share.dataset.profShare); return; }
     if (e.target.closest("#profiles [data-prof-import]")) { openImport(); return; }
+    if (e.target.closest("#profiles [data-prof-gallery]")) { openGallery(); return; }
     const chip = e.target.closest("#profiles [data-prof-launch]");
     if (chip) launch(chip.dataset.profLaunch);
   });

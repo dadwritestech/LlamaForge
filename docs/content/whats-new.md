@@ -8,6 +8,12 @@ order: 1
 
 This page summarizes the most recent additions to LlamaForge. Each entry links to the full reference for that capability. For the longer-term direction, see the project's `ROADMAP.md`.
 
+## Community recipe gallery
+
+Click **browse recipes** on the Profiles strip to see tested setups people have shared: the model, the hardware it ran on, what the key knobs do, and an **on this machine** badge when you already have the file. **Import** runs the normal recipe import, so a missing model downloads from Hugging Face and the same knob filter applies. The list comes live from the repo's `recipes/` folder, so a merged recipe appears without a release; offline, LlamaForge shows the copy that shipped with your version. To add yours, export it with ↗ and open a pull request (see `recipes/README.md`).
+
+See [Models & Tuning](models.md) and [HTTP API](api.md).
+
 ## Shareable recipes
 
 Any llama.cpp profile can be shared as a **recipe**: click ↗ on its chip and copy readable JSON with the model file, the Hugging Face repo it came from, its knobs, and the llama.cpp build it was made on. Paste a recipe into **+ import recipe** to get the same preset and profile. If you don't have the model, **Download & import** fetches it. Only tuning knobs are imported; paths, hosts, keys and logging flags are always dropped.
