@@ -168,7 +168,7 @@ def predict_local(gguf_path, size_bytes=None, cfg=None, context=4096, hw=None, m
     `meta` may be injected; otherwise it is read from gguf_path."""
     try:
         if size_bytes is None and gguf_path and os.path.exists(gguf_path):
-            size_bytes = os.path.getsize(gguf_path)
+            size_bytes = gguf.total_size(gguf_path)
         hw = hw if hw is not None else build_hardware(cfg)
         if meta is None:
             meta = (gguf.metadata(gguf_path) or {}) if gguf_path else {}

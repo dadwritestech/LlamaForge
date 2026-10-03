@@ -8,26 +8,27 @@ order: 1
 
 ## Inline load-failure diagnosis
 
-When a model fails to load, the Models tab doesn't just show you a blank error — it calls `GET /api/model/diag?model=<id>`, which runs the router's last 120 log lines through `backend/diag.py`'s `diagnose()` function and renders the result inline (`.faildiag` block in `web/js/models.js`) instead of making you scroll the Router Log panel.
+When a model fails to load, the Models tab shows the reason inline instead of making you scroll the Router Log. It calls `GET /api/model/diag?model=<id>`, which hands the router log to `diagnose()` in `backend/diag.py`.
 
-While the diagnosis is loading, the row shows *"reading the router log..."*. If the log doesn't match a known failure pattern, it shows *"Load failed, but no specific cause was found in the router log - see the Router Log panel below."*
+`diagnose()` reads only **this model's last load attempt**. The router logs `spawning server instance with name=<id> on port <P>` for each load; the child's own output comes back prefixed `[<P>]`, and the router ends with `instance name=<id> exited with status N`. Lines from earlier loads and from other models are ignored, so an old out-of-memory error is never blamed for today's failure.
 
-`diagnose()` checks the log (case-insensitively) against an ordered list of regex rules, most specific first, and returns the first match. Some suggestions insert your model's current `n-gpu-layers` / `ctx-size` value, shown below as `{ngl}` / `{ctx}`:
+It then matches llama.cpp's actual error strings, most specific first. Healthy startup lines such as `ggml_cuda_init: found 2 CUDA devices` or `n_ctx = 65536` are not errors and never match. The error shown is llama.cpp's own line; the fix is LlamaForge's:
 
-| Log pattern matched | Diagnosis shown | Suggested fix |
-|---|---|---|
-| `out of memory`, `failed to allocate`, `cudaMalloc failed`, `oom` | Ran out of memory loading the model. | Lower n-gpu-layers (currently `{ngl}`) to offload fewer layers, or reduce ctx-size (currently `{ctx}`) to shrink the KV cache. |
-| `cuda error`, `cudart error`, `cudaMalloc`, `cublas`, `ggml_cuda` | GPU/CUDA error while loading. | The build hit a CUDA error. Confirm the GPU has free VRAM (Models tab) and that this llama.cpp build matches your CUDA driver. |
-| `not enough space in the context`, `kv_cache`/`kv cache`, `n_ctx` | The context is too large for available memory. | Reduce ctx-size (currently `{ctx}`) - the KV cache scales with it. |
-| `unknown argument`, `invalid argument`, `unrecognized`, `error: unknown` | The router rejected a launch flag. | One of the knobs isn't supported by this llama.cpp build. Clear the most recently changed knob, or rebuild from the Build tab. |
-| `no such file`, `does not exist`, `failed to open gguf`, `cannot find the file` | The model file could not be opened. | The GGUF path is missing or moved. Re-scan drives from Setup, or fix the model path. |
-| `unsupported`, `unknown model architecture`, `unknown tokenizer`/`unknown pre-tokenizer` | This build can't run this model. | The architecture/quant isn't supported by the current build. Update llama.cpp from the Build tab. |
-| `failed to load model`, `error loading model`, `llama_model_load`/`llama_load` | The model failed to load. | Check the Router Log below for the exact llama.cpp line. Common causes: too little VRAM (reduce n-gpu-layers, currently `{ngl}`) or a corrupt download. |
+| llama.cpp says | Suggested fix |
+|---|---|
+| `unknown model architecture` / `unknown pre-tokenizer type` | Update llama.cpp (Build / Update tab). The model is newer than your build. |
+| `error while handling argument "--x"` / `invalid argument: --x` | Clear that setting (the flag is named). If it's a newer flag, update llama.cpp. |
+| `... requires flash_attn to be enabled` | Set flash-attn on (or auto), or set cache-type-v back to f16. |
+| `cudaMalloc failed`, `out of memory`, `failed to allocate ... buffer` | If the model pins `n-gpu-layers`, `ctx-size` or `tensor-split`, those switch off llama.cpp's automatic fit: clear them and load again. Otherwise pick a smaller quant or a smaller ctx-size. |
+| `context type MTP requested ...` / `failed to create MTP context` | Clear spec-type and spec-draft-model. |
+| `failed to load multimodal model` | The mmproj doesn't match: clear it, or use the one from the model's own repo. |
+| `failed to open GGUF file`, `failed to read magic`, `No such file` | Missing, moved or half-downloaded file: re-scan from Setup or fix the path. |
+| `error loading model` / `failed to load model` | llama.cpp's own line is the reason; the full log is at the bottom of Models. |
 
-The "Diagnosis shown" text is replaced by the actual last error-ish line from the log when one exists (the log's own wording takes priority over the generic label above it). If no rule matches but the log's last relevant line still looks like an error, LlamaForge shows that line with the fallback fix *"See the Router Log below for full context."*
+If nothing matches but the instance exited with a non-zero status, that status is shown. If the log has no load attempt for this model at all, no diagnosis is shown rather than a guess. A `common_fit_params: failed to fit params` warning on its own is not a failure: llama.cpp prints it and then loads anyway.
 
 > [!TIP]
-> If none of this is enough, the Router Log panel on the Models tab has the full untruncated output — `diagnose()` only ever looks at the last 120 lines.
+> The Router Log panel at the bottom of the Models tab has the full output. `diagnose()` reads the last 800 lines of each router log file.
 
 ## Setup tab: missing prerequisites
 

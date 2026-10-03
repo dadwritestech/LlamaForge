@@ -348,7 +348,7 @@ def model_state():
 def _file_gib(path):
     """Model file size in GiB, or None (missing path / file gone)."""
     try:
-        return round(os.path.getsize(path) / 1024**3, 2) if path else None
+        return round(gguf.total_size(path) / 1024**3, 2) if path else None
     except OSError:
         return None
 
@@ -380,7 +380,7 @@ def _autotune_recommend(body):
     path = m.get("model") or (m.get("settings") or {}).get("model") or ""
     meta = gguf.metadata(path) or {}
     try:
-        size = os.path.getsize(path)
+        size = gguf.total_size(path)
     except OSError:
         size = None
     hw = {"gpus": hardware.detect_gpus(), "cpu": hardware.detect_cpu()}
@@ -895,7 +895,9 @@ def get_model_diag(req):
     ini = config.read_sections()
     merged = dict(ini.get("*", {}))
     merged.update(ini.get(mid, {}))
-    return 200, {"diag": diag.diagnose(router_log_tail(120), merged)}
+    # A load prints ~50 lines of args before the child says anything, so the
+    # tail must reach back past the spawn line of the last attempt.
+    return 200, {"diag": diag.diagnose(router_log_tail(800), merged, model=mid)}
 
 
 def get_presets(req):

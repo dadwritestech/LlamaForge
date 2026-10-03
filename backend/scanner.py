@@ -13,6 +13,7 @@ import os, re
 from collections import defaultdict
 
 import osplat
+from gguf import total_size
 
 # Architectures known to use an mmproj sidecar (vision/multimodal).
 _VISION_ARCHES = frozenset({
@@ -149,7 +150,7 @@ def build_entries(paths):
     entries = []
     for p in sorted(mains):
         try:
-            gib = round(os.path.getsize(p) / 1024**3, 2)
+            gib = round(total_size(p) / 1024**3, 2)
         except OSError:
             gib = 0
         e = {"id": mk_id(p), "model": p.replace("\\", "/"), "gib": gib}

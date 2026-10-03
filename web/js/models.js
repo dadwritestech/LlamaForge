@@ -567,7 +567,7 @@ async function fetchMeta(id) {
 /* ---------- autotune bar ---------- */
 function autoTuneBar(m) {
   return `<div class="tunebar">
-    <span class="tunebar-label" title="⚠ Benchmarks run a real completion request (~200 tokens) per candidate. Results depend on your hardware and current system load.">⚙ Refine</span>
+    <span class="tunebar-label" title="Refine tries a few variants with a short generation test and keeps the best. A quick check, not llama-bench. Each candidate runs one real ~200-token completion, so results move with system load.">⚙ Refine</span>
     <select data-tune-intent>
       <option value="balanced">Balanced</option>
       <option value="speed">Max speed</option>

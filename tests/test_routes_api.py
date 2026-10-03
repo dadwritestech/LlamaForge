@@ -348,6 +348,39 @@ class HubAddTest(unittest.TestCase):
         self.assertEqual(len(out["starters"]), 3)
 
 
+class ModelDiagTest(unittest.TestCase):
+    """/api/model/diag reads the real log files and judges only this model."""
+
+    def setUp(self):
+        d = tempfile.mkdtemp()
+        self.addCleanup(lambda: __import__("shutil").rmtree(d, ignore_errors=True))
+        p = mock.patch.object(routes, "LOGDIR", d)
+        p.start(); self.addCleanup(p.stop)
+        p = mock.patch.object(config, "read_sections", return_value={"m": {"n-gpu-layers": "99"}})
+        p.start(); self.addCleanup(p.stop)
+        self.d = d
+
+    def _logs(self, out, err):
+        for name, text in (("router.out.log", out), ("router.err.log", err)):
+            with open(os.path.join(self.d, name), "w", encoding="utf-8") as f:
+                f.write(text)
+
+    def test_reaches_past_the_args_dump_to_this_models_failure(self):
+        args = "".join(f"I srv load:   --arg{i}\n" for i in range(300))
+        self._logs("[50002] ggml_cuda_init: found 1 CUDA devices:\n"
+                   "[50002] cudaMalloc failed: out of memory\n",
+                   "I srv load: spawning server instance with name=m on port 50002\n" + args +
+                   "I srv operator(): instance name=m exited with status 1\n")
+        status, out = routes.get_model_diag(Req(qs={"model": "m"}))
+        self.assertEqual(status, 200)
+        self.assertIn("n-gpu-layers = 99", out["diag"]["suggestion"])
+
+    def test_other_models_failure_is_not_shown(self):
+        self._logs("[50001] cudaMalloc failed: out of memory\n",
+                   "I srv load: spawning server instance with name=other on port 50001\n")
+        self.assertIsNone(routes.get_model_diag(Req(qs={"model": "m"}))[1]["diag"])
+
+
 class PublicConfigProjectionTest(unittest.TestCase):
     def setUp(self):
         self.secret = "projection-secret-" + "p" * 32
