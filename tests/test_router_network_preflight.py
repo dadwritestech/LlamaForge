@@ -37,6 +37,41 @@ class RouterStartPreflightTest(unittest.TestCase):
         self.assertEqual(argv[argv.index("--host") + 1], "0.0.0.0")
         self.assertEqual(argv[argv.index("--api-key") + 1], key)
 
+    def _spawn(self, host, user_key, local_key, cors=True):
+        handles = mock.mock_open()
+        with mock.patch.object(router_ctl.os.path, "exists", return_value=True), \
+             mock.patch.object(router_ctl, "is_running", return_value=False), \
+             mock.patch.object(router_ctl, "supports_cors_origins", return_value=cors), \
+             mock.patch.object(router_ctl.os, "makedirs"), \
+             mock.patch("builtins.open", handles), \
+             mock.patch.object(router_ctl.subprocess, "Popen") as popen:
+            ok, error = router_ctl.start(
+                "server", "models.ini", 8080, host, user_key, "logs", local_key)
+        self.assertTrue(ok, error)
+        return popen.call_args.args[0]
+
+    def test_local_start_without_user_key_runs_with_the_local_key(self):
+        argv = self._spawn("127.0.0.1", "", "L" * 43)
+        self.assertEqual(argv[argv.index("--api-key") + 1], "L" * 43)
+        self.assertEqual(argv[argv.index("--cors-origins") + 1], "localhost")
+
+    def test_user_key_wins_and_cors_skipped_when_unsupported(self):
+        argv = self._spawn("127.0.0.1", "U" * 40, "L" * 43, cors=False)
+        self.assertEqual(argv[argv.index("--api-key") + 1], "U" * 40)
+        self.assertNotIn("--cors-origins", argv)
+
+    def test_lan_start_keeps_default_cors(self):
+        argv = self._spawn("0.0.0.0", "k" * 32, "L" * 43)
+        self.assertEqual(argv[argv.index("--api-key") + 1], "k" * 32)
+        self.assertNotIn("--cors-origins", argv)
+
+    def test_lan_policy_ignores_the_local_key(self):
+        with mock.patch.object(router_ctl.subprocess, "Popen") as popen:
+            ok, error = router_ctl.start(
+                "server", "models.ini", 8080, "0.0.0.0", "", "logs", "L" * 43)
+        self.assertFalse(ok)
+        popen.assert_not_called()
+
 
 class RouterRestartPreflightTest(unittest.TestCase):
     def test_unsafe_restart_does_not_lookup_stop_kill_or_spawn(self):

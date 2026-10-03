@@ -1,5 +1,6 @@
-"""Pure router network/key policy. No config or process side effects."""
-import argparse, copy, json, re, secrets, sys
+"""Router network/key policy. The policy functions are pure; only the runner
+CLI at the bottom touches files or processes."""
+import argparse, copy, json, os, re, secrets, subprocess, sys, tempfile
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass
 
@@ -74,6 +75,36 @@ def generate_key():
     if key_status(key) != "strong":
         raise RuntimeError("generated API key did not satisfy policy")
     return key
+
+
+# The router always runs with an API key. A loopback bind alone does not keep
+# websites out: a text/plain POST skips the CORS preflight, and DNS rebinding
+# makes an attacker's page same-origin with 127.0.0.1. So when the user has not
+# set a key, LlamaForge mints its own (router_local_key) and injects it into
+# every request it makes; the user's key, when set, always wins.
+LOCAL_CORS_ORIGINS = "localhost"
+
+
+def effective_key(cfg):
+    return cfg.get("router_api_key") or cfg.get("router_local_key") or ""
+
+
+def ensure_local_key(cfg):
+    """Give cfg a strong router_local_key if it lacks one. True if it changed."""
+    if key_status(cfg.get("router_local_key")) == "strong":
+        return False
+    cfg["router_local_key"] = generate_key()
+    return True
+
+
+def router_auth_args(host, key, cors_supported):
+    """Auth/CORS argv for llama-server. CORS is narrowed to localhost origins
+    for a local router only: on the LAN, browsers on other machines are the
+    point, and the key is what guards it. Older builds lack --cors-origins."""
+    args = ["--api-key", key] if key else []
+    if cors_supported and assess(host, key).access_scope == "local":
+        args += ["--cors-origins", LOCAL_CORS_ORIGINS]
+    return args
 
 
 def start_error(host, key):
@@ -163,12 +194,65 @@ def preflight_config_file(path):
     return (not reason, reason)
 
 
+# ---------------------------------------------------------------- runner CLI
+# run.ps1 / run.sh start the router before the backend exists, so they ask
+# this file for the auth argv. Self-contained (stdlib, no backend imports): the
+# runner tests copy it alone into a scratch tree.
+def _help_text(server_bin):
+    try:
+        r = subprocess.run([server_bin, "--help"], capture_output=True, text=True,
+                           encoding="utf-8", errors="replace", timeout=25,
+                           stdin=subprocess.DEVNULL)
+        return (r.stdout or "") + (r.stderr or "")
+    except Exception:
+        return ""
+
+
+def _write_json_atomic(path, data):
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(os.path.abspath(path)),
+                               prefix=".config-", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+            f.write("\n")
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
+def router_args_for_config_file(path, server_bin):
+    """(ok, argv-or-message). Persists router_local_key when it is missing."""
+    ok, message = preflight_config_file(path)
+    if not ok:
+        return False, message
+    with open(path, encoding="utf-8-sig") as f:
+        cfg = json.load(f)
+    if ensure_local_key(cfg):
+        _write_json_atomic(path, cfg)
+    cors = "--cors-origins" in _help_text(server_bin)
+    return True, router_auth_args(cfg.get("router_host", "127.0.0.1"),
+                                  effective_key(cfg), cors)
+
+
 def main(argv: Sequence[str] | None = None):
     parser = argparse.ArgumentParser()
     parser.add_argument("--preflight", metavar="CONFIG")
+    parser.add_argument("--router-args", metavar="SERVER_BIN",
+                        help="on success, print the router auth argv, one per line")
     args = parser.parse_args(argv)
     if not args.preflight:
         parser.error("--preflight CONFIG is required")
+    if args.router_args:
+        ok, out = router_args_for_config_file(args.preflight, args.router_args)
+        if not ok:
+            print(out, file=sys.stderr)
+            return 2
+        sys.stdout.write("".join(a + "\n" for a in out))
+        return 0
     ok, message = preflight_config_file(args.preflight)
     if not ok:
         print(message, file=sys.stderr)

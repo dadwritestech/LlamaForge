@@ -363,6 +363,17 @@ def _auto_load(model_id):
         time.sleep(1)
 
 
+def _router_startup(model_id):
+    """Background: re-key a router left running by an older build, then load
+    the favourite model - in that order, so the load lands on the new router."""
+    try:
+        routes.reconcile_router_auth()
+    except Exception:
+        pass
+    if model_id:
+        _auto_load(model_id)
+
+
 def main():
     import stats
     config.migrate()
@@ -390,10 +401,9 @@ def main():
             tray.start(port, _tray_counts)
     except Exception:
         pass
-    if c.get("auto_load_model"):
-        import threading
-        threading.Thread(target=_auto_load, args=(c["auto_load_model"],),
-                         daemon=True, name="auto-load").start()
+    import threading
+    threading.Thread(target=_router_startup, args=(c.get("auto_load_model"),),
+                     daemon=True, name="router-startup").start()
     ThreadingHTTPServer(("127.0.0.1", port), H).serve_forever()
 
 

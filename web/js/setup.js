@@ -103,7 +103,7 @@ function networkMarkup(net) {
         local ? " checked" : ""}> This computer only — recommended</label>
       <label><input type="radio" name="net-scope" value="lan"${
         local ? "" : " checked"}> Devices on my local network</label>
-      <p class="note" id="net-scope-help">LAN access always requires a usable API key.</p>
+      <p class="note" id="net-scope-help">LAN access always requires a usable API key. Local access without one still runs keyed, with a key LlamaForge generates; <b>Client config</b> hands it to your apps.</p>
     </fieldset>
     <fieldset id="net-auth-group" aria-describedby="net-auth-help net-apply-error">
       <legend>Authentication</legend>

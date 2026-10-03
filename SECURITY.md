@@ -33,6 +33,27 @@ repaired. If a port is already occupied, the dashboard leaves its listener
 alone; seeing a listener is not verification of its process identity or of its
 authentication policy.
 
+## The local router is keyed too
+
+Binding to `127.0.0.1` keeps other machines out, but not web pages: a
+`text/plain` POST needs no CORS preflight, and DNS rebinding can make an
+attacker's page same-origin with `127.0.0.1`. So the router always runs with an
+API key. When you have not set `router_api_key`, LlamaForge generates its own
+(`router_local_key` in `config.json`) and adds it server-side to every request
+it makes: the dashboard, the Chat tab, the `/v1/messages` shim and the stats
+poller. **Client Config** and **Connect an agent** hand that key to the clients
+you set up. A local router also gets `--cors-origins localhost` when the
+llama-server build supports it.
+
+LAN policy is unchanged: it still requires a key that you set, never the
+generated one. On startup the dashboard checks the router already running on
+`router_port`. If it answers without a key, or rejects the key LlamaForge
+would send, the dashboard restarts it with the current settings (for example
+after an upgrade from a build that ran it unkeyed).
+
+Apps you pointed at `http://127.0.0.1:8080` yourself now need the key: copy it
+from **Client Config**, or set your own key in **Network Access**.
+
 ## Management boundary and credentials
 
 `/api/state`, `/api/config`, and routine management responses never include the
@@ -59,7 +80,7 @@ The panel treats every HTTP request as untrusted input:
 
 ## Local limitations
 
-`config.json` stores `router_api_key` as plaintext; it is not encrypted and is
+`config.json` stores `router_api_key` and `router_local_key` as plaintext; it is not encrypted and is
 not an OS credential vault. A process running under the same OS account may be
 able to read that file and inspect the llama-server command line, because the
 upstream process currently receives `--api-key` in argv. Explicit configuration

@@ -109,15 +109,23 @@ if (-not (Listening $cfg.router_port)) {
     # Fresh installs ship server_bin = "" (the panel offers the official
     # build); Test-Path throws on an empty string, which killed this script
     # before the dashboard started.
+    # The router always runs keyed (the user's key, else LlamaForge's own,
+    # minted into config.json here) and, when local, with CORS limited to
+    # localhost. network_policy.py prints that argv, one item per line.
     if ($serverBin -and (Test-Path $serverBin)) {
-      $routerHost = if ($cfg.router_host) { $cfg.router_host } else { "127.0.0.1" }
-      $args = @("--models-preset", $modelsIni, "--models-max", "1", "--offline",
-                "--host", $routerHost, "--port", "$($cfg.router_port)", "--metrics")
-      if ($cfg.router_api_key) { $args += @("--api-key", $cfg.router_api_key) }
-      Start-Process -FilePath $serverBin -ArgumentList $args -WindowStyle Hidden `
-                    -RedirectStandardOutput (Join-Path $logDir "router.out.log") `
-                    -RedirectStandardError  (Join-Path $logDir "router.err.log")
-      Write-Host "started $engineLabel router on $($routerHost):$($cfg.router_port)"
+      $authArgs = @(& $pythonFile (Join-Path $here "backend\network_policy.py") `
+                      --preflight $cfgPath --router-args $serverBin)
+      if ($LASTEXITCODE -ne 0) {
+        Write-Host "Router not started: repair Network Access in the dashboard." -ForegroundColor Yellow
+      } else {
+        $routerHost = if ($cfg.router_host) { $cfg.router_host } else { "127.0.0.1" }
+        $args = @("--models-preset", $modelsIni, "--models-max", "1", "--offline",
+                  "--host", $routerHost, "--port", "$($cfg.router_port)", "--metrics") + $authArgs
+        Start-Process -FilePath $serverBin -ArgumentList $args -WindowStyle Hidden `
+                      -RedirectStandardOutput (Join-Path $logDir "router.out.log") `
+                      -RedirectStandardError  (Join-Path $logDir "router.err.log")
+        Write-Host "started $engineLabel router on $($routerHost):$($cfg.router_port)"
+      }
     } else {
       Write-Host "no $engineLabel engine yet - install one from the dashboard (Build / Update tab)." -ForegroundColor Yellow
     }

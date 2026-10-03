@@ -194,5 +194,69 @@ class ProjectionAndCliTest(unittest.TestCase):
             self.assertEqual(np.main(["--preflight", path]), 0)
 
 
+class RouterAuthTest(unittest.TestCase):
+    def test_effective_key_prefers_the_user_key(self):
+        self.assertEqual(np.effective_key({"router_api_key": "u" * 40,
+                                           "router_local_key": "l" * 40}), "u" * 40)
+        self.assertEqual(np.effective_key({"router_api_key": "",
+                                           "router_local_key": "l" * 40}), "l" * 40)
+        self.assertEqual(np.effective_key({}), "")
+
+    def test_ensure_local_key_generates_once_and_replaces_weak_values(self):
+        cfg = {}
+        self.assertTrue(np.ensure_local_key(cfg))
+        key = cfg["router_local_key"]
+        self.assertEqual(np.key_status(key), "strong")
+        self.assertFalse(np.ensure_local_key(cfg))
+        self.assertEqual(cfg["router_local_key"], key)
+        cfg["router_local_key"] = "weak"
+        self.assertTrue(np.ensure_local_key(cfg))
+        self.assertNotEqual(cfg["router_local_key"], "weak")
+
+    def test_router_auth_args_always_key_and_cors_only_local(self):
+        key = "k" * 40
+        self.assertEqual(np.router_auth_args("127.0.0.1", key, True),
+                         ["--api-key", key, "--cors-origins", "localhost"])
+        self.assertEqual(np.router_auth_args("127.0.0.1", key, False),
+                         ["--api-key", key])
+        self.assertEqual(np.router_auth_args("0.0.0.0", key, True),
+                         ["--api-key", key])
+        self.assertEqual(np.router_auth_args("127.0.0.1", "", True),
+                         ["--cors-origins", "localhost"])
+
+    def test_cli_router_args_persists_local_key_and_prints_argv(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "config.json")
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump({"router_host": "127.0.0.1", "router_api_key": "",
+                           "theme": "dark"}, f)
+            with mock.patch.object(np, "_help_text",
+                                   return_value="--cors-origins ORIGINS"),                  mock.patch("sys.stdout") as out:
+                self.assertEqual(np.main(["--preflight", path,
+                                          "--router-args", "bin"]), 0)
+            saved = json.loads(Path(path).read_text(encoding="utf-8"))
+            self.assertEqual(saved["theme"], "dark")
+            key = saved["router_local_key"]
+            printed = "".join(c.args[0] for c in out.write.call_args_list)
+            self.assertEqual(printed.split(),
+                             ["--api-key", key, "--cors-origins", "localhost"])
+
+    def test_cli_router_args_refusal_writes_nothing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "config.json")
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump({"router_host": "0.0.0.0", "router_api_key": ""}, f)
+            before = Path(path).read_bytes()
+            with mock.patch.object(np, "_help_text") as probe:
+                self.assertNotEqual(np.main(["--preflight", path,
+                                             "--router-args", "bin"]), 0)
+            probe.assert_not_called()
+            self.assertEqual(Path(path).read_bytes(), before)
+
+    def test_local_key_is_never_public(self):
+        out = np.public_config({"router_local_key": "secret" * 8})
+        self.assertNotIn("secret", repr(out))
+
+
 if __name__ == "__main__":
     unittest.main()

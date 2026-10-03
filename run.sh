@@ -31,7 +31,6 @@ panel_port="$(getcfg panel_port)"
 server_bin="$(getcfg server_bin)"
 models_ini="$(getcfg models_ini)"
 router_host="$(getcfg router_host)"; [ -n "$router_host" ] || router_host=127.0.0.1
-api_key="$(getcfg router_api_key)"
 
 # Mirror config._abs(): the router inherits this shell's CWD, and
 # config.example.json ships "./models.ini", so a relative value resolved against
@@ -63,13 +62,19 @@ fi
 # 1. llama.cpp router (only if not already up)
 if ! listening "$router_port"; then
   if "$PY" "$here/backend/network_policy.py" --preflight "$cfg"; then
-    if [ -x "$server_bin" ]; then
+    # The router always runs keyed (the user's key, else LlamaForge's own,
+    # minted into config.json here) and, when local, with CORS limited to
+    # localhost. network_policy.py prints that argv, one item per line.
+    if [ -x "$server_bin" ] && auth="$("$PY" "$here/backend/network_policy.py" \
+         --preflight "$cfg" --router-args "$server_bin")"; then
       args=(--models-preset "$models_ini" --models-max 1 --offline
             --host "$router_host" --port "$router_port" --metrics)
-      [ -n "$api_key" ] && args+=(--api-key "$api_key")
+      while IFS= read -r a; do [ -n "$a" ] && args+=("$a"); done <<<"$auth"
       nohup "$server_bin" "${args[@]}" \
         >>"$logdir/router.out.log" 2>>"$logdir/router.err.log" </dev/null &
       echo "started llama.cpp router on $router_host:$router_port"
+    elif [ -x "$server_bin" ]; then
+      echo "Router not started: repair Network Access in the dashboard." >&2
     else
       echo "no llama.cpp engine yet - install one from the dashboard (Build / Update tab)."
     fi

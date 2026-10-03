@@ -5,7 +5,7 @@ nothing is hardcoded. On a fresh machine, bootstrap writes config.json.
 """
 import copy, json, os, re, threading
 
-import atomicio, gguf
+import atomicio, gguf, network_policy
 
 ROOT      = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CONFIG    = os.path.join(ROOT, "config.json")
@@ -33,6 +33,7 @@ DEFAULTS = {
     "chat_port":   8091,                      # llama.cpp's chat UI, proxied on its own origin
     "router_host": "127.0.0.1",               # 127.0.0.1 = local only, 0.0.0.0 = reachable on the LAN
     "router_api_key": "",                     # required by clients when router_host != 127.0.0.1
+    "router_local_key": "",                   # LlamaForge's own router key when the user set none (never shown)
     "wsl_distro":  "",                        # WSL distro that runs vLLM ("" = auto-pick default)
     "vllm_port":   8081,                      # port vLLM serves on (WSL localhost-forwarded to Windows)
     "cmake_flags": {},                       # persisted build flags (from hardware detect)
@@ -165,6 +166,10 @@ def migrate():
             if engine not in PRESET_ENGINES:
                 engine = "llamacpp"
             cfg["preset_bindings"] = {engine: dict(binds)}
+            changed = True
+        # The router always runs keyed (see network_policy.effective_key);
+        # mint LlamaForge's own key before anything starts or calls it.
+        if network_policy.ensure_local_key(cfg):
             changed = True
         if changed:
             save(cfg)
