@@ -1,43 +1,22 @@
 # LlamaForge one-click shutdown. Mirror of run.ps1.
-# Stops the llama.cpp router, every model instance it spawned, and the
-# LlamaForge dashboard backend. Safe to run repeatedly.
+# Stops the router this copy started, its model instances, the dashboard, and
+# (if set up) its vLLM server - nothing else on the machine. The rules live in
+# backend\procs.py. Safe to run repeatedly.
 $ErrorActionPreference = "Stop"
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
-$cfg  = Get-Content (Join-Path $here "config.json") -Raw | ConvertFrom-Json
 
-function Kill-Port($port, $label) {
-  $pids = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue |
-          Select-Object -ExpandProperty OwningProcess -Unique
-  foreach ($processId in $pids) {
-    Stop-Process -Id $processId -Force -ErrorAction SilentlyContinue
-    Write-Host "stopped $label (pid $processId on port $port)"
-  }
+# Same order as run.ps1: the installer's private Python, then py, then python.
+$candidates = @((Join-Path $here "python\python.exe"))
+foreach ($name in "py", "python") {
+  $cmd = Get-Command $name -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+  if ($cmd) { $candidates += $cmd.Source }
 }
-
-# 1. dashboard backend (python backend\server.py on panel_port)
-Kill-Port $cfg.panel_port "LlamaForge dashboard"
-
-# 2. router on router_port
-Kill-Port $cfg.router_port "llama.cpp router"
-
-# 3. sweep any llama-server model instances the router spawned on random ports
-$instances = Get-Process llama-server -ErrorAction SilentlyContinue
-foreach ($p in $instances) {
-  Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
-  Write-Host "stopped model instance (pid $($p.Id))"
+foreach ($candidate in $candidates) {
+  if (-not (Test-Path $candidate)) { continue }
+  & $candidate -c "import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)" *> $null
+  if ($LASTEXITCODE -ne 0) { continue }
+  & $candidate (Join-Path $here "backend\procs.py") --stop $here
+  exit $LASTEXITCODE
 }
-
-# 4. vLLM runs inside WSL - kill any `vllm serve` process there
-$distro = $cfg.wsl_distro
-try {
-  if ($distro) { wsl.exe -d $distro -- bash -lc "pkill -f 'vllm serve' 2>/dev/null; true" }
-  else         { wsl.exe -- bash -lc "pkill -f 'vllm serve' 2>/dev/null; true" }
-  Write-Host "stopped any vLLM serve process in WSL"
-} catch {
-  Write-Host "WSL not available or no vLLM running" -ForegroundColor DarkGray
-}
-
-if (-not $instances -and -not (Get-NetTCPConnection -LocalPort $cfg.router_port,$cfg.panel_port -State Listen -ErrorAction SilentlyContinue)) {
-  Write-Host "nothing was running." -ForegroundColor DarkGray
-}
-Write-Host "LlamaForge stopped." -ForegroundColor Green
+Write-Host "A working Python 3.10+ interpreter is required to stop LlamaForge (tried 'py' and 'python')." -ForegroundColor Red
+exit 1

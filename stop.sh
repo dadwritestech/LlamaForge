@@ -1,33 +1,9 @@
 #!/usr/bin/env bash
 # LlamaForge one-click shutdown (Linux / macOS). Mirror of run.sh.
-# Stops the llama.cpp router, every model instance it spawned, and the
-# LlamaForge dashboard backend. Safe to run repeatedly.
+# Stops the router this copy started, its model instances, and the dashboard -
+# nothing else on the machine. The rules live in backend/procs.py.
 here="$(cd "$(dirname "$0")" && pwd)"
-cfg="$here/config.json"
 
 # The one-line installer records which Python it found (python3 may be too old on macOS).
 PY="${LLAMAFORGE_PYTHON:-$(cat "$here/.lf-python" 2>/dev/null || echo python3)}"
-getcfg() { "$PY" -c "import json;print(json.load(open('$cfg')).get('$1',''))"; }
-
-kill_port() {
-  local port="$1" label="$2" pids
-  pids="$(lsof -ti "tcp:$port" -sTCP:LISTEN 2>/dev/null)"
-  for pid in $pids; do
-    kill "$pid" 2>/dev/null && echo "stopped $label (pid $pid on port $port)"
-  done
-}
-
-# 1. dashboard backend
-panel_port="$(getcfg panel_port)"
-kill_port "$panel_port" "LlamaForge dashboard"
-
-# 2. router
-router_port="$(getcfg router_port)"
-kill_port "$router_port" "llama.cpp router"
-
-# 3. sweep any llama-server model instances the router spawned on random ports
-if pkill -x llama-server 2>/dev/null; then
-  echo "stopped model instance(s)"
-fi
-
-echo "LlamaForge stopped."
+exec "$PY" "$here/backend/procs.py" --stop "$here"

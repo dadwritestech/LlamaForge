@@ -127,12 +127,87 @@ def ensure_config(dest):
     return True
 
 
+# What LlamaForge writes for itself next to the code: removed on any uninstall.
+APP_DATA = ("engines", "logs", "stats.json", ".lf-python")
+# The user's settings and models: removed only when they ask for everything.
+USER_DATA = ("config.json", "config.json.corrupt", "models.ini", "models-ikllama.ini",
+             "vllm_models.json", "models", "wiki", "llama.cpp")
+
+
+def _remove(path):
+    if os.path.isdir(path) and not os.path.islink(path):
+        shutil.rmtree(path, ignore_errors=True)
+    elif os.path.lexists(path):
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+
+
+def uninstall(dest, everything=False):
+    """Remove what the installer put in `dest` (its manifest) and what the app
+    wrote for itself; with `everything`, the user's settings and models too.
+
+    Never a blind recursive delete of `dest`: without a manifest this is not a
+    folder the installer made (a git checkout, a hand-copied folder), so it
+    refuses. Files nobody listed survive either way. The private `python`
+    folder is left for the calling script - Windows locks the interpreter
+    that is running this. Returns {"removed": n, "kept": [top-level names]}."""
+    dest = os.path.abspath(dest)
+    if os.path.isdir(os.path.join(dest, ".git")):
+        raise ValueError(f"{dest} is a git checkout - remove it yourself")
+    if not os.path.isfile(os.path.join(dest, MANIFEST)):
+        raise ValueError(f"{dest} has no {MANIFEST}, so it was not made by the "
+                         f"LlamaForge installer - nothing removed")
+    files = [r for r in (_safe_rel(x) for x in _read_manifest(dest).get("files", [])) if r]
+    removed = 0
+    for rel in files:
+        target = os.path.join(dest, *rel.split("/"))
+        if os.path.isfile(target):
+            _remove(target)
+            removed += 1
+    for name in APP_DATA + (USER_DATA if everything else ()):
+        target = os.path.join(dest, name)
+        if os.path.lexists(target):
+            _remove(target)
+            removed += 1
+    for dirpath, _dirs, _files in sorted(os.walk(dest), key=lambda w: -len(w[0])):
+        if os.path.basename(dirpath) == "__pycache__":
+            shutil.rmtree(dirpath, ignore_errors=True)
+        elif dirpath != dest:
+            try:
+                os.rmdir(dirpath)          # only succeeds when empty
+            except OSError:
+                pass
+    _remove(os.path.join(dest, MANIFEST))
+    kept = sorted(n for n in os.listdir(dest) if n != "python")
+    if not os.listdir(dest):
+        try:
+            os.rmdir(dest)
+        except OSError:
+            pass
+    return {"removed": removed, "kept": kept}
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description="Install/update LlamaForge from an extracted release")
-    ap.add_argument("--from", dest="src", required=True)
-    ap.add_argument("--to", dest="dest", required=True)
+    ap.add_argument("--from", dest="src")
+    ap.add_argument("--to", dest="dest")
     ap.add_argument("--version", default=None)
+    ap.add_argument("--uninstall", metavar="DIR")
+    ap.add_argument("--all", action="store_true", help="with --uninstall: settings and models too")
     a = ap.parse_args(argv)
+    if a.uninstall:
+        try:
+            r = uninstall(a.uninstall, everything=a.all)
+        except (ValueError, OSError) as e:
+            print(f"uninstall refused: {e}", file=sys.stderr)
+            return 1
+        if r["kept"]:
+            print(f"left in {a.uninstall}: {', '.join(r['kept'])}")
+        return 0
+    if not (a.src and a.dest):
+        ap.error("--from and --to are required")
     try:
         r = install(a.src, a.dest, a.version)
         ensure_config(a.dest)
