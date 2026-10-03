@@ -18,7 +18,7 @@ class TestRecommendPayload(unittest.TestCase):
             out = routes._autotune_recommend({"model": "qwen", "intent": "context"})
         self.assertEqual(out["model"], "qwen")
         self.assertEqual(out["knobs"]["cache-type-k"], "q8_0")
-        self.assertEqual(out["knobs"]["ctx-size"], "128000")
+        self.assertEqual(out["knobs"]["fit-ctx"], "128000")
 
     def test_resolves_model_path_from_settings_nested(self):
         """Covers the settings.model path-resolution branch (real model_state shape)."""
@@ -36,7 +36,7 @@ class TestRecommendPayload(unittest.TestCase):
         mock_getsize.assert_called_with("/models/qwen.gguf")
         # Verify result is a proper recommendation
         self.assertEqual(out["model"], "qwen")
-        self.assertIn("n-gpu-layers", out["knobs"])
+        self.assertEqual(out["knobs"]["fit"], "on")
 
     def test_unknown_model_returns_error(self):
         with mock.patch.object(routes, "model_state", return_value={"models": []}):

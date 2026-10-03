@@ -1,7 +1,8 @@
 """Hardware-aware knob recommendations for LlamaForge (pure stdlib).
 
 Turns detected hardware + a GGUF's header facts into a small set of
-llama-server knobs, shaped by the user's intent. `recommend` is a pure function
+llama-server knobs, shaped by the user's intent. Memory sizing is llama.cpp's
+own --fit; this only sets what fit doesn't decide. `recommend` is a pure function
 (no I/O) so it is trivially testable; `refine` (Task 4) optionally benchmarks.
 Only the ~8 knobs that materially affect fit/throughput are set; everything
 else keeps llama.cpp's own defaults.
@@ -11,28 +12,15 @@ import time
 
 INTENTS = ("balanced", "speed", "context", "coding")
 
-# Fraction of VRAM the weights may claim, leaving room for the KV cache/activations.
-_HEADROOM = {"balanced": 0.90, "speed": 0.92, "context": 0.78, "coding": 0.90}
-
-# Maximum context window for "context" intent.
+# Context floor for the "context" intent.
 _CTX_MAX = 150000
 
 
-def _total_vram_mib(hw):
-    return sum((g.get("vram_mib") or 0) for g in hw.get("gpus", []))
-
-
-def _has_gpu(hw):
-    return bool(hw.get("gpus"))
-
-
-def _fit_ngl(layers, weights_mib, budget_mib):
-    """How many layers to offload. '99' = all (llama.cpp caps to the real count)."""
-    if not layers or not weights_mib:
-        return "99"                      # unknown size: try full offload, refine can back off
-    if budget_mib >= weights_mib:
-        return "99"
-    return str(max(0, int(layers * budget_mib / weights_mib)))
+# What llama.cpp's --fit (on by default) sizes at load from the real free VRAM:
+# context, GPU layers, the multi-GPU split and MoE expert placement. Fit gives
+# up entirely if any of these is pinned, so autotune leaves them blank - which
+# also clears a pin an older version wrote, since blank means "unset".
+_FIT_OWNS = ("ctx-size", "n-gpu-layers", "tensor-split")
 
 
 def recommend(meta, hw, intent="balanced", size_bytes=None, prediction=None):
@@ -40,71 +28,35 @@ def recommend(meta, hw, intent="balanced", size_bytes=None, prediction=None):
     knobs, why = {}, {}
     cpu = hw.get("cpu") or {}
     threads = cpu.get("threads") or cpu.get("cores")
-    layers = meta.get("block_count")
-    weights_mib = (size_bytes / (1024 * 1024)) if size_bytes else None
 
-    if not _has_gpu(hw):
-        knobs["n-gpu-layers"] = "0"
-        why["n-gpu-layers"] = "No GPU detected - running on CPU."
-        knobs["flash-attn"] = "off"
-        why["flash-attn"] = "Flash-attention needs a supported GPU."
-    else:
-        total = _total_vram_mib(hw)
-        budget = int(total * _HEADROOM[intent])
-        knobs["n-gpu-layers"] = _fit_ngl(layers, weights_mib, budget)
-        if knobs["n-gpu-layers"] == "99":
-            # Distinguish between unknown size and genuine fit
-            if not layers or not weights_mib:
-                why["n-gpu-layers"] = "Model size/layer count unknown - attempting full GPU offload."
-            else:
-                why["n-gpu-layers"] = f"Weights fit in {total} MiB VRAM - full GPU offload."
-        else:
-            why["n-gpu-layers"] = (f"~{int(weights_mib)} MiB weights vs {budget} MiB budget "
-                                   f"- offloading {knobs['n-gpu-layers']}/{layers} layers.")
-        knobs["flash-attn"] = "on"
-        why["flash-attn"] = "GPU present - flash-attention enabled."
+    knobs["fit"] = "on"
+    why["fit"] = ("llama.cpp sizes context, GPU layers and the multi-GPU split to "
+                  "your free VRAM at load, and moves MoE experts to CPU when needed.")
+    for k in _FIT_OWNS:
+        knobs[k] = ""
+        why[k] = "Left unset so --fit can size it (pinning it turns fit off)."
+    knobs["flash-attn"] = "auto"
+    why["flash-attn"] = "llama.cpp enables it wherever the backend supports it, CPU included."
 
     if threads:
         knobs["threads"] = str(threads)
         why["threads"] = f"Matched to this CPU's {threads} hardware threads."
 
-    # Balanced context: the model's trained length, capped to a sane ceiling.
-    trained = meta.get("context_length")
-    ctx = _ctx_for(intent, trained)
-    if ctx:
-        knobs["ctx-size"] = str(ctx)
-        why["ctx-size"] = _ctx_reason(intent, trained, ctx)
-
-    # Intent-specific shaping (KV type, batch, tensor-split, sampling) — Task 3.
-    _apply_intent(knobs, why, hw, intent)
+    _apply_intent(knobs, why, meta.get("context_length"), intent)
     if prediction and prediction.get("regime"):
         tok = prediction.get("tok_s")
-        tail = f" Predicted {prediction['regime']}" + (f" ~{tok} tok/s." if tok is not None else ".")
-        if "n-gpu-layers" in why:
-            why["n-gpu-layers"] += tail
+        why["fit"] += f" Predicted {prediction['regime']}" + (f" ~{tok} tok/s." if tok is not None else ".")
         return {"knobs": knobs, "rationale": why, "prediction": prediction}
     return {"knobs": knobs, "rationale": why}
 
 
-def _ctx_for(intent, trained):
-    ceil = {"balanced": 65536, "speed": 16384, "context": _CTX_MAX, "coding": 65536}[intent]
-    if not trained or trained <= 0:
-        return None
-    return min(trained, ceil)
-
-
-def _ctx_reason(intent, trained, ctx):
+def _apply_intent(knobs, why, trained, intent):
     if intent == "context":
-        return f"Max-context: using the model's trained {trained} tokens (capped {_CTX_MAX})."
-    if intent == "speed":
-        return f"Max-speed: smaller {ctx}-token window to cut KV-cache overhead."
-    return f"Balanced {ctx}-token window (trained {trained})."
-
-
-def _apply_intent(knobs, why, hw, intent):
-    gpus = hw.get("gpus") or []
-
-    if intent == "context":
+        if trained and trained > 0:
+            # a floor for fit, not a pin: it offloads layers before going below it
+            knobs["fit-ctx"] = str(min(trained, _CTX_MAX))
+            why["fit-ctx"] = (f"Max-context: fit keeps at least {knobs['fit-ctx']} tokens "
+                              f"(trained {trained}), moving layers to CPU if it must.")
         knobs["cache-type-k"] = knobs["cache-type-v"] = "q8_0"
         why["cache-type-k"] = why["cache-type-v"] = (
             "Max-context: 8-bit KV cache roughly halves memory per token.")
@@ -120,11 +72,6 @@ def _apply_intent(knobs, why, hw, intent):
         knobs["top-p"] = "0.9"
         why["temp"] = "Coding: low temperature for deterministic output."
         why["top-p"] = "Coding: tightened nucleus sampling."
-
-    if len(gpus) > 1:
-        split = ",".join(str(round((g.get("vram_mib") or 0) / 1000)) for g in gpus)
-        knobs["tensor-split"] = split
-        why["tensor-split"] = f"Split across {len(gpus)} GPUs by VRAM ({split})."
 
 
 def _candidates(base, intent):

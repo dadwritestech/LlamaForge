@@ -88,7 +88,8 @@ If you want the most polished, batteries-included experience today, LM Studio an
 The dashboard is organized as a left **sidebar** (collapsible between a compact
 icon rail and a labeled view) with these sections. A **first-run wizard** and a
 **Lite / Advanced** mode toggle keep it approachable: Lite hides the deep knobs
-and a hardware **auto-tune** proposes per-model settings sized to your VRAM, while
+and a hardware **auto-tune** proposes per-model settings (leaving memory sizing to
+llama.cpp's own `--fit`), while
 Advanced exposes every server flag.
 
 | View | What it does |
@@ -315,11 +316,11 @@ OS-specific lives behind one small `osplat` module. The knob list is parsed live
 HuggingFace downloads are streamed by the backend, so they work even when llama.cpp
 is built without SSL.
 
-When models are registered, LlamaForge reads each GGUF's trained context length
-straight from its header and writes sensible `ctx-size` defaults into `models.ini`
-(a **150k** global baseline; **100k** for models that can't reach it, capped at the
-model's own trained length so nothing is over-extended). Per-model settings you set
-by hand always win.
+LlamaForge doesn't pin context size, GPU layers or the multi-GPU split. llama.cpp's
+`--fit` (on by default) sizes all three to your free VRAM at load, and moves MoE
+experts to CPU when needed. Pinning any of them turns fit off, so they stay unset
+unless you set them yourself. A `ctx-size` you set is kept, except that it gets
+clamped to the model's trained length (read from the GGUF header).
 
 ## Roadmap
 

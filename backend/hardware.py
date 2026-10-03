@@ -72,7 +72,7 @@ def recommend(gpus=None, cpu=None):
     if osplat.IS_MAC:
         flags["GGML_METAL"] = "ON"
         notes.append("Apple Silicon detected - Metal build (uses unified memory as VRAM).")
-        runtime = {"n-gpu-layers": "99", "flash-attn": "on"}
+        runtime = {"fit": "on", "flash-attn": "auto"}
         flags["GGML_NATIVE"] = "ON"
         return {"cmake_flags": flags, "notes": notes, "runtime": runtime,
                 "gpus": gpus, "cpu": cpu}
@@ -94,10 +94,8 @@ def recommend(gpus=None, cpu=None):
             flags[f] = "ON"
         notes.append("Enabled AVX-512 (+VNNI/VBMI/BF16) for this CPU.")
 
-    runtime = {
-        "n-gpu-layers": "99" if gpus else "0",
-        "flash-attn": "on" if gpus else "off",
-    }
+    # memory sizing (ctx, GPU layers, split) is llama.cpp's --fit; never pinned here
+    runtime = {"fit": "on", "flash-attn": "auto"}
     return {"cmake_flags": flags, "notes": notes, "runtime": runtime,
             "gpus": gpus, "cpu": cpu}
 
