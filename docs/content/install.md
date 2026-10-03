@@ -6,70 +6,73 @@ order: 2
 
 # Installation
 
-LlamaForge ships as a source checkout plus a set of launcher scripts — there is no installer package. A `bootstrap` script gets a fresh machine to the point where the dashboard can take over; `run` starts the dashboard and router on subsequent launches; `stop` shuts everything down.
+One line, no git, no admin, no compiler. Re-run it any time to update.
 
-## Prerequisites
+**Windows** (PowerShell):
 
-The bootstrap script checks and, with your consent, installs:
+```powershell
+irm https://raw.githubusercontent.com/dadwritestech/LlamaForge/master/install.ps1 | iex
+```
 
-- **Python 3.10+** — required to run the backend (pure standard library; nothing to `pip install`).
-- **Git** — required to fetch and update the llama.cpp source.
+**Linux / macOS:**
 
-Additional build prerequisites are detected by `backend/prereqs.py` and surfaced on the dashboard's **Setup** tab (not installed by bootstrap itself):
+```bash
+curl -fsSL https://raw.githubusercontent.com/dadwritestech/LlamaForge/master/install.sh | sh
+```
 
-- **Git**, **CMake**, **Ninja**, **Python** — checked via `git --version`, `cmake --version`, `ninja --version`, `python --version`.
-- A **C++ compiler** — MSVC on Windows (located via `vswhere.exe`, or a `cl.exe` scan under `Program Files`), `clang++`/`g++` on Linux/macOS.
-- **CUDA** — optional, needed only for NVIDIA GPU builds; detected via `CUDA_PATH` or `nvcc`. Not applicable on macOS (Metal is used instead).
+The installer:
 
-On Windows and macOS, the Setup tab can install missing tools for you (winget/choco on Windows, Homebrew on macOS) after you confirm. On Linux, LlamaForge never runs `sudo`: it shows you the exact `apt`/`dnf`/`pacman` command to run yourself.
+1. finds Python 3.10+ (the backend is pure standard library, nothing to `pip install`). On Windows, if you have none, it drops a private, SHA-256-pinned copy of python.org's embeddable Python;
+2. downloads the latest LlamaForge release into `%LOCALAPPDATA%\LlamaForge` (Windows) or `~/.local/share/llamaforge` (Linux/macOS). Updating keeps your config, models and engines;
+3. adds a Start menu entry and an Apps & Features uninstaller (Windows), a `llamaforge` command plus an app-menu entry (Linux), or `~/Applications/LlamaForge.app` (macOS);
+4. starts LlamaForge and opens the dashboard.
 
-## Windows
+In the dashboard, click **Install llama.cpp**. It fetches the official llama.cpp release for your GPU (CUDA, Vulkan, Metal or CPU), verifies it and starts the router. Then continue to [First Run](first-run.md).
+
+### Installer options
+
+Set these environment variables before running the one-liner:
+
+| Variable | Effect |
+|---|---|
+| `LLAMAFORGE_HOME` | install directory |
+| `LLAMAFORGE_REF` | a release tag (e.g. `v0.14.0`) to install or roll back to; default is the latest release |
+| `LLAMAFORGE_ARCHIVE` | install from a local `.zip` / `.tar.gz` instead of downloading |
+| `LLAMAFORGE_NO_LAUNCH` | don't start LlamaForge at the end |
+| `LLAMAFORGE_NO_SHORTCUTS` | skip the command, menu entry and app bundle |
+| `LLAMAFORGE_NO_STOP` | don't stop a running copy before updating it |
+
+## Daily use
+
+Open **LlamaForge** from the Start menu or app menu, or run `llamaforge`. It starts the llama.cpp router and the dashboard if they aren't already running, then opens your browser at `http://127.0.0.1:8090`.
+
+To shut down the dashboard, the router and the models it spawned, run `llamaforge stop` (Linux/macOS) or `stop.ps1` in the install directory (Windows). Only processes LlamaForge started are stopped; any other `llama-server` you run is left alone. On Windows it also stops a `vllm serve` it started inside WSL.
+
+## Uninstall
+
+Windows: **Settings → Apps → Installed apps → LlamaForge → Uninstall**. Linux/macOS: `llamaforge uninstall`. Both ask before removing your settings or models, and only remove files the installer put there.
+
+## From source (git clone)
+
+Use this if you want to hack on LlamaForge or build llama.cpp from source.
 
 ```powershell
 git clone https://github.com/dadwritestech/LlamaForge
 cd LlamaForge
-powershell -ExecutionPolicy Bypass -File bootstrap.ps1
+powershell -ExecutionPolicy Bypass -File bootstrap.ps1   # Windows
+./bootstrap.sh                                           # Linux / macOS
 ```
 
-`bootstrap.ps1` checks for Python and Git (offering to install Python 3.12 via winget if missing), then asks whether to use an existing llama.cpp checkout (Enter keeps the bundled `<LlamaForge>/llama.cpp` default). It derives `build_dir`, detects an existing `llama-server` in common build layouts, writes `config.json`, offers to clone llama.cpp when the selected checkout is absent, writes a starter `models.ini`, then launches `run.ps1`. Set `LLAMAFORGE_LLAMA_SRC` before running the script to supply the checkout non-interactively.
+The bootstrap script checks for Python and Git (asking before installing anything), asks whether to use an existing llama.cpp checkout, writes `config.json` and a starter `models.ini`, then launches the dashboard. Set `LLAMAFORGE_LLAMA_SRC` to supply the checkout non-interactively. Afterwards, start it with `LlamaForge.vbs` (Windows) or `./run.sh`, and stop it with `stop.ps1` / `./stop.sh`.
 
-For daily use after the first run, double-click **`LlamaForge.vbs`** — it starts the router and dashboard hidden and opens your browser. To autostart it, put a shortcut to `LlamaForge.vbs` in your Startup folder (`Win+R` -> `shell:startup`).
+Building llama.cpp from source needs more tools, all detected on the **Setup** tab:
 
-To shut everything down — dashboard, router, and every model instance the router spawned:
+- **Git**, **CMake**, **Ninja**;
+- a **C++ compiler**: MSVC on Windows, `clang++`/`g++` on Linux/macOS;
+- **CUDA**, only for NVIDIA builds (macOS uses Metal).
 
-```powershell
-powershell -ExecutionPolicy Bypass -File stop.ps1
-```
+On Windows and macOS the Setup tab can install missing tools after you confirm (winget/choco, Homebrew). On Linux, LlamaForge never runs `sudo`: it shows the exact `apt`/`dnf`/`pacman` command for you to run.
 
-## Linux / macOS
+## What the launcher does
 
-```bash
-git clone https://github.com/dadwritestech/LlamaForge
-cd LlamaForge
-./bootstrap.sh
-```
-
-`bootstrap.sh` checks for `python3` and `git` (printing the platform-appropriate install command if either is missing — `brew install python@3.12` on macOS, `sudo apt-get install -y python3` as a Linux example), asks whether to use an existing llama.cpp checkout, derives its build and server paths, writes `config.json`, offers to clone llama.cpp when needed, writes a starter `models.ini`, then execs `run.sh`. `LLAMAFORGE_LLAMA_SRC=/path/to/llama.cpp ./bootstrap.sh` supplies the checkout non-interactively.
-
-For daily use after the first run:
-
-```bash
-./run.sh
-```
-
-To shut everything down:
-
-```bash
-./stop.sh
-```
-
-## What the scripts do
-
-`run.ps1` / `run.sh` read `config.json`, start the llama.cpp router (`llama-server --models-preset <models.ini> --models-max 1 --offline --host <router_host> --port <router_port> --metrics`, plus `--api-key` if one is set) if it is not already listening, start the dashboard backend (`backend/server.py`) if it is not already listening, then open `http://127.0.0.1:<panel_port>/` in your browser. Both scripts are safe to run repeatedly — each checks whether its port is already in use before starting anything.
-
-`stop.ps1` / `stop.sh` kill the process listening on `panel_port`, the process listening on `router_port`, and sweep any remaining `llama-server` processes the router spawned to serve individual models. On Windows, `stop.ps1` additionally kills any `vllm serve` process running inside WSL.
-
-> [!NOTE]
-> Building llama.cpp itself, installing a C++ compiler/CUDA, and installing the vLLM backend are deliberately left out of bootstrap — they are heavier, consent-gated steps performed from the dashboard's **Setup** and **Build** tabs after first launch.
-
-Once the dashboard is open, continue to [First Run](first-run.md) for the onboarding wizard.
+The launcher reads `config.json` and starts the llama.cpp router (`llama-server --models-preset <models.ini> --models-max 1 --offline --host <router_host> --port <router_port> --metrics --api-key <key>`) and the dashboard backend, each only if its port isn't already in use, then opens the dashboard. Running it twice is safe. Launch output goes to `logs/` in the install directory, so a router that fails to start leaves a log you can read.

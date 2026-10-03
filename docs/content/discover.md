@@ -12,7 +12,7 @@ Search huggingface.co for GGUF (and safetensors, for vLLM) models directly from 
 
 The Discover tab queries the Hugging Face Hub API (`backend/hub.py` `search()`), filtered to repos tagged `gguf`, sorted by downloads, last-modified, or likes. Selecting a repo lists its individual GGUF files (`hub.py` `files()`), which collapses multi-shard files (`*-00001-of-0000N.gguf`) into a single entry with their combined size, and separates out `mmproj` (multimodal projector) files for vision models.
 
-Each file is rated against your hardware. When a prediction is available (the default), the badge is **offload-aware**: `vram_predict.fit_label()` derives it from the same physics estimate that powers the Will-it-run panel, which accounts for MoE active-vs-total parameters and partial GPU offload. So a large MoE that runs fast with its experts on CPU reads as **TIGHT**, not **CPU OFFLOAD**, even though it's bigger than your VRAM. When no prediction can be made, the badge falls back to `hub.py`'s size-only `_fit()`:
+Each file is rated against your hardware. When a prediction is available (the default), the badge comes from `vram_predict.fit_label()`, the same rough estimate that powers the Will-it-run panel. It uses file size (all shards), MoE active-vs-total parameters and your VRAM, with a flat allowance for the KV cache, so treat it as an estimate rather than a guarantee. So a large MoE that runs fast with its experts on CPU reads as **TIGHT**, not **CPU OFFLOAD**, even though it's bigger than your VRAM. When no prediction can be made, the badge falls back to `hub.py`'s size-only `_fit()`:
 
 - **FITS VRAM** — a fast, GPU-resident placement (or, in fallback, file size × 1.15 ≤ total VRAM — the 15% margin covers KV cache and compute headroom).
 - **TIGHT** — usable, but with the model partly offloaded to CPU/RAM, or (in fallback) fitting VRAM without clearing the 1.15× margin.
@@ -27,7 +27,7 @@ Each result also carries platform tags (Windows/Linux/macOS) — GGUF runs on al
 
 ## How to use it
 
-1. Open the **Discover** tab. Leave the search box blank to browse the most-downloaded GGUF repos, or type a query (e.g. `qwen coder`, `gemma vision`).
+1. Open the **Discover** tab. It opens on **New this week**: model architectures llama.cpp just merged, each marked against your engine build, above Hugging Face GGUFs that are new and trending in the last 14 days. Type a query (e.g. `qwen coder`, `gemma vision`) to search, and use the sort dropdown for most downloaded, newest or most liked.
 2. Switch the mode dropdown to **safetensors (vLLM)** if you want a full-precision/quantized model for the vLLM backend instead (Windows + WSL2 only — this option is hidden on platforms without vLLM support).
 3. Click a repo row to expand its file list. Each file shows its size and a fit badge (FITS VRAM / TIGHT / CPU OFFLOAD).
 4. Click **Download** on the file you want. Progress, current file (for multi-file/shard downloads), speed, and ETA appear in the Download card at the top of the tab.
@@ -44,7 +44,7 @@ Each result also carries platform tags (Windows/Linux/macOS) — GGUF runs on al
 |---|---|---|
 | Search | `backend/hub.py` `search()` | Queries `huggingface.co/api/models?filter=gguf`, sorted by downloads/lastModified/likes. |
 | File listing | `backend/hub.py` `files()` | Lists a repo's `.gguf` files, collapsing sharded files and separating `mmproj` files. |
-| VRAM-fit rating | `vram_predict.fit_label()`, falling back to `hub.py` `_fit()` | Offload-aware: derived from the physics prediction (gpu-resident → `fits`; usable hybrid/offload → `tight`; slow/streaming → `offload`). Falls back to the size-only heuristic (`fits`: size × 1.15 ≤ VRAM; `tight`: ≤ VRAM; `offload`: > VRAM) when no prediction is available. |
+| VRAM-fit rating | `vram_predict.fit_label()`, falling back to `hub.py` `_fit()` | Derived from the rough prediction (gpu-resident → `fits`; usable hybrid/offload → `tight`; slow/streaming → `offload`). Falls back to the size-only heuristic (`fits`: size × 1.15 ≤ VRAM; `tight`: ≤ VRAM; `offload`: > VRAM) when no prediction is available. |
 | Will-it-run panel | `GET /api/vram/predict` | Predicts regime + tok/s for a repo+quant using MoE-aware model size, GPU bandwidth (with Setup overrides), and quant factor. |
 | Download engine | `backend/hub.py` `DownloadManager` | Background thread; one job at a time; progress polled via `/api/hub/progress`. |
 | Pause / resume | `DownloadManager.pause()` / `resume()` | Pause keeps the `.part` file; resume continues via an HTTP `Range` request from the bytes already on disk. |

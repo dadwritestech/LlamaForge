@@ -17,15 +17,15 @@ gets built next.
 - **Launch profiles** — save a model + preset + pinned llama.cpp build as a named
   profile and launch it from a ▶ chip; pinned builds survive update pruning. (v0.12.0)
 - **Shareable recipes**: export a profile as JSON and import someone else's, with
-  a one-click download of the model if it's missing. Unsafe knobs never cross over. (v0.13.0)
+  a one-click download of the model if it's missing. Imports drop paths, hosts, keys and tools, and show every knob before you apply it. (v0.13.0)
 - **Community recipe gallery**: **browse recipes** lists tested setups from the repo's
   `recipes/` folder (live from GitHub, bundled copy offline); anyone can PR theirs. (v0.14.0)
 - **One-line installers** — `irm …/install.ps1 | iex` (Windows) and
   `curl …/install.sh | sh` (Linux/macOS): no git, admin or compiler. A private,
   SHA-256-pinned Python on Windows when needed; Start menu / Apps & Features,
   `llamaforge` command, `.desktop` entry or `LlamaForge.app`. Updates keep your
-  settings, models and engines; CI installs, launches, updates and uninstalls on
-  all three OSes. (v0.10.0)
+  settings, models and engines; CI installs, starts the panel, and runs the
+  uninstaller on Windows, Ubuntu and macOS arm64. (v0.10.0)
 - **One-click official llama.cpp builds** — the right upstream release for your
   GPU (CUDA / Vulkan / Metal / CPU), digest-verified, switchable per version, so
   new model support is an **Update** click away. Building from source stays for
@@ -34,16 +34,15 @@ gets built next.
   button on every loaded model, served from its own local origin with the API key
   added server-side. (v0.10.0)
 - **llama.cpp control panel** — per-model tuning of every `llama-server` flag
-  (~220, parsed live from `--help`); saving hot-reloads the model, no restart.
+  (200+ on current builds, parsed live from `--help`); saving hot-reloads the model, no restart.
 - **VRAM-fit model discovery** — search HuggingFace GGUFs, each quant rated
   **FITS / TIGHT / CPU OFFLOAD** against your real VRAM before you download. The
-  rating is **offload-aware**: it defers to a physics estimate that accounts for
-  MoE active-vs-total params, so a big MoE that runs fast with experts on CPU is
-  no longer mislabeled CPU OFFLOAD.
+  rating is a rough estimate from file size, MoE active params and your VRAM.
 - **Guided build & update** — current commit vs upstream, rebuild with CMake
   flags auto-detected for your CPU/GPU.
-- **Automatic `ctx-size` defaults** — read each GGUF's trained context length and
-  write sane per-model context sizes.
+- **Rides llama.cpp's `--fit`**: context, GPU layers and the multi-GPU split are
+  left unset so llama.cpp sizes them to your free VRAM; a `ctx-size` you set is
+  clamped to the model's trained length.
 - **Setup** — detect/install prereqs (winget/choco), scan drives for GGUFs, and
   prune registry entries whose files were deleted.
 - **Usage stats** — per-model tokens, runs, average tok/s, daily activity —

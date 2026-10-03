@@ -23,7 +23,7 @@ Several things that used to derail a first run are now handled automatically, in
 LlamaForge has two UI densities, toggled at any time from the mode switch in the dashboard header (`applyMode()` in `web/js/ui.js` toggles a `mode-lite` class on `<body>` and persists the choice via `PUT /api/config` with `ui_mode`):
 
 - **Lite** — a reduced set of controls, aimed at getting a model loaded quickly.
-- **Advanced** — the full set of ~220 llama.cpp knobs and every tab exposed.
+- **Advanced** — every flag your `llama-server --help` lists (200+ on current builds) and every tab exposed.
 
 Finishing the wizard sets `ui_mode` to `"lite"`; skipping it sets `ui_mode` to `"advanced"`. You can switch between them afterward at any time.
 
@@ -43,12 +43,12 @@ Finishing the wizard saves the recommended knobs with `/api/save`, loads the mod
 
 `backend/autotune.py`'s `recommend(meta, hw, intent, size_bytes)` is a pure function that turns a GGUF's header metadata and the detected hardware into a small set of knobs — everything else is left at llama.cpp's own defaults. Four intents are supported: `balanced`, `speed`, `context`, `coding`.
 
-- **GPU offload (`n-gpu-layers`)** — with no GPU detected, set to `0` and `flash-attn` set to `off`. With a GPU, the weights' size is compared against a VRAM budget (`total_vram * headroom`, headroom `0.90` balanced, `0.92` speed, `0.78` context, `0.90` coding); if the weights fit, offload is `99` (all layers, llama.cpp caps to the real count), otherwise it is scaled to the fraction of layers that fit the budget. `flash-attn` is set to `on` whenever a GPU is present.
-- **Threads** — set to the CPU's hardware thread (or core) count, when known.
-- **Context window (`ctx-size`)** — the model's trained context length, capped per intent: `65536` for balanced and coding, `16384` for speed, and `150000` for context (the max-context ceiling).
-- **Intent-specific shaping** — `context` sets `cache-type-k`/`cache-type-v` to `q8_0` (roughly halves KV-cache memory per token); `speed` sets them to `f16` and raises `batch-size`/`ubatch-size` to `2048`/`512`; `coding` lowers `temp` to `0.2` and `top-p` to `0.9`. With more than one GPU, `tensor-split` is set to split proportionally by each GPU's VRAM.
+- **Memory sizing is left to llama.cpp.** `fit` is set to `on`, and `ctx-size`, `n-gpu-layers` and `tensor-split` are left blank. llama.cpp's `--fit` then picks the context, the GPU layers and the multi-GPU split from your real free VRAM at load, and moves MoE experts to CPU when it must. Pinning any of those three turns fit off, which is why auto-tune clears them (this also undoes a pin written by an older LlamaForge).
+- **Flash attention** is set to `auto`: llama.cpp enables it wherever the backend supports it.
+- **Threads** are set to the CPU's hardware thread (or core) count, when known.
+- **Intent-specific shaping:** `context` sets `fit-ctx` (a floor, not a pin: fit moves layers to CPU before it goes below the model's trained length, capped at 150000) and an 8-bit KV cache (`q8_0`, roughly half the memory per token). `speed` uses an `f16` KV cache and raises `batch-size`/`ubatch-size` to `2048`/`512`. `coding` lowers `temp` to `0.2` and `top-p` to `0.9`.
 
 Every knob `recommend()` sets comes with a plain-language reason, which is what populates the rationale column in the wizard's Tune step.
 
 > [!TIP]
-> Auto-tune only ever writes the handful of knobs above. Anything else you set by hand on the Models tab afterward is preserved — per-model settings always win over the global `[*]` defaults.
+> Auto-tune only writes the handful of knobs above. Anything else you set by hand on the Models tab is kept. If you pin `ctx-size`, `n-gpu-layers` or `tensor-split` yourself, llama.cpp's fit switches off for that model, and a load that runs out of memory will tell you so.

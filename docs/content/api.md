@@ -66,12 +66,22 @@ These are the endpoints external coding agents (Claude Code, Codex, etc.) talk t
 | GET | `/api/build/log` | Tail of the build log plus builder state (`phase` includes `done_warnings` for a partial success). |
 | POST | `/api/build/start` | Start (re)building the target engine with the given (or saved/recommended) CMake flags. |
 | POST | `/api/engine/switch` | Point the router at `llamacpp` or `ikllama` (sets `active_engine`); refused if the target binary has no router mode. |
+| GET | `/api/engine/prebuilt` | Installed official llama.cpp builds, which one is active, and the latest release on a channel (`?channel=`, `?force=1` to skip the cache). |
+| GET | `/api/engine/prebuilt/status` | Progress and log tail of a prebuilt download/install. |
+| POST | `/api/engine/prebuilt/install` | Download and install the latest official build for your GPU. Body: `channel`, optional `variant`. |
+| POST | `/api/engine/prebuilt/cancel` | Cancel a running prebuilt install. |
+| POST | `/api/engine/prebuilt/use` | Switch to an already-installed build (rollback). Body: `dir`, which must be one `/api/engine/prebuilt` lists. |
+| GET | `/api/starters` | Starter-model suggestions sized to your total VRAM. |
+| GET | `/api/feed` | "New this week": architectures llama.cpp just merged, marked against your engine build, plus whether a newer LlamaForge release is out. |
+| GET | `/api/app/update` | Progress of a LlamaForge self-update. |
+| POST | `/api/app/update` | Update LlamaForge to a release. Body: `tag`. |
+| POST | `/api/app/restart` | Restart the panel after a finished self-update. |
 
 ## VRAM prediction
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/api/vram/predict` | Predict whether a model quant will fit your GPU and at what approximate speed. Query params: `repo` (HF repo id), `quant` (e.g. `Q4_K_M`). Returns `{regime, tok_s, model_size_bytes, active_size_bytes}`. Factors in MoE active-vs-total parameters and GPU memory bandwidth (with Setup overrides). |
+| POST | `/api/vram/predict` | Rough estimate of whether a model quant fits your GPU and how fast it might run. JSON body: `repo` (HF repo id, required), `quant` (default `q4_k_m`), optional `gguf_file`. The size comes from the matching GGUF file (all shards). Returns `{regime, tok_s, model_size_bytes, active_size_bytes}`. Accounts for MoE active-vs-total parameters and GPU memory bandwidth (with Setup overrides); treat `tok_s` as a ballpark. |
 
 ## Model Hub (download)
 

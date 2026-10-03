@@ -24,7 +24,6 @@ From the project's own `models.ini`:
 
 ```ini
 [*]
-ctx-size = 150000
 
 [qwen3.6-35b-a3b-ud-q4-k-xl]
 model = D:/models/LlamaForge-downloads/unsloth--Qwen3.6-35B-A3B-MTP-GGUF/Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf
@@ -39,7 +38,7 @@ model = D:/models/lmstudio-community/gpt-oss-20b-GGUF/gpt-oss-20b-MXFP4.gguf
 ctx-size = 100000
 ```
 
-`qwen3-coder-next-q4-k-m` has no `ctx-size` override, so it inherits `150000` from `[*]`. `gpt-oss-20b-mxfp4` sets its own `ctx-size = 100000`, overriding the global. `qwen3.6-35b-a3b-ud-q4-k-xl` adds `mmproj` (a multimodal projector file) and `n-cpu-moe` (MoE experts offloaded to CPU) on top of `model`.
+`qwen3-coder-next-q4-k-m` has no `ctx-size`, so llama.cpp's `--fit` picks the largest context that fits the free VRAM when it loads. `gpt-oss-20b-mxfp4` pins `ctx-size = 100000`, which switches fit off for that model. `qwen3.6-35b-a3b-ud-q4-k-xl` adds `mmproj` (a multimodal projector file) and `n-cpu-moe` (MoE experts offloaded to CPU) on top of `model`.
 
 ## Common keys
 
@@ -53,11 +52,13 @@ ctx-size = 100000
 | `spec-draft-model` | `--spec-draft-model` | Path to a speculative draft model (e.g. an auto-attached `mtp-*` sidecar). |
 | `spec-type` | `--spec-type` | Speculative-decoding type, e.g. `draft-mtp` or an `ngram-*` mode. |
 
-Beyond these, any `llama-server` flag can be set as a key — the dashboard's Advanced UI mode (`ui_mode: "advanced"` in `config.json`) exposes the full set (roughly 220 flags), discovered at runtime by parsing `llama-server --help` (`backend/argspec.py` `build_schema()`).
+Beyond these, any `llama-server` flag can be set as a key — the dashboard's Advanced UI mode (`ui_mode: "advanced"` in `config.json`) exposes the full set (200+ on current builds), discovered at runtime by parsing `llama-server --help` (`backend/argspec.py` `build_schema()`).
 
-## Automatic ctx-size defaults
+## Context size is llama.cpp's call
 
-`config.apply_ctx_defaults()` keeps `ctx-size` values sane across the file: it sets `[*] ctx-size = 150000` (the `gguf.CTX_FULL` baseline), and for any model whose GGUF-reported trained context length is below that, writes an explicit per-model `ctx-size` override capped to what the model actually supports (never over-extending it). Models whose trained length can't be read are left untouched, and a model that already supports the full 150000 has any smaller per-model override removed so it falls back to the global. This runs on server startup and after scan/download operations that add new models.
+LlamaForge doesn't write `ctx-size`, `n-gpu-layers` or `tensor-split`. llama.cpp's `--fit` (on by default) sizes all three from the free VRAM at load; pinning any of them, globally in `[*]` or per model, turns fit off.
+
+`config.apply_ctx_defaults()` runs on startup and only fixes an impossible value: a per-model `ctx-size` larger than the model's trained length (read from the GGUF header) is clamped to it. It never adds a `ctx-size` and never touches `[*]`. Older versions wrote `[*] ctx-size = 150000` on every startup; that pin is removed once on upgrade.
 
 ## Auto-wired MTP draft models
 
