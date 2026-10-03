@@ -25,7 +25,7 @@ import autotune, anthropic_shim, agentsetup, clientsetup, network_policy, wiki, 
 import feed, selfupdate, appinstall, profiles, recipes, gallery, starters
 import vram_predict
 import wsl, vllm_ctl, vllm_registry, vllm_setup, vllm_job, vllm_hub, vllm_download
-import gguf, diag, backends, prebuilt
+import gguf, diag, backends, prebuilt, version
 from builder import BuildManager
 
 # vLLM is managed through WSL2, so the whole vLLM surface is Windows-only.
@@ -713,6 +713,7 @@ def get_state(req):
     s["active_engine"] = c.get("active_engine", "llamacpp")
     s["chat_port"] = c.get("chat_port", 8091)
     s["config_error"] = config.LOAD_ERROR
+    s["version"] = version.VERSION
     s["onboarding"] = {
         "server_bin_ok": bool(c.get("server_bin")) and os.path.exists(c["server_bin"]),
         "model_count": len(s["models"]),

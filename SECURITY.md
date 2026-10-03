@@ -87,7 +87,19 @@ upstream process currently receives `--api-key` in argv. Explicit configuration
 previews improve resistance to accidental ambient disclosure, not isolation from
 such a local peer process.
 
-## Reporting
+## Supported versions
 
-This is an early-preview personal/local tool, not a hosted service or a security
-certification. If you find a security issue, please open an issue on the repo.
+Only the latest release gets security fixes. The running version is shown next
+to the LLAMAFORGE name in the sidebar.
+
+## Reporting a vulnerability
+
+Please report it privately, not in a public issue: use **Report a
+vulnerability** on the repo's Security tab
+(<https://github.com/dadwritestech/LlamaForge/security/advisories/new>). Include
+the version, your OS, and the steps to reproduce. Expect a first reply within a
+few days. This is a one-person early-preview project, so there is no bounty, but
+you will be credited in the advisory and release notes unless you prefer not to
+be.
+
+This is a local tool, not a hosted service, and not a security certification.
