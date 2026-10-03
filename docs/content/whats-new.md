@@ -8,6 +8,12 @@ order: 1
 
 This page summarizes the most recent additions to LlamaForge. Each entry links to the full reference for that capability. For the longer-term direction, see the project's `ROADMAP.md`.
 
+## Shareable recipes
+
+Any llama.cpp profile can be shared as a **recipe**: click ↗ on its chip and copy readable JSON with the model file, the Hugging Face repo it came from, its knobs, and the llama.cpp build it was made on. Paste a recipe into **+ import recipe** to get the same preset and profile. If you don't have the model, **Download & import** fetches it. Only tuning knobs are imported; paths, hosts, keys and logging flags are always dropped.
+
+See [Models & Tuning](models.md) and [HTTP API](api.md).
+
 ## One-click launch profiles
 
 Save a model, a preset, and (optionally) a specific installed llama.cpp build as a named **profile** from the model's editor, then launch the whole combination from a ▶ chip above the model list. If the pinned build isn't the active one, LlamaForge switches to it, waits for the router, applies the preset, and loads the model. That's useful when a new llama.cpp release regresses one model and you want to keep it on the build that worked. Builds a profile pins are kept out of the automatic pruning after an update.

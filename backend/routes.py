@@ -22,7 +22,7 @@ import json, os, re, subprocess, sys, threading, time, urllib.request, urllib.er
 
 import config, argspec, hardware, osplat, prereqs, scanner, hub, router_ctl, stats, telemetry
 import autotune, anthropic_shim, agentsetup, clientsetup, network_policy, wiki, docs
-import feed, selfupdate, appinstall, profiles
+import feed, selfupdate, appinstall, profiles, recipes
 import vram_predict
 import wsl, vllm_ctl, vllm_registry, vllm_setup, vllm_job, vllm_hub, vllm_download
 import gguf, diag, backends, prebuilt
@@ -1270,6 +1270,81 @@ def post_profiles_launch(req):
                  "switched_engine": bool(p["switch_bin"]), "model": p["model"]}
 
 
+def post_profiles_export(req):
+    """A saved profile as a shareable recipe (see recipes.py)."""
+    name = req.body.get("name", "")
+    prof = config.get_profiles().get(name)
+    if prof is None:
+        raise ApiError(404, f"unknown profile: {name}")
+    section = config.read_sections().get(prof["model"])
+    if section is None:
+        raise ApiError(400, f"{prof['model']} is no longer in models.ini")
+    try:
+        recipe = recipes.export(name, prof, section, config.get_presets(),
+                                prebuilt.list_installs(ENGINES_DIR, cfg().get("server_bin", "")))
+    except ValueError as e:
+        raise ApiError(400, str(e))
+    return 200, {"ok": True, "recipe": recipe}
+
+
+def _known_knobs():
+    try:
+        return {a for g in schema().get("groups", []) for k in g.get("knobs", [])
+                for a in [k.get("key")] + list(k.get("aliases") or []) if a} or None
+    except Exception:
+        return None                # no schema (router binary missing): shareable() still applies
+
+
+def _start_recipe_download(model):
+    """Fetch the recipe's GGUF (all shards) from its repo through the normal
+    download manager; the UI imports again once it finishes."""
+    if not model["hf_repo"]:
+        return "this model isn't on this machine and the recipe doesn't say where it came from"
+    try:
+        listing = hub.files(model["hf_repo"])
+    except Exception as e:
+        return f"couldn't list {model['hf_repo']} on Hugging Face: {e}"
+    want = model["file"].lower()
+    f = next((f for f in listing.get("files", [])
+              if os.path.basename(f["path"]).lower() == want), None)
+    if f is None:
+        return f"{model['file']} isn't in {model['hf_repo']} any more"
+    paths = hub.shard_paths(f["path"], f.get("shards", 1))
+    if f.get("mtp"):
+        paths.append(f["mtp"])
+    dest = os.path.join(download_dir(), model["hf_repo"].replace("/", "--"))
+    if not DOWNLOADS.start(model["hf_repo"], paths, dest):
+        return "another download is running - try again when it finishes"
+    return ""
+
+
+def post_profiles_import(req):
+    """Turn a recipe into a preset + profile on this machine. When its model
+    isn't here, {missing} (and with download=true, start fetching it)."""
+    try:
+        r = recipes.parse(req.body.get("recipe"), _known_knobs())
+    except ValueError as e:
+        raise ApiError(400, str(e))
+    local = recipes.match_local(r["model"], config.read_sections())
+    if not local:
+        out = {"ok": False, "missing": r["model"], "dropped": r["dropped"]}
+        if req.body.get("download"):
+            err = _start_recipe_download(r["model"])
+            out.update(downloading=not err, error=err)
+        return 200, out
+    preset = ""
+    if r["settings"]:
+        preset = recipes.unique_name(r["name"], config.get_presets())
+        config.save_preset(preset, r["settings"])
+    engine = recipes.match_engine(r["engine"], prebuilt.list_installs(ENGINES_DIR, cfg().get("server_bin", "")))
+    name = recipes.unique_name(r["name"], config.get_profiles())
+    config.save_profile(name, {"model": local, "backend": "llamacpp", "preset": preset, "engine": engine})
+    wanted = r["engine"] and not engine
+    return 200, {"ok": True, "name": name, "model": local, "preset": preset, "engine": engine,
+                 "engine_missing": f"{r['engine']['tag']} {r['engine']['variant']}".strip() if wanted else "",
+                 "dropped": r["dropped"]}
+
+
 def post_build_start(req):
     c = cfg()
     target = req.body.get("target", "llamacpp")
@@ -1930,6 +2005,8 @@ POST_ROUTES = {
     "/api/profiles/save":       post_profiles_save,
     "/api/profiles/delete":     post_profiles_delete,
     "/api/profiles/launch":     post_profiles_launch,
+    "/api/profiles/export":     post_profiles_export,
+    "/api/profiles/import":     post_profiles_import,
     "/api/build/start":         post_build_start,
     "/api/setup/install":       post_setup_install,
     "/api/scan":                post_scan,
