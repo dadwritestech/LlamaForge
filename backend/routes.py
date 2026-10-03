@@ -1289,7 +1289,7 @@ def post_profiles_export(req):
 
 def _known_knobs():
     try:
-        return {a for g in schema().get("groups", []) for k in g.get("knobs", [])
+        return {a: k.get("type") for g in schema().get("groups", []) for k in g.get("knobs", [])
                 for a in [k.get("key")] + list(k.get("aliases") or []) if a} or None
     except Exception:
         return None                # no schema (router binary missing): shareable() still applies

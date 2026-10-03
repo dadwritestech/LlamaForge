@@ -25,6 +25,30 @@ class Shareable(unittest.TestCase):
                   "ssl-key-file", "models-dir", "grammar-file", "Temp", "temp;x", "", "../x"]:
             self.assertFalse(recipes.shareable(k), k)
 
+    def test_tools_cors_downloads_and_templates_are_dropped(self):
+        # found by auditing every knob in a live `llama-server --help` schema
+        for k in ["spec-draft-model", "lookup-cache-static", "lookup-cache-dynamic", "mcp-servers-config",
+                  "mcp-servers-json", "tools", "tools-runtime", "agent", "ui-mcp-proxy", "ui", "ui-config",
+                  "cors-origins", "cors-credentials", "docker-repo", "offline", "list-devices",
+                  "gpt-oss-20b-default", "fim-qwen-7b-spec", "spec-default", "embd-gemma-default",
+                  "chat-template", "reuse-port", "threads-http", "embedding", "rerank"]:
+            self.assertFalse(recipes.shareable(k), k)
+
+    def test_machine_specific_knobs_are_not_shared(self):
+        for k in ["main-gpu", "tensor-split", "split-mode", "device", "threads", "threads-batch",
+                  "cpu-mask", "cpu-range-batch", "numa", "prio", "poll", "spec-draft-device",
+                  "spec-draft-threads", "spec-draft-cpu-mask"]:
+            self.assertFalse(recipes.shareable(k), k)
+
+    def test_any_knob_typed_path_is_dropped(self):
+        self.assertTrue(recipes.shareable("some-new-knob"))
+        self.assertFalse(recipes.shareable("some-new-knob", "path"))
+
+    def test_still_shares_the_useful_stuff(self):
+        for k in ["spec-type", "spec-draft-n-max", "reasoning", "reasoning-budget", "chat-template-kwargs",
+                  "cache-ram", "mmap", "fit", "n-cpu-moe", "spec-draft-n-cpu-moe", "jinja", "parallel"]:
+            self.assertTrue(recipes.shareable(k), k)
+
 
 class Origin(unittest.TestCase):
     def test_llamaforge_download_folder(self):
@@ -93,6 +117,11 @@ class Parse(unittest.TestCase):
     def test_unknown_keys_dropped_when_schema_known(self):
         p = recipes.parse(self.good(), known_keys={"temp"})
         self.assertEqual((p["settings"], p["dropped"]), ({"temp": "0.2"}, ["ctx-size"]))
+
+    def test_schema_types_drop_path_knobs(self):
+        p = recipes.parse(self.good(settings={"temp": "0.2", "new-cache-file-ish": "C:/x"}),
+                          known_keys={"temp": "float", "new-cache-file-ish": "path"})
+        self.assertEqual((p["settings"], p["dropped"]), ({"temp": "0.2"}, ["new-cache-file-ish"]))
 
     def test_newlines_in_values_are_rejected(self):
         # a newline would let a recipe write arbitrary models.ini lines

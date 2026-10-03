@@ -18,19 +18,36 @@ MAX_VALUE = 4000
 
 _KEY_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 _REPO_RE = re.compile(r"^[A-Za-z0-9][\w.-]*/[\w.-]+$")
-# Flags that read/write files, reach other hosts, or carry secrets. Matched as
-# exact names, prefixes, or suffixes on top of argspec.RESERVED (router-owned).
+# Flags that read/write files, reach other hosts, carry secrets, switch on
+# server-side tools, loosen CORS, download models, or swap the chat template.
+# Matched as exact names, prefixes, or suffixes on top of argspec.RESERVED
+# (router-owned); on top of that, any knob the live schema types as "path".
+# Audited against every flag in a live `llama-server --help` (2026-10).
 _DENY = {"rpc", "lora", "lora-scaled", "slot-save-path", "media-path", "webui",
-         "props", "metrics", "slots", "api-prefix", "static-path"}
+         "props", "metrics", "slots", "api-prefix", "static-path",
+         "tools", "tools-runtime", "agent", "ui", "ui-config", "ui-mcp-proxy",
+         "docker-repo", "offline", "list-devices", "chat-template", "reuse-port",
+         "threads-http", "embedding", "rerank", "lookup-cache-static",
+         "lookup-cache-dynamic"}
 _DENY_PREFIX = ("model", "mmproj", "hf-", "lora", "control-vector", "ssl-",
-                "log-", "api-key", "draft-model", "vocoder", "tts-")
-_DENY_SUFFIX = ("-file", "-path", "-dir", "-url", "-host")
+                "log-", "api-key", "draft-model", "spec-draft-model", "vocoder",
+                "tts-", "cors-", "mcp-")
+_DENY_SUFFIX = ("-file", "-path", "-dir", "-url", "-host", "-model", "-config",
+                "-default", "-spec")
+# Right on the machine that made the recipe, wrong on anyone else's: GPU
+# topology and CPU pinning. llama.cpp's own defaults are the better guess.
+_MACHINE = {"main-gpu", "tensor-split", "split-mode", "device", "numa",
+            "threads", "threads-batch", "prio", "prio-batch", "poll", "poll-batch"}
+_MACHINE_PREFIX = ("cpu-", "spec-draft-cpu-", "spec-draft-threads",
+                   "spec-draft-prio", "spec-draft-poll", "spec-draft-device")
 
 
-def shareable(key):
-    """True for knobs safe to carry between machines (sampling, ctx, offload...)."""
-    return (isinstance(key, str) and bool(_KEY_RE.match(key))
+def shareable(key, kind=None):
+    """True for knobs safe and sensible to carry between machines (sampling,
+    ctx, offload...). `kind` is the schema type when known."""
+    return (isinstance(key, str) and bool(_KEY_RE.match(key)) and kind != "path"
             and key not in argspec.RESERVED and key not in _DENY
+            and key not in _MACHINE and not key.startswith(_MACHINE_PREFIX)
             and not key.startswith(_DENY_PREFIX) and not key.endswith(_DENY_SUFFIX))
 
 
@@ -91,7 +108,9 @@ def _text(v, field, limit=200):
 def parse(src, known_keys=None):
     """Validate an untrusted recipe (dict or JSON text). Returns
     {name, model{id,file,hf_repo}, settings, engine, dropped}; ValueError if it
-    isn't a usable recipe. Unsafe or unknown knobs are dropped and listed."""
+    isn't a usable recipe. Unsafe or unknown knobs are dropped and listed.
+    `known_keys` is a set of schema keys, or a {key: type} dict so knobs the
+    schema types as paths are dropped too."""
     if isinstance(src, str):
         try:
             src = json.loads(src)
@@ -114,7 +133,8 @@ def parse(src, known_keys=None):
     settings, dropped = {}, []
     for k, v in raw.items():
         v = _text(v, f"setting {k!r}", MAX_VALUE)
-        if shareable(k) and (known_keys is None or k in known_keys):
+        kind = known_keys.get(k) if isinstance(known_keys, dict) else None
+        if shareable(k, kind) and (known_keys is None or k in known_keys):
             if v:
                 settings[k] = v
         else:
