@@ -388,8 +388,11 @@ def main():
             print(f"  created {config.ini_path()}")
     except OSError as e:    # unwritable path: say so, the router will fail next
         print(f"  WARNING: could not create models.ini ({e})")
-    try:                    # backfill ctx-size defaults, then nudge the router
-        if config.apply_ctx_defaults().get("changed"):
+    try:                    # hand context back to --fit, clamp the impossible, nudge the router
+        released = config.release_legacy_ctx_pin()
+        if released:
+            print("  removed the old [*] ctx-size = 150000 pin; llama.cpp's --fit sizes context now")
+        if config.apply_ctx_defaults().get("changed") or released:
             routes.router("/models?reload=1")
     except Exception:
         pass

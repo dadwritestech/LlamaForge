@@ -77,6 +77,12 @@ class EnsureModelsIniTest(_ConfigTempCase):
         config.ensure_models_ini(path)
         self.assertIn("*", config.read_sections(path))
 
+    def test_new_file_pins_no_context(self):
+        """--fit picks ctx at load; a pinned [*] ctx-size switches it off."""
+        path = os.path.join(self.tmp, "models.ini")
+        config.ensure_models_ini(path)
+        self.assertNotIn("ctx-size", config.read_sections(path)["*"])
+
     def test_existing_file_is_never_touched(self):
         path = os.path.join(self.tmp, "models.ini")
         original = "[*]\nctx-size = 4096\n\n[mymodel]\nmodel = /m.gguf\n"

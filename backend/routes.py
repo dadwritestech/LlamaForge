@@ -410,7 +410,7 @@ def _autotune_refine(body):
         base = rec.get("knobs") or {}
 
     def load_fn(knobs):
-        config.set_keys(mid, knobs)
+        config.set_keys(mid, _clean_settings(knobs))     # blank = unset (left to --fit)
         router("/models?reload=1")
         code, res = router("/models/load", "POST", {"model": mid})
         if code >= 400:

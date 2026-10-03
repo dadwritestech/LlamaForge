@@ -634,67 +634,64 @@ def bindings_for_preset(name, engine=None):
 
 # ---------------- automatic ctx-size defaults ----------------
 
-CTX_GLOBAL_DEFAULT = str(gguf.CTX_FULL)   # "150000"
+LEGACY_GLOBAL_CTX = str(gguf.CTX_FULL)   # "150000": what old versions forced into [*]
 
 def apply_ctx_defaults(path=None):
-    """Set sane ctx-size defaults across models.ini, idempotently.
+    """Clamp per-model ctx-size values that over-extend the GGUF's trained length.
 
-    - global [*]: ctx-size = 150000 (the baseline for models that support it)
-    - each model with no ctx-size of its own: get one when it can't reach the
-      global - 100000, capped at the model's GGUF-trained length.
-    - each model that already has one: keep it, except to clamp a value that
-      over-extends past the trained length.
-
-    This runs on every panel startup, so it only ever fills a gap or clamps an
-    impossible value; it never overrules a ctx-size that is already there.
-    A trained length is not a VRAM budget: a 27B Q6_K trained to 262144 still
-    OOMs at 150000 on a 32 GB box, and the explicit 65536 sitting in the file is
-    how the user encoded that. Deleting it (the old behaviour, on the theory
-    that the model "supports the global") silently reimposed a config that could
-    not load. Models whose trained length can't be read are left untouched, and
-    only sections that actually change are rewritten.
+    Runs on every panel startup, so it only ever fixes an impossible value; it
+    never adds a ctx-size and never touches [*]. Context is llama.cpp's --fit's
+    job: it picks the largest window that fits the free VRAM at load, and a
+    pinned ctx-size (global or per model) turns fit off entirely. Older versions
+    wrote [*] ctx-size = 150000 on every startup, overruling the user and
+    defeating fit; release_legacy_ctx_pin() undoes that once.
 
     Returns {"changed": [section, ...]}.
     """
     path = path or ini_path()
     if not path or not os.path.exists(path):
         return {"changed": []}
-    # Held across the whole scan+rewrite: the decision to drop or set each
-    # section's ctx-size is made from `secs`, so a concurrent set_keys between
-    # the read and the writes would be silently reverted.
+    # Held across the whole scan+rewrite so a concurrent set_keys between the
+    # read and the writes isn't silently reverted.
     with _INI_LOCK:
         secs = read_sections(path)
         changed = []
-
-        glob = secs.get("*", {})
-        if glob.get("ctx-size") != CTX_GLOBAL_DEFAULT:
-            _set_keys_locked("*", {"ctx-size": CTX_GLOBAL_DEFAULT}, path)
-            changed.append("*")
-
         for sec, kv in secs.items():
-            if sec == "*":
+            if sec == "*" or not kv.get("model") or kv.get("ctx-size") is None:
                 continue
-            mpath = kv.get("model")
-            if not mpath:
+            d = gguf.default_ctx(kv["model"])
+            if not d:                       # unknown, or it reaches the old global
                 continue
-            d = gguf.default_ctx(mpath)
-            if d is None:                   # unknown trained length -> leave as-is
-                continue
-            cur = kv.get("ctx-size")
-            if d == 0:                      # can reach the global; nothing to add
-                continue
-            if cur is None:                 # gap -> fill it
-                _set_keys_locked(sec, {"ctx-size": str(d)}, path)
-                changed.append(sec)
-                continue
-            try:                            # present -> only clamp over-extension
-                over = int(cur) > d
+            try:
+                over = int(kv["ctx-size"]) > d
             except ValueError:              # unparseable: the user's problem, not ours
                 continue
             if over:
                 _set_keys_locked(sec, {"ctx-size": str(d)}, path)
                 changed.append(sec)
         return {"changed": changed}
+
+def release_legacy_ctx_pin(path=None):
+    """Drop the [*] ctx-size = 150000 old versions forced in, once per
+    models.ini (recorded in config.json), so a value the user sets afterwards
+    is theirs. Returns True if it removed the pin."""
+    path = path or ini_path()
+    if not path or not os.path.exists(path):
+        return False
+    key = os.path.normcase(os.path.abspath(path))
+    with _LOCK:
+        cfg = load()
+        done = cfg.get("ctx_pin_released")
+        done = list(done) if isinstance(done, list) else []
+        if key in done:
+            return False
+        with _INI_LOCK:
+            pinned = read_sections(path).get("*", {}).get("ctx-size") == LEGACY_GLOBAL_CTX
+            if pinned:
+                _set_keys_locked("*", {"ctx-size": None}, path)
+        cfg["ctx_pin_released"] = done + [key]
+        save(cfg)
+        return pinned
 
 def ensure_models_ini(path=None, defaults=None):
     """Create models.ini with a [*] global section if it isn't there yet.
@@ -717,6 +714,8 @@ def ensure_models_ini(path=None, defaults=None):
         with open(path, "w", encoding="utf-8", newline="") as f:
             f.write("; LlamaForge model registry - read by llama-server's router.\n"
                     "; Sections are model ids; keys are llama-server flags.\n"
-                    "version = 1\n")
-        _set_keys_locked("*", defaults or {"ctx-size": CTX_GLOBAL_DEFAULT}, path)
+                    "version = 1\n\n[*]\n")
+        # no ctx-size: llama.cpp's --fit sizes context at load (see apply_ctx_defaults)
+        if defaults:
+            _set_keys_locked("*", defaults, path)
         return True

@@ -10,27 +10,27 @@ def gpu(vram_mib, cc="8.6"):
 
 
 class TestRecommendCore(unittest.TestCase):
-    def test_no_gpu_is_cpu_only(self):
+    """llama.cpp's --fit (default on) sizes ctx, GPU layers, the multi-GPU split
+    and MoE expert placement at load - but gives up entirely if any of ctx-size,
+    n-gpu-layers or tensor-split is pinned. So autotune never pins them; it
+    returns them blank (= unset) so applying a recommendation clears old pins."""
+
+    def test_no_gpu_lets_flash_attention_decide(self):
         hw = {"gpus": [], "cpu": {"threads": 16, "cores": 8}}
         r = autotune.recommend({"block_count": 32}, hw, "balanced")
-        self.assertEqual(r["knobs"]["n-gpu-layers"], "0")
-        self.assertEqual(r["knobs"]["flash-attn"], "off")
+        self.assertEqual(r["knobs"]["flash-attn"], "auto")   # CPU has FA kernels too
         self.assertEqual(r["knobs"]["threads"], "16")
 
-    def test_small_model_full_offload(self):
-        hw = {"gpus": [gpu(24000)], "cpu": {"threads": 24, "cores": 12}}
-        r = autotune.recommend({"block_count": 32}, hw, "balanced",
-                               size_bytes=5 * 1024 * MIB)  # ~5 GB weights, fits 24 GB
-        self.assertEqual(r["knobs"]["n-gpu-layers"], "99")
-        self.assertEqual(r["knobs"]["flash-attn"], "on")
-
-    def test_big_model_partial_offload(self):
-        hw = {"gpus": [gpu(8000)], "cpu": {"threads": 16, "cores": 8}}
-        # 40 GB weights on an 8 GB card -> partial offload, some layers of 80
-        r = autotune.recommend({"block_count": 80}, hw, "balanced",
-                               size_bytes=40 * 1024 * MIB)
-        ngl = int(r["knobs"]["n-gpu-layers"])
-        self.assertTrue(0 < ngl < 80)
+    def test_never_pins_what_fit_sizes(self):
+        for gpus in ([gpu(24000)], [gpu(8000)], [gpu(16000), gpu(16000)], []):
+            for size in (5, 40):
+                r = autotune.recommend({"block_count": 80, "context_length": 131072},
+                                       {"gpus": gpus, "cpu": {}}, "balanced",
+                                       size_bytes=size * 1024 * MIB)
+                for k in ("n-gpu-layers", "tensor-split", "ctx-size"):
+                    self.assertEqual(r["knobs"].get(k), "", (gpus, size, k))
+                self.assertEqual(r["knobs"]["fit"], "on")
+                self.assertEqual(r["knobs"]["flash-attn"], "auto")
 
     def test_rationale_present_for_each_knob(self):
         hw = {"gpus": [gpu(24000)], "cpu": {"threads": 24, "cores": 12}}
@@ -43,11 +43,7 @@ class TestRecommendCore(unittest.TestCase):
     def test_unknown_meta_degrades_gracefully(self):
         hw = {"gpus": [gpu(24000)], "cpu": {"threads": 24, "cores": 12}}
         r = autotune.recommend({}, hw, "balanced", size_bytes=None)
-        # no layers / no size known -> safe full-offload attempt, no crash
-        self.assertIn("n-gpu-layers", r["knobs"])
-        # rationale should indicate unknown, not falsely claim weights fit
-        rationale = r["rationale"]["n-gpu-layers"].lower()
-        self.assertIn("unknown", rationale)
+        self.assertEqual(r["knobs"]["fit"], "on")
 
 
 if __name__ == "__main__":

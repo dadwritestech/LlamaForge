@@ -13,7 +13,7 @@ class TestAutotunePrediction(unittest.TestCase):
                                  prediction=pred)
         self.assertIn("prediction", rec)
         self.assertEqual(rec["prediction"]["regime"], "hybrid")
-        self.assertIn("~18.0 tok/s", rec["rationale"]["n-gpu-layers"])
+        self.assertIn("~18.0 tok/s", rec["rationale"]["fit"])
 
     def test_no_prediction_keeps_old_shape(self):
         meta = {"block_count": 32}
