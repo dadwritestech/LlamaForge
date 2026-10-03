@@ -8,19 +8,19 @@ order: 1
 
 ## How is LlamaForge different from LM Studio, Ollama, or Jan?
 
-Those tools are zero-config, double-click installers with no compile step. LlamaForge is not: it assumes you're comfortable running a setup script once and building llama.cpp for your machine — both guided from the dashboard. In exchange, it gives you direct, per-model control over the real llama.cpp server rather than an abstraction over it. If you want something running with no compile step, [LM Studio](https://lmstudio.ai), [Ollama](https://ollama.com), or [Jan](https://jan.ai) will get you there faster.
+LlamaForge runs the official llama.cpp server itself (or your own build), so new model support arrives the day llama.cpp ships it, and it gives you per-model control of every `llama-server` flag. Install is also one line with no compiler. Those tools are more mature and more polished: if you'd rather have polish than control, [LM Studio](https://lmstudio.ai), [Ollama](https://ollama.com) or [Jan](https://jan.ai) are good choices.
 
 ## What platforms does it run on?
 
-Windows with an NVIDIA GPU is the primary target (CPU-only also works). Linux (NVIDIA/CPU) and macOS (Apple Silicon, Metal) are supported as an early preview — same dashboard, `bootstrap.sh` instead of `bootstrap.ps1`. See [Installation](install.md) for the per-OS commands.
+Windows with an NVIDIA GPU is the most-tested path. Linux and macOS (Apple Silicon) are an early preview: the same dashboard and a one-line installer, CI-tested on all three but with little real-hardware use so far. See [Installation](install.md) for the per-OS commands.
 
 ## What GPU do I need?
 
-An NVIDIA GPU for CUDA acceleration, or Apple Silicon for Metal on macOS. CPU-only builds are supported everywhere too. Everything else needed to build (Git, CMake, Ninja, a C++ compiler, CUDA) is detected and can be installed from the **Setup** tab where a package manager allows it.
+None strictly. The official llama.cpp builds cover NVIDIA (CUDA), AMD and Intel (Vulkan), Apple Silicon (Metal) and CPU-only, and **Install llama.cpp** picks the right one. More VRAM means bigger models: Discover rates every quant against your VRAM before you download it. Building from source additionally needs Git, CMake, Ninja and a C++ compiler, which the **Setup** tab can install where a package manager allows.
 
 ## Does LlamaForge come with any models?
 
-No. LlamaForge contains no llama.cpp source code and bundles no models. The backend (`backend/server.py`, pure Python stdlib) proxies llama.cpp's own router API and shells out to `git`/`cmake`/`nvidia-smi` and your platform's package manager. Models are found two ways: the **Setup** tab scans your drives (or `$HOME` and mounts) for GGUFs you already have, and the **Discover** tab searches huggingface.co for GGUF (llama.cpp) or safetensors (vLLM) models to download, rated **FITS / TIGHT / CPU OFFLOAD** against your VRAM before you pull one down.
+No. LlamaForge contains no llama.cpp source code and bundles no models. The backend (`backend/server.py`, pure Python stdlib) drives llama.cpp's own router. Models are found two ways: the **Setup** tab scans your drives (or `$HOME` and mounts) for GGUFs you already have, and the **Discover** tab searches huggingface.co for GGUF (llama.cpp) or safetensors (vLLM) models to download, rated **FITS / TIGHT / CPU OFFLOAD** against your VRAM before you pull one down.
 
 ## What is the second "engine," vLLM, and why does it need WSL2?
 
@@ -36,4 +36,4 @@ toggle. See [SECURITY.md](https://github.com/dadwritestech/LlamaForge/blob/maste
 
 ## Where do I go if something breaks?
 
-See [Troubleshooting](troubleshooting.md) for the real failure messages LlamaForge's load-failure diagnosis recognizes, plus common install/build issues.
+See [Troubleshooting](troubleshooting.md) for the llama.cpp errors the load-failure hint recognizes, plus common install and build issues.

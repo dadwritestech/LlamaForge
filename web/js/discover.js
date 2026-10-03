@@ -106,7 +106,7 @@ export function loadDiscover() {
           <option value="gguf">GGUF (llama.cpp)</option>
           <option value="safetensors">safetensors (vLLM)</option>
         </select>
-        <input class="search" id="hub-q" placeholder="search models (e.g. qwen coder, gemma vision)... blank = most downloaded">
+        <input class="search" id="hub-q" placeholder="search models (e.g. qwen coder, gemma vision)... or leave blank to browse">
         <select id="hub-sort" style="background:var(--inset);border:1px solid var(--hair);color:var(--ink);font-family:var(--mono);font-size:12px;padding:8px">
           <option value="trending">new &amp; trending (14 days)</option>
           <option value="downloads">most downloaded</option>

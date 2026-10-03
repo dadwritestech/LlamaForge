@@ -36,7 +36,7 @@ order: 1
 | `presets` | object | `{}` | Named knob sets: `{name: {knob: value}}`, managed from the dashboard. |
 | `preset_bindings` | object | `{}` | Preset bound as each model's default, scoped by llama-family engine: `{engine: {model_id: preset_name}}`. |
 | `preset_binding_snapshots` | object | `{}` | Engine-scoped values materialized by a preset binding: `{engine: {model_id: {knob: value}}}`. LlamaForge uses these snapshots to retain model values you subsequently change yourself. |
-| `ui_mode` | string | `"lite"` | `"lite"` shows a curated knob set; `"advanced"` exposes all ~220 llama-server flags. |
+| `ui_mode` | string | `"lite"` | `"lite"` shows a curated knob set; `"advanced"` exposes every flag your `llama-server --help` lists (200+ on current builds). |
 | `onboarded` | bool | `False` | Whether the first-run wizard has already been shown; set to `True` once dismissed. |
 | `anthropic_default_model` | string | `""` | Fallback local model id used by the Anthropic-compatible shim when a request doesn't map to one. |
 | `anthropic_shim_enabled` | bool | `True` | Whether `/v1/messages` (Anthropic-compatible) is served. |
