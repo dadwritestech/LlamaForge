@@ -10,7 +10,6 @@
     "ctx-size": "80000",
     "flash-attn": "on",
     "jinja": "true",
-    "n-gpu-layers": "99",
     "no-mmproj": "false",
     "parallel": "1",
     "reasoning": "off",

@@ -14,7 +14,6 @@
     "jinja": "true",
     "mmap": "false",
     "n-cpu-moe": "10",
-    "n-gpu-layers": "99",
     "no-mmproj": "false",
     "parallel": "1",
     "temp": "1.0",

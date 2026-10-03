@@ -27,6 +27,10 @@ Hugging Face if you don't have it) and the same settings.
 - Notes explain the knobs. No speed claims we can't reproduce; if you include a
   number, say how you measured it.
 - One recipe per file. Short lowercase file names, `-` between words.
-- Recipes carry tuning knobs only. Anything that names a path, host, URL, key,
-  tool, or a specific GPU on your machine is dropped on import, and CI rejects a
-  recipe here that contains one (`tests/test_gallery.py`).
+- Recipes carry tuning knobs only, from an explicit allowlist in
+  `backend/recipes.py` (context, KV cache, offload, sampling, speculative,
+  chat/reasoning). Anything else is dropped on import: paths, hosts, URLs, keys,
+  tools, server behaviour such as timeouts or logging, and your GPU layout. CI
+  rejects a recipe here that contains one (`tests/test_gallery.py`).
+- Use the canonical knob names (`ctx-size`, not `c`). Leave out `gpu-layers`
+  and `tensor-split`, so `--fit` can size the model to the importer's card.

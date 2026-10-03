@@ -14,9 +14,19 @@ INSTALLS = [
 ]
 
 
+# shaped like argspec.schema(): aliases are long forms without dashes, short
+# flags only ever appear in "flags", reserved (router-owned) knobs are absent
+SCHEMA = {"groups": [{"knobs": [
+    {"key": "temp", "flags": ["--temp"], "aliases": ["temp"], "type": "float"},
+    {"key": "gpu-layers", "flags": ["-ngl", "--gpu-layers", "--n-gpu-layers"],
+     "aliases": ["gpu-layers", "n-gpu-layers"], "type": "int"},
+    {"key": "mmap", "flags": ["--mmap", "--no-mmap"], "aliases": ["mmap", "no-mmap"], "type": "bool"},
+    {"key": "timeout", "flags": ["-to", "--timeout"], "aliases": ["timeout"], "type": "int"}]}]}
+
+
 class Shareable(unittest.TestCase):
     def test_plain_tuning_knobs_pass(self):
-        for k in ["ctx-size", "temp", "top-k", "cache-type-k", "n-gpu-layers", "flash-attn", "override-tensor"]:
+        for k in ["ctx-size", "temp", "top-k", "cache-type-k", "gpu-layers", "flash-attn", "override-tensor"]:
             self.assertTrue(recipes.shareable(k), k)
 
     def test_paths_hosts_and_secrets_are_dropped(self):
@@ -41,13 +51,22 @@ class Shareable(unittest.TestCase):
             self.assertFalse(recipes.shareable(k), k)
 
     def test_any_knob_typed_path_is_dropped(self):
-        self.assertTrue(recipes.shareable("some-new-knob"))
-        self.assertFalse(recipes.shareable("some-new-knob", "path"))
+        self.assertTrue(recipes.shareable("ctx-size"))
+        self.assertFalse(recipes.shareable("ctx-size", "path"))
 
     def test_still_shares_the_useful_stuff(self):
         for k in ["spec-type", "spec-draft-n-max", "reasoning", "reasoning-budget", "chat-template-kwargs",
-                  "cache-ram", "mmap", "fit", "n-cpu-moe", "spec-draft-n-cpu-moe", "jinja", "parallel"]:
+                  "mmap", "fit", "n-cpu-moe", "spec-draft-n-cpu-moe", "jinja", "parallel",
+                  "gpu-layers", "dry-multiplier", "yarn-orig-ctx", "mirostat-lr", "xtc-probability",
+                  "mmproj-auto", "mmproj-offload"]:
             self.assertTrue(recipes.shareable(k), k)
+
+    def test_only_allowlisted_knobs_are_shared(self):
+        # a denylist can't anticipate the next upstream flag; recipes only carry
+        # knobs someone decided are tuning, not server/runtime behaviour
+        for k in ["timeout", "verbose", "verbosity", "cache-ram", "sleep-idle-seconds", "perf",
+                  "escape", "check-tensors", "some-new-knob", "tags", "sse-ping-interval"]:
+            self.assertFalse(recipes.shareable(k), k)
 
 
 class Origin(unittest.TestCase):
@@ -115,13 +134,37 @@ class Parse(unittest.TestCase):
         self.assertEqual(sorted(p["dropped"]), ["log-file", "rpc"])
 
     def test_unknown_keys_dropped_when_schema_known(self):
-        p = recipes.parse(self.good(), known_keys={"temp"})
+        p = recipes.parse(self.good(), recipes.knob_index(SCHEMA))
         self.assertEqual((p["settings"], p["dropped"]), ({"temp": "0.2"}, ["ctx-size"]))
 
     def test_schema_types_drop_path_knobs(self):
-        p = recipes.parse(self.good(settings={"temp": "0.2", "new-cache-file-ish": "C:/x"}),
-                          known_keys={"temp": "float", "new-cache-file-ish": "path"})
-        self.assertEqual((p["settings"], p["dropped"]), ({"temp": "0.2"}, ["new-cache-file-ish"]))
+        schema = {"groups": [{"knobs": [{"key": "temp", "type": "float"},
+                                        {"key": "top-k", "type": "path"}]}]}
+        p = recipes.parse(self.good(settings={"temp": "0.2", "top-k": "C:/x"}), recipes.knob_index(schema))
+        self.assertEqual((p["settings"], p["dropped"]), ({"temp": "0.2"}, ["top-k"]))
+
+    def test_aliases_are_canonicalized_through_the_schema(self):
+        # n-gpu-layers is an alias of gpu-layers: allowlisting the canonical name
+        # must not let an unlisted alias spelling slip past, nor drop a listed one
+        p = recipes.parse(self.good(settings={"n-gpu-layers": "99", "no-mmap": "true", "temp": "0.2"}),
+                          recipes.knob_index(SCHEMA))
+        self.assertEqual(p["settings"], {"gpu-layers": "99", "no-mmap": "true", "temp": "0.2"})
+        self.assertEqual(p["dropped"], [])
+
+    def test_short_flags_and_aliases_of_denied_knobs_are_dropped(self):
+        p = recipes.parse(self.good(settings={"hf-repo-draft": "x/y", "hfd": "x/y", "ngl": "99",
+                                              "to": "5", "timeout": "5", "temp": "0.2"}),
+                          recipes.knob_index(SCHEMA))
+        self.assertEqual(p["settings"], {"temp": "0.2"})
+        self.assertEqual(sorted(p["dropped"]), ["hf-repo-draft", "hfd", "ngl", "timeout", "to"])
+
+    def test_without_a_schema_only_canonical_allowlisted_names_pass(self):
+        p = recipes.parse(self.good(settings={"n-gpu-layers": "99", "gpu-layers": "99", "temp": "0.2"}))
+        self.assertEqual((p["settings"], p["dropped"]), ({"gpu-layers": "99", "temp": "0.2"}, ["n-gpu-layers"]))
+
+    def test_clean_filters_a_saved_preset_the_same_way(self):
+        out = recipes.clean({"n-gpu-layers": "99", "timeout": "5", "temp": None}, recipes.knob_index(SCHEMA))
+        self.assertEqual(out, ({"gpu-layers": "99", "temp": None}, ["timeout"]))
 
     def test_newlines_in_values_are_rejected(self):
         # a newline would let a recipe write arbitrary models.ini lines
@@ -181,11 +224,13 @@ class Routes(unittest.TestCase):
         orig = config.CONFIG
         config.CONFIG = os.path.join(self.dir, "config.json")
         self.addCleanup(setattr, config, "CONFIG", orig)
+        self.known = recipes.knob_index({"groups": [{"knobs": [
+            {"key": k, "aliases": [k], "type": "str"} for k in ["ctx-size", "temp", "flash-attn", "timeout"]]}]})
         self.sections = {"qwen-coder": {"model": "D:/m/unsloth--Qwen3-Coder-GGUF/Qwen3-Coder-Q4_K_M.gguf",
                                         "ctx-size": "32768", "rpc": "10.0.0.5:1"}}
         for target, attr, val in [(config, "read_sections", lambda *a: self.sections),
                                   (prebuilt, "list_installs", lambda *a, **k: INSTALLS),
-                                  (routes, "_known_knobs", lambda: None)]:
+                                  (routes, "_known_knobs", lambda: self.known)]:
             pt = mock.patch.object(target, attr, val)
             pt.start(); self.addCleanup(pt.stop)
         config.save_preset("coding", {"temp": "0.2"})
@@ -229,6 +274,32 @@ class Routes(unittest.TestCase):
         repo, paths, _dest = start.call_args[0]
         self.assertEqual((repo, paths), ("unsloth/Qwen3-Coder-GGUF",
                                          ["Q4/Big-00001-of-00002.gguf", "Q4/Big-00002-of-00002.gguf"]))
+
+    def test_import_is_refused_without_a_knob_schema(self):
+        recipe = self.call(self.routes.post_profiles_export, name="coder")["recipe"]
+        self.known = None
+        with self.assertRaises(self.routes.ApiError) as cm:
+            self.call(self.routes.post_profiles_import, recipe=recipe)
+        self.assertEqual(cm.exception.status, 409)
+        self.assertEqual(set(self.config.get_profiles()), {"coder"})
+
+    def test_imported_profile_is_refiltered_at_launch(self):
+        from unittest import mock
+        recipe = self.call(self.routes.post_profiles_export, name="coder")["recipe"]
+        out = self.call(self.routes.post_profiles_import, recipe=recipe)
+        self.assertEqual(self.config.get_profiles()[out["name"]]["source"], "recipe")
+        # re-saving it from the profile editor (no "source" field) keeps the mark
+        self.config.save_profile(out["name"], dict(self.config.get_profiles()[out["name"]], source=""))
+        self.assertEqual(self.config.get_profiles()[out["name"]]["source"], "recipe")
+        # someone edits the imported preset to add a server knob afterwards
+        self.config.save_preset(out["preset"], {"temp": "0.2", "timeout": "1"})
+        applied = {}
+        loader = mock.Mock(); loader.load.return_value = (True, "")
+        with mock.patch.object(self.routes, "_apply_knobs_and_reload",
+                               side_effect=lambda m, s: applied.update(s)),              mock.patch.object(self.routes, "_activate_prebuilt", return_value=(True, "")),              mock.patch.object(self.routes, "_wait_router", return_value=True),              mock.patch.object(self.routes.REGISTRY, "for_model", return_value=loader):
+            res = self.call(self.routes.post_profiles_launch, name=out["name"])
+        self.assertTrue(res["ok"], res)
+        self.assertEqual(applied, {"temp": "0.2"})
 
     def test_evil_recipe_is_refused(self):
         evil = {"llamaforge_recipe": 1, "name": "x", "model": {"id": "x", "file": "x.gguf", "hf_repo": ""},

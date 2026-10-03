@@ -487,6 +487,11 @@ def save_profile(name, prof):
         profiles = cfg.get("profiles")
         if not isinstance(profiles, dict):
             profiles = {}
+        # "recipe" marks an import from a stranger; editing the profile in the
+        # UI must not launder that away (launch re-filters its preset)
+        source = prof.get("source") or (profiles.get(name) or {}).get("source")
+        if source == "recipe":
+            clean["source"] = "recipe"
         profiles[name] = clean
         cfg["profiles"] = profiles
         save(cfg)

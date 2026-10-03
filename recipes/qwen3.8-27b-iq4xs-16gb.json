@@ -13,7 +13,6 @@
     "flash-attn": "on",
     "jinja": "true",
     "mmap": "false",
-    "n-gpu-layers": "99",
     "no-mmproj": "false",
     "parallel": "1",
     "spec-type": "none",
