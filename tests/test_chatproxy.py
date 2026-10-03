@@ -26,6 +26,12 @@ class PathTest(unittest.TestCase):
                              "authorization": "Bearer sekrit"})
         self.assertNotIn("authorization", chatproxy.upstream_headers({}, ""))
 
+    def test_accept_encoding_reaches_the_router(self):
+        """llama-server ships its web UI pre-gzipped and answers "gzip is not
+        supported by this browser" unless the request says it accepts gzip."""
+        h = chatproxy.upstream_headers({"accept-encoding": "gzip, deflate, br"}, "")
+        self.assertEqual(h.get("accept-encoding"), "gzip, deflate, br")
+
     def test_chat_origin_cannot_drive_the_panel(self):
         """The whole point of the separate port: the panel refuses it."""
         self.assertFalse(server._origin_ok("http://127.0.0.1:8091", 8090))
