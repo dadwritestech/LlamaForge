@@ -30,6 +30,14 @@ build it, keep it current with upstream, discover models that fit your hardware,
 tune **every** server parameter per model, and run — all from your browser instead
 of hand-editing `models.ini` and long `llama-server` command lines.
 
+```powershell
+irm https://raw.githubusercontent.com/dadwritestech/LlamaForge/master/install.ps1 | iex   # Windows
+```
+```bash
+curl -fsSL https://raw.githubusercontent.com/dadwritestech/LlamaForge/master/install.sh | sh   # Linux / macOS
+```
+One line, no admin, no compiler: then **Install llama.cpp** → pick a model in **Discover** → **Chat**. [Details](#install).
+
 **Who it's for:** people who want llama.cpp's speed and control but would rather not
 memorize flags, edit config files by hand, or babysit build commands. Install is one
 line, and the dashboard fetches the official llama.cpp build for your GPU in one
@@ -48,6 +56,27 @@ with direct, per-model control over every flag.
 <p align="center">
   <img src="docs/demo.gif" alt="LlamaForge demo — model list, GGUF metadata + presets, side-by-side compare, and copy-paste client config" width="100%">
 </p>
+
+## Why LlamaForge
+
+New model architectures land in **llama.cpp** first. Desktop apps pass them on when
+they next update their bundled engine. LlamaForge runs the **official llama.cpp
+release itself** (or your own build/fork), so a new model is one **Update** click away,
+and it puts a real UI over every server flag instead of a curated subset.
+
+| | **LlamaForge** | LM Studio | Ollama |
+|---|---|---|---|
+| Open source | ✅ MIT | ❌ proprietary app | ✅ MIT |
+| Engine | official upstream llama.cpp builds, any version, or your own fork | LM Studio's bundled llama.cpp / MLX runtimes | Ollama's own engine on ggml |
+| Per-model control of every `llama-server` flag | ✅ ~220, read live from `--help` | common settings | Modelfile parameters |
+| Any GGUF from Hugging Face, rated for your VRAM before download | ✅ | ✅ | pulls GGUFs, no fit rating |
+| OpenAI + Anthropic-compatible API, one-click Claude Code / Codex config | ✅ | OpenAI-compatible | OpenAI-compatible |
+| Backend dependencies | none (Python stdlib) | – | – |
+| Native desktop app | ❌ runs in your browser | ✅ | ✅ |
+| Maturity | **early preview** | mature | mature |
+
+<sub>As of October 2026, to the best of our knowledge. Spot something wrong? A PR to fix this table is very welcome.
+If you want the most polished, batteries-included experience today, LM Studio and Ollama are great.</sub>
 
 ## Features
 
@@ -107,10 +136,11 @@ The same dashboard runs everywhere; only the launcher scripts differ.
 
 | | Windows | Linux | macOS (Apple Silicon) |
 |---|---|---|---|
-| llama.cpp | CUDA / CPU | CUDA / CPU | Metal |
+| llama.cpp (built from source) | CUDA / CPU | CUDA / CPU | Metal |
 | vLLM | via WSL2 | — | — |
-| bootstrap | `bootstrap.ps1` | `bootstrap.sh` | `bootstrap.sh` |
-| daily run | `LlamaForge.vbs` | `./run.sh` | `./run.sh` |
+| llama.cpp (one-click official build) | CUDA / Vulkan / CPU | Vulkan / CPU | Metal |
+| install | `irm …/install.ps1 \| iex` | `curl …/install.sh \| sh` | `curl …/install.sh \| sh` |
+| daily run | Start menu → LlamaForge | `llamaforge` / app menu | `llamaforge` / LlamaForge.app |
 | package manager (Setup tab) | winget / choco | apt / dnf / pacman *(commands shown, never auto-`sudo`)* | Homebrew |
 
 ## Quality-of-life
@@ -132,7 +162,7 @@ Small things that add up when you use it every day:
 
 | Key | Action |
 |-----|--------|
-| `1`–`7` | switch views (Models / Stats / Discover / Build / Setup / Context / Help) |
+| `1`–`9` | switch views in sidebar order (Models / Chat / Stats / Discover / Will it run? / Build / Setup / Context / Help) |
 | `/` | focus the model filter (`Esc` clears it) |
 | `↑` / `↓` or `k` / `j` | move the row selection |
 | `Enter` | expand / collapse the selected row |
@@ -192,19 +222,21 @@ LlamaForge or build llama.cpp from source.
 
 ## Daily use
 
-**Windows:** double-click **`LlamaForge.vbs`**. It starts the llama.cpp router and
-the dashboard hidden, then opens your browser. For autostart, put a shortcut to it in
-your Startup folder (`Win+R` -> `shell:startup`).
+**Windows:** open **LlamaForge** from the Start menu or desktop (from a git clone:
+double-click **`LlamaForge.vbs`**). It starts the llama.cpp router and the dashboard
+hidden, then opens your browser. For autostart, copy that shortcut into your Startup
+folder (`Win+R` -> `shell:startup`).
 
-**Linux / macOS:** run **`./run.sh`** — same thing, starts the router and dashboard
-and opens your browser.
+**Linux / macOS:** run **`llamaforge`** (or LlamaForge from the app menu /
+`~/Applications`; from a git clone: `./run.sh`). Same thing: it starts the router and
+dashboard and opens your browser.
 
 - Dashboard: http://127.0.0.1:8090
 - Chat (llama.cpp's own chat UI, inside the dashboard's **Chat** tab): http://127.0.0.1:8091
 - OpenAI-compatible API for your other apps: http://127.0.0.1:8080/v1
 
 To shut everything down — the dashboard, the router, and every model instance the
-router spawned — run the stop script for your OS:
+router spawned — run `llamaforge stop` (Linux / macOS installs) or the stop script:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File stop.ps1   # Windows
@@ -214,10 +246,12 @@ powershell -ExecutionPolicy Bypass -File stop.ps1   # Windows
 ## Requirements
 
 - Windows 10/11 (primary), or Linux / macOS (Apple Silicon) as an early preview
-- Python 3.10+ (backend is **pure stdlib** - nothing to `pip install`)
-- NVIDIA GPU for CUDA acceleration (Metal on Apple Silicon; CPU-only builds also
-  supported everywhere)
-- Everything else (Git, CMake, Ninja, C++ compiler, CUDA) is detected and can be
+- Python 3.10+ (backend is **pure stdlib** - nothing to `pip install`). The Windows
+  installer brings its own private copy if you don't have one.
+- A GPU helps: NVIDIA (CUDA), AMD/Intel (Vulkan), Apple Silicon (Metal). CPU-only
+  works everywhere.
+- That's it for the official llama.cpp builds. **Building from source** additionally
+  needs Git, CMake, Ninja, a C++ compiler and CUDA, which are detected and can be
   installed from the Setup tab where a package manager allows it
 - **vLLM backend (optional, Windows):** WSL2 with GPU passthrough — installed from
   the Setup tab
@@ -280,7 +314,7 @@ by hand always win.
 
 ## Roadmap
 
-Recent additions: **ik_llama** as a second llama-family engine, **binding a preset**
+Recent additions: **one-line installers**, **one-click official llama.cpp builds** (no compiler), a built-in **Chat** tab, **ik_llama** as a second llama-family engine, **binding a preset**
 as a model's default, **auto-wired MTP** draft models, an **offload-aware** VRAM-fit
 rating (MoE included), a more forgiving **first run**, and **"built, with warnings"**
 for partial builds — on top of **Lite / Advanced modes** with a guided first run and

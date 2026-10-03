@@ -7,6 +7,19 @@ gets built next.
 
 ## Now (shipped)
 
+- **One-line installers** — `irm …/install.ps1 | iex` (Windows) and
+  `curl …/install.sh | sh` (Linux/macOS): no git, admin or compiler. A private,
+  SHA-256-pinned Python on Windows when needed; Start menu / Apps & Features,
+  `llamaforge` command, `.desktop` entry or `LlamaForge.app`. Updates keep your
+  settings, models and engines; CI installs, launches, updates and uninstalls on
+  all three OSes. (v0.10.0)
+- **One-click official llama.cpp builds** — the right upstream release for your
+  GPU (CUDA / Vulkan / Metal / CPU), digest-verified, switchable per version, so
+  new model support is an **Update** click away. Building from source stays for
+  forks. (v0.10.0)
+- **Built-in Chat** — llama.cpp's own chat client inside the dashboard, a Chat
+  button on every loaded model, served from its own local origin with the API key
+  added server-side. (v0.10.0)
 - **llama.cpp control panel** — per-model tuning of every `llama-server` flag
   (~220, parsed live from `--help`); saving hot-reloads the model, no restart.
 - **VRAM-fit model discovery** — search HuggingFace GGUFs, each quant rated
@@ -82,6 +95,10 @@ gets built next.
 
 ## Next (in progress)
 
+- **"New this week"** — models llama.cpp just learned to run, surfaced in the
+  dashboard with a VRAM-fit rating and one click to download and chat.
+- **In-app updates** — update LlamaForge itself from the dashboard (the
+  installer's update path, without the terminal).
 - **Named launch profiles** — save a *model + engine + settings* combo and launch
   it in one click. Knob **presets** and [binding one as a model's default](https://github.com/dadwritestech/LlamaForge/issues/2)
   shipped as the first steps; the remaining piece is a single named profile that
