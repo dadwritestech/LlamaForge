@@ -54,7 +54,7 @@ with direct, per-model control over every flag.
 > authors). See [NOTICE](NOTICE). Please support the upstream project.
 
 <p align="center">
-  <img src="docs/demo.gif" alt="LlamaForge demo — model list, GGUF metadata + presets, side-by-side compare, and copy-paste client config" width="100%">
+  <img src="docs/demo.gif" alt="LlamaForge demo: one-line install, one-click official llama.cpp build, setup wizard, built-in chat, VRAM-rated Hugging Face search and per-model flags" width="100%">
 </p>
 
 ## Why LlamaForge
