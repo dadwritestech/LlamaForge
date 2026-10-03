@@ -217,7 +217,7 @@ function rowHead(m, showBackend) {
         <span class="mid" title="${esc(m.id)}">${esc(m.id)}${beTag}${vis?'<span class="tag vis">vision</span>':''}${!m.in_ini?'<span class="tag">auto</span>':''}${m.endpoint?`<span class="tag ep" data-ep="${esc(m.endpoint)}" title="click to copy endpoint">${esc(m.endpoint.replace('http://',''))}</span>`:''}</span>
         <span class="ctxpill"><span class="k">CTX</span> ${esc(m.eff_ctx)}</span>
         <span class="stat ${loaded?"loaded":""}" style="${stuckSecs>=20?"color:var(--red)":""}">${m.failed?"FAILED":esc(m.status)}${stuckSecs>=20?` (${stuckSecs}s, check log)`:""}</span>
-        ${quickBtn(m)}
+        <span class="qbtns">${quickBtn(m)}</span>
         <span class="chev">&#9654;</span>`;
 }
 // Everything rowHead() reads. Compared as a string so an unchanged row is left
