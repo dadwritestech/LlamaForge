@@ -54,7 +54,6 @@ if [ -n "$models_ini" ] && [ ! -f "$models_ini" ]; then
 version = 1
 
 [*]
-ctx-size = 150000
 EOF
   echo "created $models_ini"
 fi
@@ -72,6 +71,7 @@ if ! listening "$router_port"; then
       while IFS= read -r a; do [ -n "$a" ] && args+=("$a"); done <<<"$auth"
       nohup "$server_bin" "${args[@]}" \
         >>"$logdir/router.out.log" 2>>"$logdir/router.err.log" </dev/null &
+      echo "$!" >"$logdir/router.pid"   # stop.sh stops only this router (backend/procs.py)
       echo "started llama.cpp router on $router_host:$router_port"
     elif [ -x "$server_bin" ]; then
       echo "Router not started: repair Network Access in the dashboard." >&2

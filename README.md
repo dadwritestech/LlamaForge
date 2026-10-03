@@ -245,7 +245,8 @@ dashboard and opens your browser.
 - OpenAI-compatible API for your other apps: http://127.0.0.1:8080/v1
 
 To shut everything down — the dashboard, the router, and every model instance the
-router spawned — run `llamaforge stop` (Linux / macOS installs) or the stop script:
+router spawned — run `llamaforge stop` (Linux / macOS installs) or the stop script.
+It stops only the processes LlamaForge started; any other llama-server you run is left alone.
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File stop.ps1   # Windows

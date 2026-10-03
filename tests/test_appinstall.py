@@ -125,5 +125,72 @@ class AppInstallTest(unittest.TestCase):
         self.assertTrue(os.path.exists(os.path.join(self.dest, "config.json")))
 
 
+class UninstallTest(unittest.TestCase):
+    """uninstall.ps1/.sh used to `rm -rf` the folder they sat in. Run from a
+    git checkout or a hand-made folder, that took everything with it (05 #1)."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.src = os.path.join(self.tmp, "src")
+        self.dest = os.path.join(self.tmp, "home")
+        for rel in ("backend/server.py", "web/index.html", "run.sh"):
+            write(self.src, rel)
+        appinstall.install(self.src, self.dest, "v1")
+        for rel in ("config.json", "models.ini", "models/a.gguf", "engines/b1/llama-server",
+                    "logs/router.err.log", "stats.json", "backend/__pycache__/x.pyc",
+                    "my-notes.txt"):
+            write(self.dest, rel)
+
+    def exists(self, rel):
+        return os.path.exists(os.path.join(self.dest, *rel.split("/")))
+
+    def test_refuses_without_a_manifest(self):
+        os.remove(os.path.join(self.dest, appinstall.MANIFEST))
+        with self.assertRaises(ValueError):
+            appinstall.uninstall(self.dest, everything=True)
+        self.assertTrue(self.exists("backend/server.py"))
+        self.assertTrue(self.exists("models/a.gguf"))
+
+    def test_refuses_a_git_checkout(self):
+        os.makedirs(os.path.join(self.dest, ".git"))
+        with self.assertRaises(ValueError):
+            appinstall.uninstall(self.dest, everything=True)
+        self.assertTrue(self.exists("backend/server.py"))
+
+    def test_keep_mode_removes_the_app_and_keeps_settings_and_models(self):
+        r = appinstall.uninstall(self.dest)
+        for rel in ("backend", "web", "run.sh", "engines", "logs", "stats.json",
+                    appinstall.MANIFEST):
+            self.assertFalse(self.exists(rel), rel)
+        for rel in ("config.json", "models.ini", "models/a.gguf", "my-notes.txt"):
+            self.assertTrue(self.exists(rel), rel)
+        self.assertIn("my-notes.txt", r["kept"])
+
+    def test_everything_still_spares_files_it_does_not_know(self):
+        r = appinstall.uninstall(self.dest, everything=True)
+        for rel in ("config.json", "models.ini", "models", "backend", "engines"):
+            self.assertFalse(self.exists(rel), rel)
+        self.assertTrue(self.exists("my-notes.txt"))
+        self.assertEqual(r["kept"], ["my-notes.txt"])
+
+    def test_everything_removes_the_folder_once_empty(self):
+        os.remove(os.path.join(self.dest, "my-notes.txt"))
+        appinstall.uninstall(self.dest, everything=True)
+        self.assertFalse(os.path.exists(self.dest))
+
+    def test_leaves_the_private_python_for_the_script(self):
+        """Windows locks python.exe while it runs this; uninstall.ps1 removes it after."""
+        write(self.dest, "python/python.exe")
+        appinstall.uninstall(self.dest, everything=True)
+        self.assertTrue(self.exists("python/python.exe"))
+
+    def test_cli(self):
+        self.assertEqual(appinstall.main(["--uninstall", self.dest, "--all"]), 0)
+        self.assertFalse(self.exists("models"))
+        os.makedirs(self.dest, exist_ok=True)
+        self.assertEqual(appinstall.main(["--uninstall", self.dest]), 1)
+
+
 if __name__ == "__main__":
     unittest.main()

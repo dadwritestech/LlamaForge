@@ -102,8 +102,7 @@ if (-not (Listening $cfg.router_port)) {
         "; Sections are model ids; keys are llama-server flags.",
         "version = 1",
         "",
-        "[*]",
-        "ctx-size = 150000")
+        "[*]")
       Write-Host "created $modelsIni"
     }
     # Fresh installs ship server_bin = "" (the panel offers the official
@@ -121,9 +120,11 @@ if (-not (Listening $cfg.router_port)) {
         $routerHost = if ($cfg.router_host) { $cfg.router_host } else { "127.0.0.1" }
         $args = @("--models-preset", $modelsIni, "--models-max", "1", "--offline",
                   "--host", $routerHost, "--port", "$($cfg.router_port)", "--metrics") + $authArgs
-        Start-Process -FilePath $serverBin -ArgumentList $args -WindowStyle Hidden `
+        $router = Start-Process -FilePath $serverBin -ArgumentList $args -WindowStyle Hidden -PassThru `
                       -RedirectStandardOutput (Join-Path $logDir "router.out.log") `
                       -RedirectStandardError  (Join-Path $logDir "router.err.log")
+        # stop.ps1 stops only the router it finds recorded here (backend\procs.py)
+        Set-Content -Path (Join-Path $logDir "router.pid") -Value $router.Id -Encoding ascii
         Write-Host "started $engineLabel router on $($routerHost):$($cfg.router_port)"
       }
     } else {
@@ -146,8 +147,11 @@ if (-not (Listening $cfg.router_port)) {
 # 2. LlamaForge backend (dashboard)
 if (-not (Listening $cfg.panel_port)) {
   $panelArgs = @((Join-Path $here "backend\server.py"))
+  # Without these logs a panel that died on startup left nothing to look at.
   Start-Process -FilePath $pythonFile -ArgumentList $panelArgs `
-                -WorkingDirectory (Join-Path $here "backend") -WindowStyle Hidden
+                -WorkingDirectory (Join-Path $here "backend") -WindowStyle Hidden `
+                -RedirectStandardOutput (Join-Path $logDir "panel.out.log") `
+                -RedirectStandardError  (Join-Path $logDir "panel.err.log")
   Write-Host "started LlamaForge dashboard on port $($cfg.panel_port)"
 }
 

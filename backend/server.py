@@ -407,7 +407,12 @@ def main():
     import threading
     threading.Thread(target=_router_startup, args=(c.get("auto_load_model"),),
                      daemon=True, name="router-startup").start()
-    ThreadingHTTPServer(("127.0.0.1", port), H).serve_forever()
+    httpd = ThreadingHTTPServer(("127.0.0.1", port), H)
+    # Only once the port is ours: a second copy that fails to bind must not
+    # overwrite the pidfile stop.ps1/.sh use to find the running panel.
+    import procs
+    procs.write_pid(routes.LOGDIR, "panel", os.getpid())
+    httpd.serve_forever()
 
 
 if __name__ == "__main__":

@@ -6,9 +6,9 @@ external process (cmake, llama-server) whose error the user never saw. These
 tests pin the checks that happen *before* we shell out.
 """
 import conftest_paths  # noqa: F401
-import json, os, tempfile, unittest
+import json, os, tempfile, types, unittest
 
-import builder, config, osplat, router_ctl
+import builder, config, osplat, procs, router_ctl
 from builder import BuildManager
 
 
@@ -111,7 +111,8 @@ class RouterPortConflictTest(unittest.TestCase):
         self._saved = router_ctl.is_running
         self.spawned = []
         self._saved_popen = router_ctl.subprocess.Popen
-        router_ctl.subprocess.Popen = lambda *a, **k: self.spawned.append(a)
+        router_ctl.subprocess.Popen = lambda *a, **k: (self.spawned.append(a),
+                                                       types.SimpleNamespace(pid=4242))[1]
         self._saved_cors = router_ctl.supports_cors_origins   # its --help probe also Popens
         router_ctl.supports_cors_origins = lambda server_bin: False
 
@@ -137,6 +138,8 @@ class RouterPortConflictTest(unittest.TestCase):
         ok, err = router_ctl.start(self.fake_bin, "m.ini", 8080, "127.0.0.1", "", self.tmp)
         self.assertTrue(ok, err)
         self.assertEqual(len(self.spawned), 1)
+        # stop.ps1/.sh stop only the router recorded here (procs.py)
+        self.assertEqual(procs.read_pid(self.tmp, "router"), 4242)
 
     def test_missing_binary_still_reported_first(self):
         router_ctl.is_running = lambda port: True

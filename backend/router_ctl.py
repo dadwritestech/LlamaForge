@@ -5,7 +5,7 @@ process bound to a port; Linux/macOS use lsof.
 """
 import os, signal, subprocess, time, socket, urllib.error, urllib.request
 
-import network_policy, osplat
+import network_policy, osplat, procs
 
 CREATE_NO_WINDOW = 0x08000000
 
@@ -157,14 +157,15 @@ def start(server_bin, models_ini, port, host, api_key, logdir, local_key=""):
     kw = ({"creationflags": CREATE_NO_WINDOW} if osplat.IS_WIN
           else {"start_new_session": True})   # detach from the dashboard's session
     try:
-        subprocess.Popen(args, stdout=out, stderr=err, stdin=subprocess.DEVNULL,
-                         close_fds=True, **kw)
+        proc = subprocess.Popen(args, stdout=out, stderr=err, stdin=subprocess.DEVNULL,
+                                close_fds=True, **kw)
     finally:
         # The child holds its own duplicated handles; these are the parent's
         # copies and nothing reads them here. Leaving them open leaked two
         # handles per restart for the life of the dashboard.
         out.close()
         err.close()
+    procs.write_pid(logdir, "router", proc.pid)   # stop.ps1/.sh stop only this one
     return True, ""
 
 def restart(server_bin, models_ini, port, host, api_key, logdir, local_key=""):
