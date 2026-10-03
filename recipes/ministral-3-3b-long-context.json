@@ -1,0 +1,23 @@
+{
+  "llamaforge_recipe": 1,
+  "name": "ministral-3-3b-long-context",
+  "model": {
+    "id": "ministral-3-3b-instruct-2512-q4_k_m",
+    "file": "Ministral-3-3B-Instruct-2512-Q4_K_M.gguf",
+    "hf_repo": "mistralai/Ministral-3-3B-Instruct-2512-GGUF"
+  },
+  "settings": {
+    "ctx-size": "150000",
+    "flash-attn": "on",
+    "jinja": "true",
+    "n-gpu-layers": "99",
+    "no-mmproj": "true"
+  },
+  "engine": null,
+  "about": {
+    "title": "Ministral 3 3B Instruct (Q4_K_M), text-only, 150k context",
+    "hardware": "RTX 5080 + RTX 5060 Ti (llama.cpp default split)",
+    "author": "dadwritestech",
+    "notes": "Tiny and fast; vision projector off (no-mmproj) so it loads as a text model with a long 150k context."
+  }
+}

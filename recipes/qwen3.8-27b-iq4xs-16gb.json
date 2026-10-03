@@ -1,0 +1,30 @@
+{
+  "llamaforge_recipe": 1,
+  "name": "qwen3.8-27b-iq4xs-16gb",
+  "model": {
+    "id": "qwen3.8-27b-ud-iq4_xs",
+    "file": "Qwen3.8-27B-UD-IQ4_XS.gguf",
+    "hf_repo": "unsloth/Qwen3.8-27B-GGUF"
+  },
+  "settings": {
+    "cache-type-k": "q4_0",
+    "cache-type-v": "q4_0",
+    "ctx-size": "70000",
+    "flash-attn": "on",
+    "jinja": "true",
+    "mmap": "false",
+    "n-gpu-layers": "99",
+    "no-mmproj": "false",
+    "parallel": "1",
+    "spec-type": "none",
+    "temp": "1.0",
+    "top-p": "0.9"
+  },
+  "engine": null,
+  "about": {
+    "title": "Qwen3.8 27B (IQ4_XS) fully on one 16 GB GPU, 70k context",
+    "hardware": "RTX 5060 Ti 16 GB",
+    "author": "dadwritestech",
+    "notes": "Dense 27B at IQ4_XS with a q4_0 KV cache so 70k context stays on the card. Speculative decoding is off."
+  }
+}

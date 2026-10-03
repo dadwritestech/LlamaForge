@@ -18,6 +18,8 @@ gets built next.
   profile and launch it from a ▶ chip; pinned builds survive update pruning. (v0.12.0)
 - **Shareable recipes**: export a profile as JSON and import someone else's, with
   a one-click download of the model if it's missing. Unsafe knobs never cross over. (v0.13.0)
+- **Community recipe gallery**: **browse recipes** lists tested setups from the repo's
+  `recipes/` folder (live from GitHub, bundled copy offline); anyone can PR theirs. (v0.14.0)
 - **One-line installers** — `irm …/install.ps1 | iex` (Windows) and
   `curl …/install.sh | sh` (Linux/macOS): no git, admin or compiler. A private,
   SHA-256-pinned Python on Windows when needed; Start menu / Apps & Features,

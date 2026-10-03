@@ -156,6 +156,7 @@ Small things that add up when you use it every day:
 - **Named presets** — save a knob set ("coding", "creative", "fast") and apply it to any model in a click, or **bind** one as a model's default so editing the preset re-tunes every model using it.
 - **Launch profiles**: one ▶ click switches to a pinned llama.cpp build, applies a preset, and loads the model. Keep a model on the build that worked when a new release regresses it.
 - **Shareable recipes**: share a profile as readable JSON (model file + HF repo + knobs + build). Others import it in one paste, and LlamaForge downloads the model if it's missing. Only tuning knobs cross over, never paths or hosts.
+- **Community recipe gallery**: **browse recipes** lists setups people have tested on their own hardware ([`recipes/`](recipes/)), each with the hardware it ran on and what the knobs do. One click imports it. [Share yours](recipes/README.md) with a PR.
 - **Inline failure diagnosis** — a failed load parses the router log and shows the real error plus a concrete suggested fix (e.g. "lower n-gpu-layers from 99").
 - **GGUF metadata card** — architecture, parameter size, quant, trained context, layers, heads, and rope, read straight from the file header.
 - **Compare** — pick 2–3 models and see their settings side-by-side with the differences highlighted.
@@ -321,7 +322,7 @@ by hand always win.
 
 ## Roadmap
 
-Recent additions: **shareable recipes**, **launch profiles**, **one-line installers**, **one-click official llama.cpp builds** (no compiler), a built-in **Chat** tab, **ik_llama** as a second llama-family engine, **binding a preset**
+Recent additions: a **community recipe gallery**, **shareable recipes**, **launch profiles**, **one-line installers**, **one-click official llama.cpp builds** (no compiler), a built-in **Chat** tab, **ik_llama** as a second llama-family engine, **binding a preset**
 as a model's default, **auto-wired MTP** draft models, an **offload-aware** VRAM-fit
 rating (MoE included), a more forgiving **first run**, and **"built, with warnings"**
 for partial builds — on top of **Lite / Advanced modes** with a guided first run and

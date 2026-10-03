@@ -203,6 +203,11 @@ class Routes(unittest.TestCase):
         self.assertEqual(self.config.get_presets()[out["preset"]], {"ctx-size": "32768", "temp": "0.2"})
         self.assertEqual(self.config.get_profiles()["coder 2"]["preset"], out["preset"])
 
+    def test_export_includes_global_defaults_under_the_section(self):
+        self.sections["*"] = {"flash-attn": "on", "ctx-size": "150000"}
+        recipe = self.call(self.routes.post_profiles_export, name="coder")["recipe"]
+        self.assertEqual(recipe["settings"], {"ctx-size": "32768", "flash-attn": "on", "temp": "0.2"})
+
     def test_missing_model_reports_where_to_get_it(self):
         recipe = self.call(self.routes.post_profiles_export, name="coder")["recipe"]
         self.sections = {}

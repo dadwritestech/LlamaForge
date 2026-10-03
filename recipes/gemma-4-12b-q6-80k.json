@@ -1,0 +1,27 @@
+{
+  "llamaforge_recipe": 1,
+  "name": "gemma-4-12b-q6-80k",
+  "model": {
+    "id": "gemma-4-12b-it-ud-q6_k_xl",
+    "file": "gemma-4-12b-it-UD-Q6_K_XL.gguf",
+    "hf_repo": "unsloth/gemma-4-12b-it-GGUF"
+  },
+  "settings": {
+    "ctx-size": "80000",
+    "flash-attn": "on",
+    "jinja": "true",
+    "n-gpu-layers": "99",
+    "no-mmproj": "false",
+    "parallel": "1",
+    "reasoning": "off",
+    "reasoning-budget": "0",
+    "temp": "1"
+  },
+  "engine": null,
+  "about": {
+    "title": "Gemma 4 12B (UD-Q6_K_XL), 80k context, thinking off",
+    "hardware": "RTX 5060 Ti 16 GB",
+    "author": "dadwritestech",
+    "notes": "Q6 quality with room for an 80k KV cache on one 16 GB card. reasoning off + budget 0 for fast, direct answers."
+  }
+}

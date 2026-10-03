@@ -1,0 +1,25 @@
+{
+  "llamaforge_recipe": 1,
+  "name": "qwen3.5-4b-capped-thinking",
+  "model": {
+    "id": "qwen3.5-4b-q4_k_m",
+    "file": "Qwen3.5-4B-Q4_K_M.gguf",
+    "hf_repo": "unsloth/Qwen3.5-4B-GGUF"
+  },
+  "settings": {
+    "ctx-size": "40000",
+    "flash-attn": "on",
+    "jinja": "true",
+    "n-gpu-layers": "99",
+    "no-mmproj": "true",
+    "reasoning": "on",
+    "reasoning-budget": "512"
+  },
+  "engine": null,
+  "about": {
+    "title": "Qwen3.5 4B (Q4_K_M) with thinking capped at 512 tokens",
+    "hardware": "RTX 5080 + RTX 5060 Ti (llama.cpp default split)",
+    "author": "dadwritestech",
+    "notes": "Small model, 40k context. reasoning-budget 512 keeps it thinking briefly instead of rambling. The model file is 2.7 GB."
+  }
+}
