@@ -696,7 +696,7 @@ export function initModels() {
     if (msg) { msg.className = "msg work"; msg.textContent = "unsaved changes"; }
   });
 
-  // keyboard map: 1-7 tabs, / search, j/k or arrows navigate, Enter expand,
+  // keyboard map: 1-9 tabs (sidebar order), / search, j/k or arrows navigate, Enter expand,
   // L load, U unload, S save the open model. Esc closes a modal / clears search.
   document.addEventListener("keydown", e => {
     const tag = (document.activeElement || {}).tagName || "";
@@ -708,9 +708,9 @@ export function initModels() {
       return;
     }
     if (e.metaKey || e.ctrlKey || e.altKey) return;
-    if (/^[1-7]$/.test(e.key)) {
-      const t = ["models","stats","discover","build","setup","context","help"][+e.key-1];
-      const el = $(`.tab[data-tab="${t}"]`); if (el) el.click();
+    if (/^[1-9]$/.test(e.key)) {
+      // follow the sidebar, so a new tab can't silently shift the numbering
+      const el = document.querySelectorAll(".navitem[data-tab]")[+e.key-1]; if (el) el.click();
       return;
     }
     if (activeTab() !== "models" || !S.STATE) return;
