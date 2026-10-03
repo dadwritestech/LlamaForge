@@ -7,6 +7,13 @@ gets built next.
 
 ## Now (shipped)
 
+- **"New this week"** — the top of Discover lists the model architectures
+  llama.cpp just merged, each marked **IN YOUR ENGINE** or **Update engine**
+  against the build you run, plus a *new & trending (14 days)* Hugging Face sort
+  rated for your VRAM. (v0.11.0)
+- **In-app updates** — installer copies see new LlamaForge releases in the
+  dashboard: **Update now** installs it (settings, models and engines kept),
+  **Restart now** relaunches the panel while loaded models keep serving. (v0.11.0)
 - **One-line installers** — `irm …/install.ps1 | iex` (Windows) and
   `curl …/install.sh | sh` (Linux/macOS): no git, admin or compiler. A private,
   SHA-256-pinned Python on Windows when needed; Start menu / Apps & Features,
@@ -95,10 +102,6 @@ gets built next.
 
 ## Next (in progress)
 
-- **"New this week"** — models llama.cpp just learned to run, surfaced in the
-  dashboard with a VRAM-fit rating and one click to download and chat.
-- **In-app updates** — update LlamaForge itself from the dashboard (the
-  installer's update path, without the terminal).
 - **Named launch profiles** — save a *model + engine + settings* combo and launch
   it in one click. Knob **presets** and [binding one as a model's default](https://github.com/dadwritestech/LlamaForge/issues/2)
   shipped as the first steps; the remaining piece is a single named profile that
