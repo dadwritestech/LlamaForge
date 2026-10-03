@@ -31,15 +31,15 @@ tune **every** server parameter per model, and run — all from your browser ins
 of hand-editing `models.ini` and long `llama-server` command lines.
 
 **Who it's for:** people who want llama.cpp's speed and control but would rather not
-memorize flags, edit config files by hand, or babysit build commands. It assumes
-you're comfortable running a setup script once and building llama.cpp for your
-machine — both guided from the dashboard. Windows with an NVIDIA GPU is the
-primary target (CPU-only works too); **Linux** (NVIDIA/CPU) and **macOS**
-(Apple Silicon, Metal) are supported as an early preview — same dashboard,
-`bootstrap.sh` instead of `bootstrap.ps1`. **Looking for something else?** If you want a zero-config, double-click
-installer with no compile step, [LM Studio](https://lmstudio.ai),
-[Ollama](https://ollama.com), or [Jan](https://jan.ai) will get you running faster —
-LlamaForge trades that for direct, per-model control over the real llama.cpp server.
+memorize flags, edit config files by hand, or babysit build commands. Install is one
+line, and the dashboard fetches the official llama.cpp build for your GPU in one
+click, so there's no compiler and no git (building from source is still there if you
+want your own fork). Windows with an NVIDIA GPU is the primary target (CPU-only works
+too); **Linux** (NVIDIA/CPU) and **macOS** (Apple Silicon, Metal) are supported as an
+early preview. **Looking for something else?** If you want a polished native desktop app,
+[LM Studio](https://lmstudio.ai), [Ollama](https://ollama.com), or [Jan](https://jan.ai)
+are more mature. LlamaForge trades that for running the real, current llama.cpp server
+with direct, per-model control over every flag.
 
 > LlamaForge is an independent wrapper and is **not affiliated with llama.cpp / ggml-org**.
 > All inference, model support, and performance come from llama.cpp (MIT, (c) The ggml
@@ -60,6 +60,7 @@ Advanced exposes every server flag.
 | View | What it does |
 |-----|--------------|
 | **Models** | Every model on your machine in one list with live GPU VRAM/util/temp meters (used **and** free). Expand a model to edit all **~220 llama.cpp knobs** (context, KV-cache type, speculative decoding, tensor split, sampling, rope, ...), grouped and searchable, with the file path, on-disk size, and a **GGUF metadata card** (architecture, parameters, quantization, trained context, layers, attention heads, rope). Save hot-reloads with no restart; **quick-load/unload right from the row header**, with load requests **queued** so a second load waits its turn. A failed load shows the **real error inline with a suggested fix** instead of making you scroll the log. Save any knob set as a **named preset** and apply it to any model in one click, **compare** 2–3 models side-by-side to see what differs, and copy a ready-to-paste **curl / OpenAI-client / JSON** snippet per model. A **Refine** button benchmarks knob variants with real completion requests and applies the fastest config. Registry entries can be unregistered without deleting their GGUF files. A full **keyboard map** drives the view, and the expanded row + unsaved edits persist across reloads. |
+| **Chat** | llama.cpp's own chat client (markdown, reasoning, image attachments, model switching) built into the dashboard; every engine update improves it. A **Chat** button on any loaded model opens it on that model. It runs on its own port so model output can never reach the control panel, and the router's API key is added server-side, so there's no key prompt. |
 | **Stats** | Per-model usage tracked from the router's own metrics: tokens processed, average generation speed (tok/s), run counts, time loaded, and a stacked prompt/generated activity chart (14- or 30-day). Live throughput while a model runs. Resettable. (Totals are per-model across all clients — per-request/per-IP isn't shown because clients hit the router directly, so the dashboard never sees individual request origins.) |
 | **Discover** | Search **huggingface.co** for **GGUF** (llama.cpp) or **safetensors** (vLLM) models (newest / most downloaded / most liked). Every quant is rated against your hardware - **FITS / TIGHT / CPU OFFLOAD** (offload-aware, so a big MoE that runs fast with experts on CPU isn't mislabeled) - before you download, and each result is tagged with the platforms it runs on plus **GATED** and **INSTALLED** badges. One click streams the download (multi-shard + vision mmproj handled) with live speed/ETA, **pause/resume** (large downloads resume via HTTP range instead of restarting from zero) and cancel, then registers it in your registry. |
 | **Build / Update** | Shows your current llama.cpp commit, checks GitHub for how far behind you are (cached, so opening the view doesn't re-hit GitHub every time — with a manual **Check GitHub now**), and rebuilds via CMake with flags **auto-detected for your CPU/GPU/Apple Silicon** (CUDA arch, AVX-512, quantized-KV flash attention, or Metal). Prior binaries are backed up; the build streams live and reports its duration. Also tracks the installed **vLLM** version against PyPI and updates it in place. |
@@ -149,30 +150,45 @@ Small things that add up when you use it every day:
 |---|---|
 | ![In-app docs](docs/content/img/help.png) | ![Build](docs/content/img/build.png) |
 
-## Quick start (new machine)
+## Install
 
-**Windows**
+One line, no git, no admin, no compiler. Re-run it any time to update.
+
+**Windows** (PowerShell)
 
 ```powershell
-git clone https://github.com/dadwritestech/LlamaForge
-cd LlamaForge
-powershell -ExecutionPolicy Bypass -File bootstrap.ps1
+irm https://raw.githubusercontent.com/dadwritestech/LlamaForge/master/install.ps1 | iex
 ```
 
 **Linux / macOS**
 
 ```bash
-git clone https://github.com/dadwritestech/LlamaForge
-cd LlamaForge
-./bootstrap.sh        # then ./run.sh daily, ./stop.sh to shut down
+curl -fsSL https://raw.githubusercontent.com/dadwritestech/LlamaForge/master/install.sh | sh
 ```
 
-The bootstrap script (`bootstrap.ps1` on Windows, `bootstrap.sh` on Linux/macOS)
-ensures Python + Git (asking before installing anything), fetches llama.cpp if you
-don't have it, writes `config.json`, and opens the dashboard. From there: **Setup**
-to install any missing compiler/CUDA and scan your drives, **Build** to compile
-llama.cpp for your hardware, **Models** to tune and run. A **Getting Started**
-checklist on the Models tab walks you through these three steps on a fresh install.
+The installer finds Python 3.10+ (on Windows it drops a private, SHA-256-pinned copy
+of python.org's embeddable Python if you have none), downloads the latest release,
+adds a Start menu / app-menu entry (macOS: `~/Applications/LlamaForge.app`, plus a
+`llamaforge` command on Linux/macOS) and opens the dashboard. Click **Install
+llama.cpp** there and it fetches the official build for your GPU, verifies it and
+starts it. Then grab a model from **Discover** and press **Chat**.
+
+Updating keeps your settings, models and engines. Uninstall from **Apps & Features**
+on Windows, or `llamaforge uninstall`; it asks before touching your settings or models.
+
+<details><summary>From source (git clone)</summary>
+
+```powershell
+git clone https://github.com/dadwritestech/LlamaForge
+cd LlamaForge
+powershell -ExecutionPolicy Bypass -File bootstrap.ps1   # Windows
+./bootstrap.sh                                           # Linux / macOS
+```
+
+The bootstrap script ensures Python + Git (asking before installing anything),
+writes `config.json` and opens the dashboard. Use it if you want to hack on
+LlamaForge or build llama.cpp from source.
+</details>
 
 ## Daily use
 
@@ -184,7 +200,8 @@ your Startup folder (`Win+R` -> `shell:startup`).
 and opens your browser.
 
 - Dashboard: http://127.0.0.1:8090
-- llama.cpp chat UI + OpenAI-compatible API: http://127.0.0.1:8080
+- Chat (llama.cpp's own chat UI, inside the dashboard's **Chat** tab): http://127.0.0.1:8091
+- OpenAI-compatible API for your other apps: http://127.0.0.1:8080/v1
 
 To shut everything down — the dashboard, the router, and every model instance the
 router spawned — run the stop script for your OS:

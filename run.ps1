@@ -33,6 +33,11 @@ function Test-LlamaForgePython($Candidate) {
 }
 
 function Resolve-LlamaForgePython {
+  # The one-line installer drops a private Python here when the machine has none.
+  $bundled = Join-Path $here "python\python.exe"
+  if ((Test-Path $bundled) -and (Test-LlamaForgePython $bundled)) {
+    return [PSCustomObject]@{ File = $bundled }
+  }
   $py = Get-Command py -CommandType Application -ErrorAction SilentlyContinue |
         Select-Object -First 1
   if ($py -and (Test-LlamaForgePython $py.Source)) {
@@ -101,7 +106,10 @@ if (-not (Listening $cfg.router_port)) {
         "ctx-size = 150000")
       Write-Host "created $modelsIni"
     }
-    if (Test-Path $serverBin) {
+    # Fresh installs ship server_bin = "" (the panel offers the official
+    # build); Test-Path throws on an empty string, which killed this script
+    # before the dashboard started.
+    if ($serverBin -and (Test-Path $serverBin)) {
       $routerHost = if ($cfg.router_host) { $cfg.router_host } else { "127.0.0.1" }
       $args = @("--models-preset", $modelsIni, "--models-max", "1", "--offline",
                 "--host", $routerHost, "--port", "$($cfg.router_port)", "--metrics")
@@ -111,7 +119,7 @@ if (-not (Listening $cfg.router_port)) {
                     -RedirectStandardError  (Join-Path $logDir "router.err.log")
       Write-Host "started $engineLabel router on $($routerHost):$($cfg.router_port)"
     } else {
-      Write-Host "server_bin not found ($serverBin) - open the dashboard Build tab to build $engineLabel first." -ForegroundColor Yellow
+      Write-Host "no $engineLabel engine yet - install one from the dashboard (Build / Update tab)." -ForegroundColor Yellow
     }
   }
 } else {

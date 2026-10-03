@@ -41,10 +41,12 @@ class RunnerSourceContractTest(unittest.TestCase):
         self.assertIn("-FilePath $pythonFile", text)
         self.assertIn("LLAMAFORGE_NO_BROWSER", text)
 
-    def test_posix_preflights_with_python3_and_keeps_dashboard_after_guard(self):
+    def test_posix_preflights_with_resolved_python_and_keeps_dashboard_after_guard(self):
         text = (ROOT / "run.sh").read_text(encoding="utf-8")
-        preflight = 'python3 "$here/backend/network_policy.py" --preflight "$cfg"'
-        panel = '(cd "$here/backend" && nohup python3 server.py'
+        # $PY = LLAMAFORGE_PYTHON, else the installer's .lf-python, else python3
+        self.assertIn('echo python3)}"', text)
+        preflight = '"$PY" "$here/backend/network_policy.py" --preflight "$cfg"'
+        panel = '(cd "$here/backend" && nohup "$PY" server.py'
         self.assertIn(preflight, text)
         self.assertIn(panel, text)
         self.assertLess(text.index(preflight), text.index(panel))
