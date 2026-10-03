@@ -31,7 +31,7 @@ These are the endpoints external coding agents (Claude Code, Codex, etc.) talk t
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/api/state` | Dashboard state: models (llama.cpp + vLLM merged), GPU telemetry, platform, public config projection, and onboarding status. `config` is an exact allowlist (`theme`, `cvd`, `auto_load_model`, `vram_bandwidths`, `presets`, `preset_bindings`, `active_engine`) plus `router_api_key_configured`; it is not full `config.json` and never includes the key. |
+| GET | `/api/state` | Dashboard state: models (llama.cpp + vLLM merged), GPU telemetry, platform, public config projection, and onboarding status. `config` is an exact allowlist (`theme`, `cvd`, `auto_load_model`, `vram_bandwidths`, `presets`, `preset_bindings`, `profiles`, `active_engine`) plus `router_api_key_configured`; it is not full `config.json` and never includes the key. |
 | GET | `/api/schema` | The knob schema (available `llama-server` flags), built from `llama-server --help`. |
 | POST | `/api/save` | Save per-model knob overrides into `models.ini` (`config.set_keys`). Reloads the running model if it was loaded. |
 | POST | `/api/models/unregister` | Remove a llama-family model from its `models.ini` registry without deleting the GGUF. Body: `{model, backend}`. Unloads it first when necessary. |
@@ -39,6 +39,9 @@ These are the endpoints external coding agents (Claude Code, Codex, etc.) talk t
 | POST | `/api/presets/save` | Save a named knob preset. |
 | POST | `/api/presets/delete` | Delete a named preset. |
 | POST | `/api/presets/apply` | Apply a saved preset's knobs to a model, same reload behavior as `/api/save`. |
+| POST | `/api/profiles/save` | Save a launch profile: `{name, profile: {model, backend, preset, engine}}`. `engine` is an install directory name under `engines/llama.cpp` (blank = active build). |
+| POST | `/api/profiles/delete` | Delete a launch profile (the model and its settings stay). |
+| POST | `/api/profiles/launch` | Launch a profile: switch to its pinned build if needed, apply its preset, load its model. Returns `{ok, step, error, switched_engine, model}`. |
 | POST | `/api/presets/bind` | Bind a preset as a model's default (materializes its knobs; `name: ""` unbinds). Re-saving a bound preset re-syncs every model using it. |
 | GET | `/api/model/metadata` | GGUF metadata for a model id (query param `model`). |
 | GET | `/api/model/diag` | Diagnostic read of the router log against a model's merged (`[*]` + per-model) settings (query param `model`). |

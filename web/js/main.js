@@ -19,6 +19,7 @@ import { loadDocs } from "./help.js";
 import { loadChat } from "./chat.js";
 import { initWizard } from "./wizard.js";
 import { initOnboarding } from "./onboarding.js";
+import { initProfiles } from "./profiles.js";
 
 /* ---------- tab loaders ---------- */
 ui.onTabShown("chat", loadChat);
@@ -41,6 +42,7 @@ ui.updatePageTitle();
 initWizard();
 initOnboarding();
 models.initModels();
+initProfiles();
 stats.initStats();
 
 // deep-linkable tabs: #<tab> in the URL activates that tab (docs deep-links +

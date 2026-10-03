@@ -93,7 +93,7 @@ Advanced exposes every server flag.
 
 | View | What it does |
 |-----|--------------|
-| **Models** | Every model on your machine in one list with live GPU VRAM/util/temp meters (used **and** free). Expand a model to edit all **~220 llama.cpp knobs** (context, KV-cache type, speculative decoding, tensor split, sampling, rope, ...), grouped and searchable, with the file path, on-disk size, and a **GGUF metadata card** (architecture, parameters, quantization, trained context, layers, attention heads, rope). Save hot-reloads with no restart; **quick-load/unload right from the row header**, with load requests **queued** so a second load waits its turn. A failed load shows the **real error inline with a suggested fix** instead of making you scroll the log. Save any knob set as a **named preset** and apply it to any model in one click, **compare** 2–3 models side-by-side to see what differs, and copy a ready-to-paste **curl / OpenAI-client / JSON** snippet per model. A **Refine** button benchmarks knob variants with real completion requests and applies the fastest config. Registry entries can be unregistered without deleting their GGUF files. A full **keyboard map** drives the view, and the expanded row + unsaved edits persist across reloads. |
+| **Models** | Every model on your machine in one list with live GPU VRAM/util/temp meters (used **and** free). Expand a model to edit all **~220 llama.cpp knobs** (context, KV-cache type, speculative decoding, tensor split, sampling, rope, ...), grouped and searchable, with the file path, on-disk size, and a **GGUF metadata card** (architecture, parameters, quantization, trained context, layers, attention heads, rope). Save hot-reloads with no restart; **quick-load/unload right from the row header**, with load requests **queued** so a second load waits its turn. A failed load shows the **real error inline with a suggested fix** instead of making you scroll the log. Save any knob set as a **named preset** and apply it to any model in one click, save a model + preset + pinned llama.cpp build as a one-click **launch profile**, **compare** 2–3 models side-by-side to see what differs, and copy a ready-to-paste **curl / OpenAI-client / JSON** snippet per model. A **Refine** button benchmarks knob variants with real completion requests and applies the fastest config. Registry entries can be unregistered without deleting their GGUF files. A full **keyboard map** drives the view, and the expanded row + unsaved edits persist across reloads. |
 | **Chat** | llama.cpp's own chat client (markdown, reasoning, image attachments, model switching) built into the dashboard; every engine update improves it. A **Chat** button on any loaded model opens it on that model. It runs on its own port so model output can never reach the control panel, and the router's API key is added server-side, so there's no key prompt. |
 | **Stats** | Per-model usage tracked from the router's own metrics: tokens processed, average generation speed (tok/s), run counts, time loaded, and a stacked prompt/generated activity chart (14- or 30-day). Live throughput while a model runs. Resettable. (Totals are per-model across all clients — per-request/per-IP isn't shown because clients hit the router directly, so the dashboard never sees individual request origins.) |
 | **Discover** | Opens on **New this week**: the model architectures llama.cpp just merged, each marked **IN YOUR ENGINE** or **Update engine** against the build you run (and, on installer copies, a one-click **LlamaForge update** that keeps loaded models serving through the restart). Then search **huggingface.co** for **GGUF** (llama.cpp) or **safetensors** (vLLM) models (new & trending in the last 14 days / newest / most downloaded / most liked). Every quant is rated against your hardware - **FITS / TIGHT / CPU OFFLOAD** (offload-aware, so a big MoE that runs fast with experts on CPU isn't mislabeled) - before you download, and each result is tagged with the platforms it runs on plus **GATED** and **INSTALLED** badges. One click streams the download (multi-shard + vision mmproj handled) with live speed/ETA, **pause/resume** (large downloads resume via HTTP range instead of restarting from zero) and cancel, then registers it in your registry. |
@@ -154,6 +154,7 @@ Small things that add up when you use it every day:
 
 - **Quick-load** — load/unload from the row header without expanding; a **load queue** serializes multiple loads instead of erroring.
 - **Named presets** — save a knob set ("coding", "creative", "fast") and apply it to any model in a click, or **bind** one as a model's default so editing the preset re-tunes every model using it.
+- **Launch profiles**: one ▶ click switches to a pinned llama.cpp build, applies a preset, and loads the model. Keep a model on the build that worked when a new release regresses it.
 - **Inline failure diagnosis** — a failed load parses the router log and shows the real error plus a concrete suggested fix (e.g. "lower n-gpu-layers from 99").
 - **GGUF metadata card** — architecture, parameter size, quant, trained context, layers, heads, and rope, read straight from the file header.
 - **Compare** — pick 2–3 models and see their settings side-by-side with the differences highlighted.
@@ -319,15 +320,15 @@ by hand always win.
 
 ## Roadmap
 
-Recent additions: **one-line installers**, **one-click official llama.cpp builds** (no compiler), a built-in **Chat** tab, **ik_llama** as a second llama-family engine, **binding a preset**
+Recent additions: **launch profiles**, **one-line installers**, **one-click official llama.cpp builds** (no compiler), a built-in **Chat** tab, **ik_llama** as a second llama-family engine, **binding a preset**
 as a model's default, **auto-wired MTP** draft models, an **offload-aware** VRAM-fit
 rating (MoE included), a more forgiving **first run**, and **"built, with warnings"**
 for partial builds — on top of **Lite / Advanced modes** with a guided first run and
 hardware **auto-tune**, an **Anthropic-compatible endpoint** with one-click **agent
 setup** (Claude Code / Codex / pi.dev), a **Context Wiki**, **light/dark +
 colorblind-safe** theming, in-app **documentation**, Linux/macOS support, and the
-**vLLM** backend (via WSL2 on Windows). Named **knob presets** and binding are the
-first steps toward single-click engine+model launch profiles. See
+**vLLM** backend (via WSL2 on Windows), plus one-click **launch profiles** (model +
+preset + pinned engine build). See
 [ROADMAP.md](ROADMAP.md) for what's shipped, in progress, and planned — it's an early
 preview, so priorities follow feedback.
 

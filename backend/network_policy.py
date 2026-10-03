@@ -7,7 +7,7 @@ STRONG_KEY_RE = re.compile(r"^[A-Za-z0-9._~-]{32,256}$")
 LEGACY_KEY_RE = re.compile(r"^[\x21-\x7E]{1,256}$")
 PUBLIC_CONFIG_KEYS = (
     "theme", "cvd", "auto_load_model", "vram_bandwidths", "presets",
-    "preset_bindings", "active_engine",
+    "preset_bindings", "active_engine", "profiles",
 )
 
 

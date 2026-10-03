@@ -10,6 +10,7 @@
 //   "refresh"  ask the model list to re-poll   emit(evt, silent)
 //   "state"    new /api/state arrived          emit(evt, stateObject)
 //   "chat"     open the Chat tab on a model    emit(evt, modelId)
+//   "profile-save" open Save as profile        emit(evt, {id, backend})
 const handlers = {};
 
 export function on(evt, fn) {

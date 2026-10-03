@@ -113,12 +113,14 @@ function editorButtons(m) {
     return `<button class="primary" data-act="vsave">Save${m.status==="loaded"?" + Restart":""}</button>
       ${m.status==="loaded"||m.status==="loading"?`<button class="ghost" data-act="vunload">${m.status==="loading"?"Cancel / Stop":"Stop"}</button>`:`<button data-act="vload">Load</button>`}
       <button class="ghost" data-act="client">Client config</button>
+      <button class="ghost" data-act="profile" title="save a one-click launch for this model">Save as profile</button>
       <button class="ghost" data-act="vdelete" title="remove model + delete its files from WSL">Delete</button>`;
   }
   return `<button class="primary" data-act="save">Save + Reload</button>
       ${m.status==="loaded"||m.status==="loading"?`<button class="ghost" data-act="unload">${m.status==="loading"?"Cancel / Unload":"Unload"}</button>`:`<button data-act="load">Load</button>`}
       ${m.status==="loaded"?`<button data-act="chat">Chat</button>`:""}
       <button class="ghost" data-act="client">Client config</button>
+      <button class="ghost" data-act="profile" title="save a one-click launch: model + preset + engine build">Save as profile</button>
       <button class="ghost" data-act="unregister" title="remove from models.ini; does not delete the GGUF">Unregister</button>`;
 }
 function editorNote(m) {
@@ -398,7 +400,7 @@ function closeModal() {
   else setHTML($("#modal-root"), "");
 }
 
-function showModal(title, inner, privateCopies = [], returnTo = document.activeElement) {
+export function showModal(title, inner, privateCopies = [], returnTo = document.activeElement) {
   const root = $("#modal-root");
   setHTML(root, `<dialog class="modal-dialog" aria-labelledby="modal-title">
     <div class="modal">
@@ -779,6 +781,7 @@ export function initModels() {
     if (!btn) return;
     const row = btn.closest(".row"), id = row.dataset.id, msg = $("[data-msg]", row), act = btn.dataset.act;
     if (act === "chat") { emit("chat", id); return; }
+    if (act === "profile") { emit("profile-save", {id, backend: row.dataset.backend}); return; }
     const clientOpening = act === "client"
       ? openClientConfig(id, row.dataset.backend) : null;
     btn.disabled = true;

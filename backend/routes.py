@@ -22,7 +22,7 @@ import json, os, re, subprocess, sys, threading, time, urllib.request, urllib.er
 
 import config, argspec, hardware, osplat, prereqs, scanner, hub, router_ctl, stats, telemetry
 import autotune, anthropic_shim, agentsetup, clientsetup, network_policy, wiki, docs
-import feed, selfupdate, appinstall
+import feed, selfupdate, appinstall, profiles
 import vram_predict
 import wsl, vllm_ctl, vllm_registry, vllm_setup, vllm_job, vllm_hub, vllm_download
 import gguf, diag, backends, prebuilt
@@ -1221,6 +1221,55 @@ def post_presets_apply(req):
     return 200, {"ok": True, "applied": list(clean), "was_running": running}
 
 
+def post_profiles_save(req):
+    try:
+        profs = config.save_profile(req.body.get("name", ""), req.body.get("profile"))
+    except ValueError as e:
+        raise ApiError(400, str(e))
+    return 200, {"ok": True, "profiles": profs}
+
+
+def post_profiles_delete(req):
+    return 200, {"ok": config.delete_profile(req.body.get("name", ""))}
+
+
+def _wait_router(timeout=90):
+    """After a restart the router takes a moment to bind; loads sent before
+    that fail with connection refused."""
+    end = time.time() + timeout
+    while time.time() < end:
+        if router("/models", timeout=5)[0] == 200:
+            return True
+        time.sleep(1)
+    return False
+
+
+def post_profiles_launch(req):
+    """Switch to the profile's engine build if it pins one, apply its preset,
+    then load its model. Each step reports which one failed."""
+    name = req.body.get("name", "")
+    prof = config.get_profiles().get(name)
+    if prof is None:
+        raise ApiError(404, f"unknown profile: {name}")
+    try:
+        p = profiles.plan(prof, prebuilt.list_installs(ENGINES_DIR, cfg().get("server_bin", "")),
+                          config.get_presets())
+    except ValueError as e:
+        return 200, {"ok": False, "step": "plan", "error": str(e)}
+    if p["switch_bin"]:
+        ok, err = _activate_prebuilt(p["switch_bin"])
+        if not ok:
+            return 200, {"ok": False, "step": "engine", "error": err}
+        if not _wait_router():
+            return 200, {"ok": False, "step": "engine",
+                         "error": "the router didn't come back on the pinned build - see the router log"}
+    if p["settings"] is not None:
+        _apply_knobs_and_reload(p["model"], p["settings"])
+    ok, err = REGISTRY.for_model(p["model"], p["backend"]).load(p["model"])
+    return 200, {"ok": ok, "step": "load", "error": err,
+                 "switched_engine": bool(p["switch_bin"]), "model": p["model"]}
+
+
 def post_build_start(req):
     c = cfg()
     target = req.body.get("target", "llamacpp")
@@ -1734,6 +1783,8 @@ def _activate_prebuilt(sbin):
 
 
 PREBUILT = prebuilt.Installer(ROOT, LOGDIR, on_installed=_activate_prebuilt)
+PREBUILT.protected = lambda: profiles.pinned_dirs(config.get_profiles(),
+                                                  prebuilt.list_installs(ENGINES_DIR))
 _PREBUILT_CACHE = {}            # channel -> (expires_at, result)
 _PREBUILT_LOCK = threading.Lock()
 PREBUILT_TTL, PREBUILT_FAIL_TTL = 900, 60
@@ -1876,6 +1927,9 @@ POST_ROUTES = {
     "/api/presets/bind":        post_presets_bind,
     "/api/presets/delete":      post_presets_delete,
     "/api/presets/apply":       post_presets_apply,
+    "/api/profiles/save":       post_profiles_save,
+    "/api/profiles/delete":     post_profiles_delete,
+    "/api/profiles/launch":     post_profiles_launch,
     "/api/build/start":         post_build_start,
     "/api/setup/install":       post_setup_install,
     "/api/scan":                post_scan,
