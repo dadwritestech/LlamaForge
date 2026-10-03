@@ -154,6 +154,7 @@ fi
 # ---- 4. launch -----------------------------------------------------------
 echo
 printf '  \033[32mLlamaForge %s is installed.\033[0m\n' "$VERSION"
+say "Useful? A GitHub star helps other people find it: https://github.com/dadwritestech/LlamaForge"
 if [ -z "${LLAMAFORGE_NO_LAUNCH:-}" ]; then
   say "[4/4] Starting it - your browser will open the panel."
   bash "$DEST/run.sh" || say "start it later with: llamaforge"
