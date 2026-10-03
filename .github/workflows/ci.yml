@@ -73,8 +73,9 @@ jobs:
           if (-not (Test-Path "$env:LLAMAFORGE_HOME\python\python.exe")) { throw "no private Python" }
           $env:LLAMAFORGE_NO_BROWSER = "1"
           & powershell -NoProfile -ExecutionPolicy Bypass -File "$env:LLAMAFORGE_HOME\run.ps1"
-          Start-Sleep -Seconds 6
-          $s = Invoke-RestMethod http://127.0.0.1:8090/api/state
+          $s = $null
+          foreach ($i in 1..60) { try { $s = Invoke-RestMethod http://127.0.0.1:8090/api/state; break } catch { Start-Sleep -Seconds 1 } }
+          if (-not $s) { Get-Content "$env:LLAMAFORGE_HOME\logs\panel.err.log"; throw "panel never came up" }
           if ($s.onboarding.server_bin_ok) { throw "a fresh install should have no engine yet" }
           $owner = (Get-NetTCPConnection -LocalPort 8090 -State Listen).OwningProcess | Select-Object -First 1
           $exe = (Get-Process -Id $owner).Path
@@ -98,8 +99,9 @@ jobs:
           test -x "$lf"
           if [ "$RUNNER_OS" = macOS ]; then plutil -lint "$HOME/Applications/LlamaForge.app/Contents/Info.plist"; fi
           LLAMAFORGE_NO_BROWSER=1 "$lf"
-          sleep 6
-          curl -fsS http://127.0.0.1:8090/api/state | python3 -c "import json,sys; assert not json.load(sys.stdin)['onboarding']['server_bin_ok']"
+          for i in $(seq 60); do curl -fsS -o /dev/null http://127.0.0.1:8090/api/state && break; sleep 1; done
+          curl -fsS http://127.0.0.1:8090/api/state > state.json || { cat "$LLAMAFORGE_HOME/logs/panel.err.log"; exit 1; }
+          python3 -c "import json; assert not json.load(open('state.json'))['onboarding']['server_bin_ok']"
           "$lf" stop
           echo n | "$lf" uninstall
           test ! -e "$LLAMAFORGE_HOME/backend"
