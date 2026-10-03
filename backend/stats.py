@@ -10,7 +10,7 @@ persists per-model + daily totals to stats.json. Pure stdlib.
 import json, os, re, threading, time, urllib.request, urllib.parse
 from datetime import date
 
-import atomicio, config
+import atomicio, config, network_policy
 
 ROOT       = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STATS_FILE = os.path.join(ROOT, "stats.json")
@@ -107,7 +107,7 @@ class StatsTracker:
     def _get(self, path, timeout=4):
         c = config.load()
         headers = {}
-        key = c.get("router_api_key", "")
+        key = network_policy.effective_key(c)
         if key:
             headers["Authorization"] = "Bearer " + key
         req = urllib.request.Request(

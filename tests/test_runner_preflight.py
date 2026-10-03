@@ -38,6 +38,8 @@ class RunnerSourceContractTest(unittest.TestCase):
         self.assertIn(r"backend\network_policy.py", text)
         self.assertIn("Test-LlamaForgePython", text)
         self.assertIn("& $pythonFile @preflightArgs", text)
+        self.assertIn("--router-args $serverBin", text)
+        self.assertNotIn("$cfg.router_api_key", text)
         self.assertIn("-FilePath $pythonFile", text)
         self.assertIn("LLAMAFORGE_NO_BROWSER", text)
 
@@ -50,6 +52,8 @@ class RunnerSourceContractTest(unittest.TestCase):
         self.assertIn(preflight, text)
         self.assertIn(panel, text)
         self.assertLess(text.index(preflight), text.index(panel))
+        self.assertIn('--preflight "$cfg" --router-args "$server_bin"', text)
+        self.assertNotIn("getcfg router_api_key", text)
         self.assertIn("LLAMAFORGE_NO_BROWSER", text)
 
 
@@ -78,13 +82,15 @@ class RunnerIntegrationMixin:
             self.server_bin = self.tmp / "fake-router.cmd"
             self.server_bin.write_text(
                 "@echo off\r\n"
-                "@echo started>\"%RUNNER_ROUTER_MARKER%\"\r\n",
+                "@if \"%1\"==\"--help\" exit /b 0\r\n"
+                "@echo %*>\"%RUNNER_ROUTER_MARKER%\"\r\n",
                 encoding="utf-8",
             )
         else:
             self.server_bin = self.tmp / "fake-router"
             self.server_bin.write_text(
-                "#!/bin/sh\nprintf started > \"$RUNNER_ROUTER_MARKER\"\n",
+                "#!/bin/sh\n[ \"$1\" = --help ] && exit 0\n"
+                "printf '%s ' \"$@\" > \"$RUNNER_ROUTER_MARKER\"\n",
                 encoding="utf-8",
             )
             self.server_bin.chmod(
@@ -171,6 +177,24 @@ class RunnerIntegrationMixin:
         self.assertFalse(self.router_marker.exists())
         self.assertTrue(_wait_for(self.panel_marker), result.stdout + result.stderr)
         self.assertIn("repair Network Access", result.stdout + result.stderr)
+
+    def test_local_router_starts_with_a_minted_key(self):
+        cfg_path = self.tmp / "config.json"
+        cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
+        cfg["router_host"] = "127.0.0.1"
+        cfg_path.write_text(json.dumps(cfg), encoding="utf-8")
+        result = self._run()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(_wait_for(self.router_marker), result.stdout + result.stderr)
+        key = json.loads(cfg_path.read_text(encoding="utf-8"))["router_local_key"]
+        deadline = time.time() + 5
+        argv = ""
+        while time.time() < deadline and "--metrics" not in argv:
+            argv = self.router_marker.read_text(encoding="utf-8", errors="replace")
+            time.sleep(0.05)
+        self.assertIn("--api-key " + key, argv)
+        self.assertNotIn(key, result.stdout + result.stderr)
+        self.assertTrue(_wait_for(self.panel_marker), result.stdout + result.stderr)
 
     def test_existing_listener_is_left_reachable(self):
         held = socket.socket()

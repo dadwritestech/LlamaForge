@@ -19,6 +19,8 @@ the panel either:
 import json, urllib.error, urllib.parse, urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+import network_policy
+
 ALLOWED_HOSTS = {"127.0.0.1", "localhost", "[::1]", "::1"}
 MAX_BODY_BYTES = 64 * 1024 * 1024         # image attachments travel inline
 # Request headers worth passing upstream. Everything else - Cookie, the
@@ -182,7 +184,7 @@ def make_handler(get_cfg):
                     self.close_connection = True
                     return self._plain(400, {"error": "bad request body"})
             headers = upstream_headers({k.lower(): v for k, v in self.headers.items()},
-                                       c.get("router_api_key", ""))
+                                       network_policy.effective_key(c))
             try:
                 status, items, resp = open_upstream(c["router_port"], path, method,
                                                     headers, body)

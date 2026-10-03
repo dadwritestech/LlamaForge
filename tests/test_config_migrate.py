@@ -40,6 +40,13 @@ class TestMigrate(unittest.TestCase):
         self.assertEqual(cfg["ui_mode"], "lite")
         self.assertFalse(cfg["onboarded"])
 
+    def test_mints_a_persistent_router_local_key_once(self):
+        self._write({"server_bin": "/x", "ui_mode": "lite"})
+        key = config.migrate()["router_local_key"]
+        with open(self.cfg_path, encoding="utf-8") as f:
+            self.assertEqual(json.load(f)["router_local_key"], key)
+        self.assertEqual(config.migrate()["router_local_key"], key)
+
 
 if __name__ == "__main__":
     unittest.main()

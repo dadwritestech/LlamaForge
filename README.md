@@ -280,6 +280,7 @@ All machine-specific paths live in `config.json` (see `config.example.json`):
 | `router_port` / `panel_port` | ports for llama.cpp and the dashboard |
 | `router_host` | `127.0.0.1` (default, local only) or `0.0.0.0` (LAN); these are the only scopes the Network Access UI configures. |
 | `router_api_key` | plaintext key clients send as `Authorization: Bearer <key>`; a usable key is required for LAN and is not returned in routine dashboard state. |
+| `router_local_key` | LlamaForge's own key, generated on first start and used whenever `router_api_key` is empty, so the router is never unkeyed (see SECURITY.md). Never shown in dashboard state; Client Config hands it to clients you set up. |
 | `auto_load_model` | model id to load automatically once the router is ready on launch (`""` = none) |
 | `presets` | named knob sets applied from the Models tab, e.g. `{"coding": {"temp": "0.2"}}` |
 | `wsl_distro` | WSL distro that runs vLLM (`""` = auto-pick the default) — Windows only |

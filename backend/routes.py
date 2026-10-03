@@ -201,7 +201,7 @@ def router(path, method="GET", body=None, timeout=30):
     url = f"http://127.0.0.1:{c['router_port']}" + path
     data = json.dumps(body).encode() if body is not None else None
     headers = {"Content-Type": "application/json"}
-    key = c.get("router_api_key", "")
+    key = network_policy.effective_key(c)
     if key:
         headers["Authorization"] = "Bearer " + key
     req = urllib.request.Request(url, data=data, method=method,
@@ -424,7 +424,7 @@ def _autotune_refine(body):
         url = router_base() + "/completion"
         data = json.dumps(payload).encode()
         headers = {"Content-Type": "application/json"}
-        key = cfg().get("router_api_key", "")
+        key = network_policy.effective_key(cfg())
         if key:
             headers["Authorization"] = "Bearer " + key
         req = urllib.request.Request(url, data=data, method="POST",
@@ -526,7 +526,7 @@ def _router_openai(oai_body, stream=False):
     response is the open urllib object to iterate for SSE lines."""
     url = router_base() + "/v1/chat/completions"
     headers = {"Content-Type": "application/json"}
-    key = cfg().get("router_api_key", "")
+    key = network_policy.effective_key(cfg())
     if key:
         headers["Authorization"] = "Bearer " + key
     req = urllib.request.Request(url, data=json.dumps(oai_body).encode(),
@@ -942,7 +942,7 @@ def post_client_config(req):
     c = cfg()
     if backend in backends.LLAMA_FAMILY:
         endpoint = _llama_client_endpoint(c)
-        api_key = c.get("router_api_key", "")
+        api_key = network_policy.effective_key(c)
     elif backend == "vllm":
         live = next((item for item in vllm_mgr().status()
                      if item.get("model_id") == row["id"]
@@ -1008,7 +1008,7 @@ def _resolve_agent_request(body):
         "small": small,
         "inject": inject,
         "endpoint": _agent_endpoint_for(agent, inject, c),
-        "api_key": c.get("router_api_key", ""),
+        "api_key": network_policy.effective_key(c),
     }
 
 
@@ -1606,6 +1606,28 @@ def _active_server_bin(c=None):
     return c.get("server_bin", "")
 
 
+def reconcile_router_auth():
+    """Startup check: restart a router that runs unkeyed or with a stale key.
+    The runners leave an already-listening router alone, so without this an
+    upgrade would keep the old open router until the next reboot. True when a
+    restart was attempted."""
+    c = cfg()
+    if router_ctl.auth_state(c["router_port"],
+                             network_policy.effective_key(c)) not in ("open", "mismatch"):
+        return False
+    sbin = _active_server_bin(c)
+    if not sbin or not os.path.exists(sbin):
+        return False
+    with _ROUTER_LIFECYCLE_LOCK:
+        ok, err = router_ctl.restart(sbin, config.ini_path(), c["router_port"],
+                                     c.get("router_host", "127.0.0.1"),
+                                     c.get("router_api_key", ""), LOGDIR,
+                                     c.get("router_local_key", ""))
+    print("  router restarted with API-key auth" if ok
+          else f"  WARNING: router auth restart failed ({err})")
+    return True
+
+
 def _record_server_bin(key, path):
     """Point `key` at the binary a finished build produced. Returns True if
     config.json changed.
@@ -1652,7 +1674,8 @@ def _post_network_locked(req):
     try:
         ok, error = router_ctl.restart(
             _active_server_bin(c), config.ini_path(), c["router_port"],
-            mutation.router_host, mutation.router_api_key, LOGDIR)
+            mutation.router_host, mutation.router_api_key, LOGDIR,
+            c.get("router_local_key", ""))
     except Exception as exc:
         ok, error = False, exc
     running = router_ctl.is_running(c["router_port"])
@@ -1701,7 +1724,8 @@ def _post_engine_switch_locked(req):
     c = config.update({"active_engine": engine})
     ok, err = router_ctl.restart(sbin, config.ini_path(), c["router_port"],
                                  c.get("router_host", "127.0.0.1"),
-                                 c.get("router_api_key", ""), LOGDIR)
+                                 c.get("router_api_key", ""), LOGDIR,
+                                 c.get("router_local_key", ""))
     return 200, {"ok": ok, "active_engine": engine, "error": err}
 
 
@@ -1861,7 +1885,8 @@ def _activate_prebuilt(sbin):
         try:
             ok, err = router_ctl.restart(sbin, config.ini_path(), c["router_port"],
                                          c.get("router_host", "127.0.0.1"),
-                                         c.get("router_api_key", ""), LOGDIR)
+                                         c.get("router_api_key", ""), LOGDIR,
+                                         c.get("router_local_key", ""))
         except Exception as e:
             ok, err = False, str(e)
         return ok, err

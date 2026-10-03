@@ -19,6 +19,27 @@ ROUTER_HELP = "usage: llama-server\n  --models-preset PATH  ini\n  --models-max 
 PLAIN_HELP  = "usage: llama-server\n  -m, --model FNAME  path\n  --port N  port\n"
 
 
+class SupportsCorsOriginsTest(unittest.TestCase):
+    def setUp(self):
+        router_ctl.clear_router_mode_cache()
+        self.addCleanup(router_ctl.clear_router_mode_cache)
+
+    def test_detects_flag_and_shares_one_probe_with_router_mode(self):
+        text = ROUTER_HELP + "  --cors-origins ORIGINS  allowed origins\n"
+        with mock.patch.object(router_ctl.subprocess, "check_output",
+                               return_value=text) as probe, \
+             mock.patch.object(router_ctl.os.path, "getmtime", return_value=1.0):
+            self.assertTrue(router_ctl.supports_cors_origins("/bin/x"))
+            self.assertTrue(router_ctl.supports_router_mode("/bin/x"))
+        probe.assert_called_once()
+
+    def test_false_for_builds_without_the_flag(self):
+        with mock.patch.object(router_ctl.subprocess, "check_output",
+                               return_value=ROUTER_HELP), \
+             mock.patch.object(router_ctl.os.path, "getmtime", return_value=1.0):
+            self.assertFalse(router_ctl.supports_cors_origins("/bin/x"))
+
+
 class SupportsRouterModeTest(unittest.TestCase):
     def setUp(self):
         router_ctl.clear_router_mode_cache()
