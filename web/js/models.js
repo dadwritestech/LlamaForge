@@ -410,6 +410,8 @@ export function showModal(title, inner, privateCopies = [], returnTo = document.
   </dialog>`);
   const dialog = $("dialog", root);
   const finish = () => {
+    // "close" fires async: if another modal replaced this one meanwhile, keep it
+    if (!dialog.isConnected) return;
     setHTML(root, "");
     if (returnTo && returnTo.isConnected) returnTo.focus();
   };

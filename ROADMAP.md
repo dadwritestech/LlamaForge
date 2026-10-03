@@ -16,6 +16,8 @@ gets built next.
   **Restart now** relaunches the panel while loaded models keep serving. (v0.11.0)
 - **Launch profiles** — save a model + preset + pinned llama.cpp build as a named
   profile and launch it from a ▶ chip; pinned builds survive update pruning. (v0.12.0)
+- **Shareable recipes**: export a profile as JSON and import someone else's, with
+  a one-click download of the model if it's missing. Unsafe knobs never cross over. (v0.13.0)
 - **One-line installers** — `irm …/install.ps1 | iex` (Windows) and
   `curl …/install.sh | sh` (Linux/macOS): no git, admin or compiler. A private,
   SHA-256-pinned Python on Windows when needed; Start menu / Apps & Features,
@@ -115,7 +117,6 @@ gets built next.
 ## Under consideration
 
 - More engines as demand shows (TabbyAPI/ExLlama, etc.).
-- Import/export of profiles and per-model settings.
 
 ---
 
