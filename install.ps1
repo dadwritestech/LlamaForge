@@ -150,6 +150,7 @@ function Install-LlamaForge {
     # ---- 4. launch -------------------------------------------------------
     Write-Host ""
     Write-Host "  LlamaForge $version is installed." -ForegroundColor Green
+    Write-Host "  Useful? A GitHub star helps other people find it: https://github.com/dadwritestech/LlamaForge"
     if (-not $env:LLAMAFORGE_NO_LAUNCH) {
       Write-Host "  [4/4] Starting it - your browser will open the panel."
       Start-Process -FilePath (Join-Path $env:WINDIR "System32\wscript.exe") -ArgumentList "`"$vbs`""
