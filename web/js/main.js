@@ -20,6 +20,7 @@ import { loadChat } from "./chat.js";
 import { initWizard } from "./wizard.js";
 import { initOnboarding } from "./onboarding.js";
 import { initProfiles } from "./profiles.js";
+import { on } from "./bus.js";
 
 /* ---------- tab loaders ---------- */
 ui.onTabShown("chat", loadChat);
@@ -33,6 +34,12 @@ ui.onTabShown("context", loadContext);
 ui.onTabShown("help", loadDocs);
 
 /* ---------- boot ---------- */
+// The running version, so a screenshot or bug report names it.
+on("state", s => {
+  if (!s || !s.version) return;
+  $("#lf-version").textContent = "v" + s.version;
+  $(".logo").title = "LlamaForge v" + s.version;   // the collapsed rail hides the name
+});
 ui.initTabs();
 ui.initModeToggle();
 ui.initThemeControls();

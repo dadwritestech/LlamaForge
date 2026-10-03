@@ -12,6 +12,14 @@ body:
       description: What you did, what you expected, and what happened instead.
     validations:
       required: true
+  - type: input
+    id: version
+    attributes:
+      label: LlamaForge version
+      description: Shown next to the LLAMAFORGE name in the sidebar (also "version" in /api/state).
+      placeholder: e.g. v0.15.0
+    validations:
+      required: true
   - type: dropdown
     id: os
     attributes:

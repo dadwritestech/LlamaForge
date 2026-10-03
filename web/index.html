@@ -92,6 +92,7 @@ body.app{display:grid;grid-template-columns:var(--nav-w) 1fr;min-height:100vh;ma
 .side-head{display:flex;align-items:center;gap:10px;padding:4px 6px 12px;border-bottom:1px solid var(--hair);margin-bottom:8px}
 .brand-word{font-family:var(--disp);font-weight:700;letter-spacing:.12em;color:var(--ink-strong);white-space:nowrap}
 .brand-word span{color:var(--amber)}
+.brand-word .brand-ver{font-family:var(--mono,monospace);font-weight:400;letter-spacing:0;font-size:10px;color:var(--dim)}
 .nav-toggle{margin-left:auto;background:transparent;border:1px solid var(--hair);color:var(--dim);
   cursor:pointer;width:22px;height:22px;padding:0;flex:none;border-radius:4px;font:inherit;line-height:1;
   display:inline-flex;align-items:center;justify-content:center}
@@ -440,7 +441,7 @@ body.mode-lite .advanced-only{display:none !important}
 <nav id="sidebar">
   <div class="side-head">
     <div class="logo"></div>
-    <span class="brand-word">LLAMA<span>FORGE</span></span>
+    <span class="brand-word">LLAMA<span>FORGE</span> <small id="lf-version" class="brand-ver"></small></span>
     <button id="nav-toggle" class="nav-toggle" title="Collapse / expand" aria-label="Toggle sidebar">‹</button>
     <div id="nav-hint" class="nav-hint" hidden>Click to expand &rsaquo;</div>
   </div>
