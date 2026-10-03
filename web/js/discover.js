@@ -3,6 +3,7 @@
 import { $, $$, esc, setHTML, api, toast, meter, fmtDur } from "./core.js";
 import { S } from "./state.js";
 import { emit } from "./bus.js";
+import { loadFeed } from "./feed.js";
 
 let dlPoll = null, discoverLoaded = false;
 let dlPrev = null;   // {t, bytes} from the previous progress poll -> speed/ETA
@@ -36,7 +37,8 @@ function hubRow(m, installed, clickClass) {
         ${m.gated?'<span class="tag" style="color:var(--red);border-color:var(--red)" title="gated repo - requires accepting terms + an HF token; downloads from here will fail">GATED</span>':''}
         ${inst?'<span class="tag" style="color:var(--green);border-color:var(--green)" title="already in your registry">INSTALLED</span>':''}
       </span>
-      ${m.updated?`<span class="ctxpill"><span class="k">upd</span> ${esc(m.updated)}</span>`:""}
+      ${m.isNew&&m.created?`<span class="ctxpill" style="color:var(--amber)"><span class="k">new</span> ${esc(m.created)}</span>`
+        :m.updated?`<span class="ctxpill"><span class="k">upd</span> ${esc(m.updated)}</span>`:""}
       <span class="ctxpill">${esc((m.downloads||0).toLocaleString())} dl</span>
       <span class="ctxpill" style="color:var(--cyan)">${esc(m.likes)} &hearts;</span>
       <span class="chev">&#9654;</span>
@@ -84,6 +86,7 @@ export function loadDiscover() {
   if (discoverLoaded) return;
   discoverLoaded = true;
   setHTML($("#view-discover"), `
+    <div id="feed"></div>
     <div class="card"><h3>Discover models on huggingface.co</h3>
       <div class="toolbar">
         <select id="hub-mode" style="background:var(--inset);border:1px solid var(--hair);color:var(--ink);font-family:var(--mono);font-size:12px;padding:8px">
@@ -92,6 +95,7 @@ export function loadDiscover() {
         </select>
         <input class="search" id="hub-q" placeholder="search models (e.g. qwen coder, gemma vision)... blank = most downloaded">
         <select id="hub-sort" style="background:var(--inset);border:1px solid var(--hair);color:var(--ink);font-family:var(--mono);font-size:12px;padding:8px">
+          <option value="trending">new &amp; trending (14 days)</option>
           <option value="downloads">most downloaded</option>
           <option value="lastModified">newest</option>
           <option value="likes">most liked</option>
@@ -138,6 +142,7 @@ export function loadDiscover() {
   $("#hub-mode").onchange = () => hubSearch();
   $("#hub-q").addEventListener("keydown", e => { if (e.key === "Enter") hubSearch(); });
   hubSearch();
+  loadFeed();
 }
 
 async function hubSearch() {
@@ -150,6 +155,7 @@ async function hubSearch() {
   $("#hub-vram").textContent = (r.vram_mib/1024).toFixed(1);
   msg.className = "msg ok"; msg.textContent = `${r.results.length} repos`;
   const inst = new Set(r.installed || []);
+  if ($("#hub-sort").value === "trending") r.results.forEach(m => m.isNew = true);
   setHTML($("#hub-results"), `<div class="list">${r.results.map(m => hubRow(m, inst, "hub-repo")).join("")}</div>`);
   $$("#hub-results .hub-repo").forEach(h => h.onclick = () => hubFiles(h.parentElement));
 }

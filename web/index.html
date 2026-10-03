@@ -256,6 +256,13 @@ button:disabled{opacity:.4;cursor:not-allowed}
 .qbtn.load:hover{background:var(--amber);color:var(--on-amber)}
 .qbtn.stop:hover{border-color:var(--red);color:var(--red)}
 .qbtns{display:flex;gap:6px;justify-content:flex-end}
+.feed-list{display:flex;flex-direction:column;gap:6px;margin-top:10px}
+.feed-item{display:flex;align-items:center;gap:10px;padding:7px 10px;background:var(--inset);border:1px solid var(--hair)}
+.feed-item .tag{margin-left:0}.feed-item button{margin-left:auto;padding:4px 10px}
+.feed-title{color:var(--ink);text-decoration:none;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.feed-title:hover{color:var(--amber-text);text-decoration:underline}
+.feed-app{display:flex;align-items:center;gap:14px;padding:10px 12px;margin-bottom:12px;border:1px solid var(--amber);background:var(--inset)}
+.feed-app a{color:var(--amber-text)}.feed-app button{margin-left:auto}
 .qbadge{font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--cyan-text);white-space:nowrap}
 /* keyboard-selected row (#10) */
 .row.sel{border-color:var(--cyan);box-shadow:inset 3px 0 0 var(--cyan)}

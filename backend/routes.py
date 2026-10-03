@@ -22,6 +22,7 @@ import json, os, re, subprocess, sys, threading, time, urllib.request, urllib.er
 
 import config, argspec, hardware, osplat, prereqs, scanner, hub, router_ctl, stats, telemetry
 import autotune, anthropic_shim, agentsetup, clientsetup, network_policy, wiki, docs
+import feed, selfupdate, appinstall
 import vram_predict
 import wsl, vllm_ctl, vllm_registry, vllm_setup, vllm_job, vllm_hub, vllm_download
 import gguf, diag, backends, prebuilt
@@ -43,6 +44,7 @@ BUILDER_IKLLAMA = BuildManager(LOGDIR, "build-ikllama",
 def _builder_for(target):
     return BUILDER_IKLLAMA if target == "ikllama" else BUILDER_LLAMA
 DOWNLOADS = hub.DownloadManager()
+APP_UPDATE = selfupdate.UpdateJob(ROOT)
 
 VLLM_SETUP_JOB = vllm_job.WslJob(LOGDIR, "vllm-setup.log")
 
@@ -837,6 +839,39 @@ def get_vllm_version(req):
         "installed": vllm_setup._vllm_version(distro),
         "latest": vllm_setup.latest_pypi_version(force=req.flag("force")),
     }
+
+
+def get_feed(req):
+    """"New this week": model support llama.cpp just merged (marked against the
+    running engine's build) and whether a newer LlamaForge release is out."""
+    force = req.flag("force")
+    out = {"engine_build": feed.engine_build(cfg().get("server_bin", ""))}
+    try:
+        out["engine_news"] = feed.engine_news(feed.llama_releases(force), out["engine_build"])
+    except Exception as e:
+        out["engine_news"], out["engine_error"] = [], str(e)
+    installed = appinstall.installed_version(ROOT)
+    try:
+        out["app"] = feed.app_update(installed, feed.app_latest(force))
+    except Exception as e:
+        out["app"] = {"installed": installed, "available": False, "error": str(e)}
+    out["app"]["managed"] = installed is not None
+    out["app"]["job"] = APP_UPDATE.progress()
+    return 200, out
+
+
+def post_app_update(req):
+    tag = (req.body or {}).get("tag", "")
+    if not APP_UPDATE.start(tag):
+        return 200, {"ok": False, "error": "an update is already running"}
+    return 200, {"ok": True}
+
+
+def post_app_restart(req):
+    if APP_UPDATE.progress()["state"] != "done":
+        return 200, {"ok": False, "error": "nothing to restart for"}
+    selfupdate.restart(ROOT, osplat.current())
+    return 200, {"ok": True}
 
 
 def get_vllm_hub_progress(req):
@@ -1809,6 +1844,8 @@ GET_ROUTES = {
     "/api/vllm/schema":       get_vllm_schema,
     "/api/vllm/version":      get_vllm_version,
     "/api/vllm/hub/progress": get_vllm_hub_progress,
+    "/api/feed":              get_feed,
+    "/api/app/update":        lambda req: (200, APP_UPDATE.progress()),
     "/api/model/metadata":    get_model_metadata,
     "/api/model/diag":        get_model_diag,
     "/api/presets":           get_presets,
@@ -1845,6 +1882,8 @@ POST_ROUTES = {
     "/api/scan/apply":          post_scan_apply,
     "/api/scan/prune":          post_scan_prune,
     "/api/hub/search":          post_hub_search,
+    "/api/app/update":          post_app_update,
+    "/api/app/restart":         post_app_restart,
     "/api/hub/files":           post_hub_files,
     "/api/vram/predict":        post_vram_predict,
     "/api/hub/download":        post_hub_download,

@@ -20,25 +20,51 @@ def _get_json(url, timeout=25):
 # GGUF runs everywhere llama.cpp builds.
 PLATFORMS = ["windows", "linux", "macos"]
 
-def search(query="", sort="downloads", limit=50):
-    """Search GGUF repos. sort: downloads | lastModified | likes."""
-    params = {"filter": "gguf", "limit": str(limit), "direction": "-1", "sort": sort,
+# Trending GGUF repos include image/audio/video conversions llama-server
+# can't serve; drop those. Untagged repos stay (many LLM quants are untagged).
+NOT_LLM = {"text-to-image", "image-to-image", "text-to-video", "image-to-video",
+           "text-to-speech", "text-to-audio", "automatic-speech-recognition",
+           "audio-classification", "audio-to-audio", "voice-activity-detection",
+           "image-segmentation", "object-detection", "depth-estimation"}
+NEW_DAYS = 14
+
+def _days_between(a, b):
+    import datetime as dt
+    try:
+        return (dt.date.fromisoformat(b[:10]) - dt.date.fromisoformat(a[:10])).days
+    except ValueError:
+        return None
+
+def search(query="", sort="downloads", limit=50, now=None):
+    """Search GGUF repos. sort: downloads | lastModified | likes | trending.
+    "trending" = what's hot on the Hub, limited to text models created in the
+    last NEW_DAYS days (the "New this week" list)."""
+    trending = sort == "trending"
+    params = {"filter": "gguf", "limit": str(100 if trending else limit), "direction": "-1",
+              "sort": "trendingScore" if trending else sort,
               # the list API omits lastModified/gated unless asked explicitly
-              "expand[]": ["downloads", "likes", "lastModified", "gated"]}
+              "expand[]": ["downloads", "likes", "lastModified", "gated", "createdAt", "pipeline_tag"]}
     if query:
         params["search"] = query
     url = f"{HF}/api/models?{urllib.parse.urlencode(params, doseq=True)}"
+    today = now or time.strftime("%Y-%m-%d")
     out = []
     for m in _get_json(url):
+        created = (m.get("createdAt") or "")[:10]
+        if trending:
+            age = _days_between(created, today) if created else None
+            if m.get("pipeline_tag") in NOT_LLM or age is None or age > NEW_DAYS:
+                continue
         out.append({
             "repo": m.get("id", ""),
             "downloads": m.get("downloads", 0),
             "likes": m.get("likes", 0),
             "updated": (m.get("lastModified") or "")[:10],
+            "created": created,
             "gated": bool(m.get("gated")),   # "auto"/"manual" -> needs an HF token
             "platforms": PLATFORMS,
         })
-    return out
+    return out[:limit]
 
 def _fit(size_bytes, vram_mib):
     """Rate a file against total VRAM: fits / tight / cpu-offload."""
