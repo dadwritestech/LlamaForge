@@ -111,8 +111,8 @@ const SHARE_URL = "https://github.com/dadwritestech/LlamaForge/tree/master/recip
 async function openGallery(force = false) {
   const r = await api("/api/recipes/gallery" + (force ? "?force=1" : ""));
   const list = (r && r.recipes) || [];
-  const knobs = s => Object.entries(s).slice(0, 8).map(([k, v]) => `<code>${esc(k)}=${esc(v)}</code>`).join(" ")
-    + (Object.keys(s).length > 8 ? ` <span style="color:var(--dim)">+${Object.keys(s).length - 8} more</span>` : "");
+  // every knob, never "+N more": you see exactly what an import will apply
+  const knobs = s => Object.entries(s).map(([k, v]) => `<code>${esc(k)}=${esc(v)}</code>`).join(" ");
   const card = (e, i) => `<div class="rcard">
       <div style="display:flex;gap:8px;align-items:baseline">
         <b style="flex:1">${esc(e.title)}</b>

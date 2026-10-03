@@ -10,7 +10,6 @@
     "ctx-size": "150000",
     "flash-attn": "on",
     "jinja": "true",
-    "n-gpu-layers": "99",
     "no-mmproj": "true"
   },
   "engine": null,

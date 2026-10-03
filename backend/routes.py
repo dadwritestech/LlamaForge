@@ -1256,6 +1256,12 @@ def post_profiles_launch(req):
                           config.get_presets())
     except ValueError as e:
         return 200, {"ok": False, "step": "plan", "error": str(e)}
+    if prof.get("source") == "recipe" and p["settings"] is not None:
+        # its preset may have been edited since the import - same gate again
+        try:
+            p["settings"] = recipes.clean(p["settings"], _recipe_knobs())[0]
+        except ApiError as e:
+            return 200, {"ok": False, "step": "plan", "error": e.message}
     if p["switch_bin"]:
         ok, err = _activate_prebuilt(p["switch_bin"])
         if not ok:
@@ -1284,7 +1290,8 @@ def post_profiles_export(req):
     section = {**sections.get("*", {}), **section}
     try:
         recipe = recipes.export(name, prof, section, config.get_presets(),
-                                prebuilt.list_installs(ENGINES_DIR, cfg().get("server_bin", "")))
+                                prebuilt.list_installs(ENGINES_DIR, cfg().get("server_bin", "")),
+                                _known_knobs())
     except ValueError as e:
         raise ApiError(400, str(e))
     return 200, {"ok": True, "recipe": recipe}
@@ -1298,11 +1305,22 @@ def get_recipes_gallery(req):
 
 
 def _known_knobs():
+    """recipes.knob_index of the live schema, or None when there is none
+    (router binary missing): then only canonical allowlisted names pass."""
     try:
-        return {a: k.get("type") for g in schema().get("groups", []) for k in g.get("knobs", [])
-                for a in [k.get("key")] + list(k.get("aliases") or []) if a} or None
+        return recipes.knob_index(schema()) or None
     except Exception:
-        return None                # no schema (router binary missing): shareable() still applies
+        return None
+
+
+def _recipe_knobs():
+    """The schema a recipe must be checked against before it touches this
+    machine; without one an alias can't be told from an unknown flag."""
+    known = _known_knobs()
+    if known is None:
+        raise ApiError(409, "recipes need the llama-server knob list - "
+                            "set up a llama.cpp build first (Build / Update)")
+    return known
 
 
 def _start_recipe_download(model):
@@ -1332,7 +1350,7 @@ def post_profiles_import(req):
     """Turn a recipe into a preset + profile on this machine. When its model
     isn't here, {missing} (and with download=true, start fetching it)."""
     try:
-        r = recipes.parse(req.body.get("recipe"), _known_knobs())
+        r = recipes.parse(req.body.get("recipe"), _recipe_knobs())
     except ValueError as e:
         raise ApiError(400, str(e))
     local = recipes.match_local(r["model"], config.read_sections())
@@ -1348,7 +1366,8 @@ def post_profiles_import(req):
         config.save_preset(preset, r["settings"])
     engine = recipes.match_engine(r["engine"], prebuilt.list_installs(ENGINES_DIR, cfg().get("server_bin", "")))
     name = recipes.unique_name(r["name"], config.get_profiles())
-    config.save_profile(name, {"model": local, "backend": "llamacpp", "preset": preset, "engine": engine})
+    config.save_profile(name, {"model": local, "backend": "llamacpp", "preset": preset, "engine": engine,
+                               "source": "recipe"})
     wanted = r["engine"] and not engine
     return 200, {"ok": True, "name": name, "model": local, "preset": preset, "engine": engine,
                  "engine_missing": f"{r['engine']['tag']} {r['engine']['variant']}".strip() if wanted else "",
