@@ -138,6 +138,36 @@ class DocumentedValuesTest(unittest.TestCase):
         self.assertEqual((it["type"], it["values"]), ("enum", want))
         self.assertEqual(it["default"], "f16")
 
+    def test_a_single_line_list_keeps_its_default_and_env_after_it(self):
+        it = _one("-ctk,  --cache-type-k TYPE              KV cache data type for K\n"
+                  "                                        allowed values: f32, f16, q8_0\n"
+                  "                                        (default: f16)\n"
+                  "                                        (env: LLAMA_ARG_CACHE_TYPE_K)\n", "cache-type-k")
+        self.assertEqual((it["type"], it["values"]), ("enum", ["f32", "f16", "q8_0"]))
+        self.assertEqual(it["default"], "f16")
+        self.assertEqual(it["env"], "LLAMA_ARG_CACHE_TYPE_K")
+
+    def test_a_wrapped_list_cut_off_by_the_next_option_is_dropped(self):
+        """A list still open when the next option starts must not reach either
+        option: a partial list would make a pinned build reject the values it lost."""
+        items = argspec.parse_help(
+            "-ctk,  --cache-type-k TYPE              KV cache data type for K\n"
+            "                                        allowed values: f32, f16, bf16, q8_0,\n"
+            "-ctv,  --cache-type-v TYPE              KV cache data type for V\n"
+            "                                        (default: f16)\n")
+        k, v = (next(i for i in items if i["key"] == key) for key in ("cache-type-k", "cache-type-v"))
+        self.assertIsNone(k["values"])
+        self.assertTrue(k["curated"])              # falls back to our list, not a partial one
+        self.assertIsNone(v["values"])
+        self.assertEqual(v["default"], "f16")
+
+    def test_a_wrapped_list_open_at_the_end_of_the_help_is_dropped(self):
+        it = _one("-ctk,  --cache-type-k TYPE              KV cache data type for K\n"
+                  "                                        allowed values: f32, f16, bf16, q8_0,\n",
+                  "cache-type-k")
+        self.assertIsNone(it["values"])
+        self.assertTrue(it["curated"])
+
     def test_a_types_line_that_goes_on_is_prose(self):
         it = _one("         --override-kv KEY=TYPE:VALUE\n"
                   "                                  advanced option to override model metadata by key.\n"
