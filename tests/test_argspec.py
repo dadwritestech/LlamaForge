@@ -126,6 +126,18 @@ class DocumentedValuesTest(unittest.TestCase):
         self.assertFalse(it["curated"])
         self.assertEqual(it["default"], "f16")
 
+    def test_an_allowed_values_list_that_wraps_is_read_in_full(self):
+        it = _one("-ctk,  --cache-type-k TYPE              KV cache data type for K\n"
+                  "                                        allowed values: f32, f16, bf16, q8_0, q4_0, q4_1, iq4_nl, q5_0, q5_1,\n"
+                  "                                        q6_0, q6_1, q3_0, q3_1, q2_0, q2_1, kvarn2, kvarn3, kvarn4, kvarn5,\n"
+                  "                                        kvarn6, kvarn8\n"
+                  "                                        (default: f16)\n", "cache-type-k")
+        want = ["f32", "f16", "bf16", "q8_0", "q4_0", "q4_1", "iq4_nl", "q5_0", "q5_1",
+                "q6_0", "q6_1", "q3_0", "q3_1", "q2_0", "q2_1", "kvarn2", "kvarn3", "kvarn4", "kvarn5",
+                "kvarn6", "kvarn8"]
+        self.assertEqual((it["type"], it["values"]), ("enum", want))
+        self.assertEqual(it["default"], "f16")
+
     def test_a_types_line_that_goes_on_is_prose(self):
         it = _one("         --override-kv KEY=TYPE:VALUE\n"
                   "                                  advanced option to override model metadata by key.\n"

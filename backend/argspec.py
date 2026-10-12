@@ -19,6 +19,7 @@ SECTION_RE = re.compile(r"^-+\s*(.+?)\s*-+\s*$")
 # a values line under an option: ik's "types: none, draft, mtp", mainline's
 # "allowed values: f32, f16, q8_0". Only a bare list: "types: int, str. example: ..." is prose
 VALUES_RE = re.compile(r"(?:types|allowed values):\s*([\w.-]+(?:,\s*[\w.-]+)+)")
+VALUES_LEAD_RE = re.compile(r"(?:types|allowed values):")
 CONT_INDENT = 20        # flags start by column 9 (ik) or 0 (mainline); descriptions at 34 / 40
 
 def _balance_parens(s):
@@ -76,8 +77,11 @@ def parse_help(text):
     section = "general"
     items, pending = [], None
 
+    values_open = None  # an "allowed values:" list that continues on the next line
+
     def flush():
-        nonlocal pending
+        nonlocal pending, values_open
+        values_open = None
         if pending:
             items.append(pending); pending = None
 
@@ -99,7 +103,13 @@ def parse_help(text):
             if env: pending["env"] = env.group(1)
             dflt = re.search(r"\(default:\s*(.*?)\)", extra)
             if dflt and not pending.get("default"): pending["default"] = dflt.group(1)
-            vals = VALUES_RE.fullmatch(extra)
+            # A long list wraps: "allowed values: a, b," then "c, d" on the next line.
+            text = extra if values_open is None else values_open + " " + extra
+            if VALUES_LEAD_RE.match(text) and text.endswith(","):
+                values_open = text
+                continue
+            values_open = None
+            vals = VALUES_RE.fullmatch(text)
             if vals and pending["values"] is None and pending["type"] != "bool":
                 pending["values"] = [v.strip() for v in vals.group(1).split(",")]
                 if pending["curated"]:            # the build's own list beats ours
