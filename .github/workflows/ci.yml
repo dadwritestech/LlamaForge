@@ -43,6 +43,22 @@ jobs:
       - name: Run frontend behavior tests
         run: node --test tests/*.mjs
 
+  # Initial lint run may have violations; use --exit-zero / warn and fix
+  # follow-ups in subsequent PRs. Categories to address later: E302/E303
+  # (blank lines), F401 (unused imports), etc.
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Lint backend with ruff (E + F)
+        run: pipx run ruff check backend --exit-zero
+      - name: Lint frontend with eslint (no .innerHTML outside core.js)
+        run: npx --yes eslint@8 web/js
+
   # The one-line installers, end to end on a clean runner: install, update in
   # place, launch through the real launcher, stop, uninstall (keeping data).
   installer:
