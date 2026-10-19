@@ -1,0 +1,27 @@
+{
+  "parserOptions": {
+    "ecmaVersion": 2020,
+    "sourceType": "module"
+  },
+  "env": {
+    "browser": true,
+    "es2020": true
+  },
+  "rules": {
+    "no-restricted-syntax": [
+      "error",
+      {
+        "selector": "MemberExpression[property.name='innerHTML']",
+        "message": "Use setHTML() instead of .innerHTML to keep escaping discipline."
+      }
+    ]
+  },
+  "overrides": [
+    {
+      "files": ["web/js/core.js"],
+      "rules": {
+        "no-restricted-syntax": "off"
+      }
+    }
+  ]
+}

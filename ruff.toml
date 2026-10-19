@@ -1,0 +1,7 @@
+# Ruff lint configuration for LlamaForge backend.
+# Lint is a CI-only dev tool; ruff runs via `pipx run ruff check backend`.
+# E = pycodestyle errors/warnings, F = pyflakes.
+# These catch obvious bugs and style issues without adding user-facing deps.
+
+[lint]
+select = ["E", "F"]
