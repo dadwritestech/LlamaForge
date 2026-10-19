@@ -180,6 +180,19 @@
 :root[data-skin="hearth"] .qbtn.load:hover{background:linear-gradient(180deg,#ffc07a,#ff7a48);color:#2a1006;border-color:transparent}
 :root[data-skin="hearth"] .chip{font-size:12px;letter-spacing:0;text-transform:none;padding:6px 14px;background:var(--panel)}
 :root[data-skin="hearth"] .chip.on{background:var(--cyan);border-color:var(--cyan);color:#06201d}
+/* button reset: <button> elements styled as chips must not inherit native button look */
+:where(:root[data-skin="hearth"]) button.chip{font:inherit;padding:inherit;border-radius:inherit;background:inherit;border-color:inherit;color:inherit;cursor:pointer;user-select:none;outline:none}
+:where(:root[data-skin="hearth"]) button.chip.on{background:var(--cyan);border-color:var(--cyan);color:#06201d}
+:where(:root[data-skin="hearth"]) button.pchip{font:inherit;padding:inherit;border-radius:inherit;background:inherit;border-color:inherit;color:inherit;cursor:pointer;user-select:none;outline:none}
+:where(:root[data-skin="hearth"]) button.pchip:hover{background:var(--amber);color:var(--on-amber)}
+:where(:root[data-skin="hearth"]) button.pchip.bound{border-color:var(--amber-text);background:var(--amber-tint)}
+:where(:root[data-skin="hearth"]) button.pchip.bound .pbind{color:var(--amber-text)}
+:where(:root[data-skin="hearth"]) button.pchip:focus-visible,button.chip:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
+/* button reset for fav star */
+:where(:root[data-skin="hearth"]) button.fav{border:0;background:none;color:inherit;padding:0;cursor:pointer;user-select:none;outline:none;font-size:inherit;line-height:inherit}
+:where(:root[data-skin="hearth"]) button.fav:hover{color:var(--amber-text)}
+:where(:root[data-skin="hearth"]) button.fav.on{color:var(--amber-text);text-shadow:0 0 6px var(--amber-dim)}
+:where(:root[data-skin="hearth"]) button.fav:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
 :root[data-skin="hearth"] .tag{font-size:11px;letter-spacing:.06em;padding:2px 9px;background:color-mix(in srgb,var(--panel2) 70%,transparent)}
 :root[data-skin="hearth"] .presetbar .pchip{letter-spacing:.02em;text-transform:none;font-size:12px}
 

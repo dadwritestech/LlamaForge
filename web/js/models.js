@@ -183,7 +183,7 @@ function editor(m) {
     <div class="ed-live">${editorLive(m)}</div>
     <div class="toolbar ed-tools">
       <input class="search" data-knobfilter placeholder="${esc(placeholder)}">
-      <span class="chip ${onlySet?"on":""}" data-onlyset>Only set</span>
+      <button type="button" class="chip ${onlySet?"on":""}" data-onlyset>Only set</button>
     </div>
     <div class="ed-knobs">${knobGroups(m,schema)}</div>
     <div class="actions">
@@ -238,7 +238,7 @@ function rowHead(m, showBackend) {
     ? `<span class="tag be-${esc(be)}">${esc(BACKEND_LABEL[be] || be)}</span>` : "";
   return `${compareMode?`<input type="checkbox" class="cmp" data-cmp="${esc(m.id)}" ${cmpSet.has(m.id)?"checked":""} title="pick to compare">`:""}
         <span class="led ${loaded?"loaded":""} ${m.status==="loading"?"loading":""} ${m.failed?"failed":""}"></span>
-        <span class="fav ${isFav?"on":""}" data-fav="${esc(m.id)}" title="${isFav?"unfavorite":"favorite"}">&starf;</span>
+        <button type="button" class="fav ${isFav?"on":""}" data-fav="${esc(m.id)}" aria-label="${isFav?"unfavorite":"favorite"}" aria-pressed="${isFav}">${isFav?'&#9733;':'&#9734;'}</button>
         <span class="mid" title="${esc(m.id)}">${esc(m.id)}${beTag}${slots.chip(m)}${elastic.chip(S.STATE, m)}${buildTag(m)}${vis?'<span class="tag vis">vision</span>':''}${!m.in_ini?'<span class="tag">auto</span>':''}${m.endpoint?`<span class="tag ep" data-ep="${esc(m.endpoint)}" title="click to copy endpoint">${esc(m.endpoint.replace('http://',''))}</span>`:''}</span>
         <span class="ctxpill"><span class="k">CTX</span> ${esc(m.eff_ctx)}</span>
         ${statCell(m, loaded, stuckSecs)}
@@ -576,9 +576,9 @@ function presetBar(m) {
   const bound = ((c.preset_bindings || {})[m.backend || c.active_engine || "llamacpp"] || {})[m.id] || "";
   const chips = Object.keys(P).map(n => {
     const isBound = n === bound;
-    return `<span class="pchip${isBound ? " bound" : ""}" data-preset-apply="${esc(n)}" data-preset-model="${esc(m.id)}" title="apply preset to this model">`
+    return `<button type="button" class="pchip${isBound ? " bound" : ""}" data-preset-apply="${esc(n)}" data-preset-model="${esc(m.id)}" title="apply preset to this model">`
       + `<span class="pbind" data-preset-bind="${esc(n)}" data-preset-bind-model="${esc(m.id)}" title="${isBound ? "bound as default - click to unbind" : "bind as this model's default"}">${isBound ? "◉" : "○"}</span>`
-      + `${esc(n)}<span class="px" data-preset-del="${esc(n)}" title="delete preset">&times;</span></span>`;
+      + `${esc(n)}<span class="px" data-preset-del="${esc(n)}" title="delete preset">&times;</span></button>`;
   }).join("");
   return `<div class="presetbar">
     <span style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim)">Presets</span>

@@ -216,6 +216,15 @@
   padding:5px 12px;border-radius:0;background:var(--panel);border-color:var(--hair-hi);color:var(--ink)}
 :root[data-skin="stowage"] .chip:hover{border-color:var(--ink-hi);color:var(--ink-strong)}
 :root[data-skin="stowage"] .chip.on{background:var(--ink-hi);border-color:var(--ink-hi);color:var(--bg)}
+/* button reset: <button> elements styled as chips must not inherit native button look */
+:where(:root[data-skin="stowage"]) button.chip{font:inherit;padding:inherit;border-radius:inherit;background:inherit;border-color:inherit;color:inherit;cursor:pointer;user-select:none;outline:none}
+:where(:root[data-skin="stowage"]) button.chip:hover{border-color:var(--ink-hi);color:var(--ink-strong)}
+:where(:root[data-skin="stowage"]) button.chip.on{background:var(--ink-hi);border-color:var(--ink-hi);color:var(--bg)}
+:where(:root[data-skin="stowage"]) button.pchip{font:inherit;padding:inherit;border-radius:inherit;background:inherit;border-color:inherit;color:inherit;cursor:pointer;user-select:none;outline:none}
+:where(:root[data-skin="stowage"]) button.pchip:hover{background:var(--ink-hi);border-color:var(--ink-hi);color:var(--bg)}
+:where(:root[data-skin="stowage"]) button.pchip.bound{border-color:var(--ink-hi);background:var(--inset)}
+:where(:root[data-skin="stowage"]) button.pchip.bound .pbind{color:var(--ink-hi)}
+:where(:root[data-skin="stowage"]) button.pchip:focus-visible,button.chip:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
 :root[data-skin="stowage"] .tag{font-family:var(--cond);font-weight:600;font-size:12px;letter-spacing:.08em;padding:1px 7px;border-radius:0;
   background:transparent;color:var(--dim);border-color:var(--hair-hi)}
 /* a row's role is its container colour plus one word */
@@ -367,6 +376,11 @@
 :root[data-skin="stowage"] .fav{color:var(--faint);--glyph:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 1.2l2 4.4 4.8.5-3.6 3.3 1 4.7L8 11.7l-4.2 2.4 1-4.7L1.2 6.1 6 5.6z' fill='none' stroke='black' stroke-width='1.4' stroke-linejoin='round'/%3E%3C/svg%3E")}
 :root[data-skin="stowage"] .fav:hover{color:var(--ink-hi)}
 :root[data-skin="stowage"] .fav.on{color:var(--ink-strong);text-shadow:none;--glyph:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 1.2l2 4.4 4.8.5-3.6 3.3 1 4.7L8 11.7l-4.2 2.4 1-4.7L1.2 6.1 6 5.6z'/%3E%3C/svg%3E")}
+/* button reset for fav star */
+:where(:root[data-skin="stowage"]) button.fav{border:0;background:none;color:inherit;padding:0;cursor:pointer;user-select:none;outline:none;font-size:inherit;line-height:inherit}
+:where(:root[data-skin="stowage"]) button.fav:hover{color:var(--ink-hi)}
+:where(:root[data-skin="stowage"]) button.fav.on{color:var(--ink-strong);text-shadow:none}
+:where(:root[data-skin="stowage"]) button.fav:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
 :root[data-skin="stowage"] .chev{color:var(--dim);--glyph:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M5.5 2.5L11 8l-5.5 5.5' fill='none' stroke='black' stroke-width='2.2'/%3E%3C/svg%3E")}
 :root[data-skin="stowage"] .chev::before{width:12px;height:12px}
 :root[data-skin="stowage"] .row.open .chev{color:var(--ink-strong)}
