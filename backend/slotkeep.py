@@ -21,7 +21,8 @@ def filename(mid, sid):
 
 
 def slots(router, mid):
-    code, data = router("/slots?model=" + urllib.parse.quote(mid, safe=""))
+    # autoload=false: reading the slots of a model that's gone must not load it.
+    code, data = router("/slots?model=" + urllib.parse.quote(mid, safe="") + "&autoload=false")
     return data if code == 200 and isinstance(data, list) else []
 
 

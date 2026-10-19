@@ -224,9 +224,12 @@ class StatsTracker:
         scraped, where = {}, {}
         for model in loaded:
             where[model] = "router"
+            # autoload=false: a model unloaded since /models answered (by a
+            # swap, an unload, another tool) must 400 here, not be reloaded.
             try:
                 scraped[model] = _parse_metrics(
-                    self._get("/metrics?model=" + urllib.parse.quote(model)))
+                    self._get("/metrics?model=" + urllib.parse.quote(model)
+                              + "&autoload=false"))
             except Exception:
                 scraped[model] = None      # unknown, not zero: keep its baseline
         for model, endpoint in procs.items():

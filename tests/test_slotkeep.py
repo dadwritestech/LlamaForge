@@ -31,6 +31,12 @@ def actions(r):
 
 
 class SaveTest(unittest.TestCase):
+    def test_reading_slots_never_loads_the_model(self):
+        # /slots?model=X loads X unless autoload=false; a gone model must 400, not reload.
+        r = FakeRouter([])
+        slotkeep.slots(r, "qwen/27b")
+        self.assertEqual(r.calls[0][0], "/slots?model=qwen%2F27b&autoload=false")
+
     def test_only_slots_with_a_conversation_are_saved(self):
         r = FakeRouter([{"id": 0, "n_prompt_tokens": 5000}, {"id": 1, "n_prompt_tokens": 0}])
         files, why = slotkeep.save(r, "qwen/27b", "D:/x", disk_free=lambda p: 10 * 2**30)
