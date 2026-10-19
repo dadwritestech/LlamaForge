@@ -30,12 +30,15 @@ class RuffConfigTest(unittest.TestCase):
         self.assertIn("F", rules, "F (pyflakes) rules must be selected")
 
     def test_ruff_toml_targets_backend(self):
-        """ruff.toml should target the backend directory."""
-        path = os.path.join(ROOT, "ruff.toml")
+        """CI workflow must run ruff check backend."""
+        path = os.path.join(ROOT, ".github", "workflows", "ci.yml")
         with open(path) as f:
             content = f.read()
-        # ruff.toml at root applies to the whole repo; backend is the Python source
-        self.assertIn("backend", content.lower())
+        self.assertIn(
+            "ruff check backend",
+            content,
+            "CI workflow must run 'ruff check backend'",
+        )
 
 
 class ESLintConfigTest(unittest.TestCase):
