@@ -209,6 +209,10 @@ body.app{display:grid;grid-template-columns:var(--nav-w) 1fr;min-height:100vh;ma
 .fav{color:var(--dim);font-size:15px;cursor:pointer;user-select:none;line-height:1}
 .fav:hover{color:var(--amber-text)}
 .fav.on{color:var(--amber-text);text-shadow:0 0 6px var(--amber-dim)}
+/* button reset (zero specificity: the .chip/.pchip/.fav rules and skin overrides still win) */
+:where(button.chip,button.pchip,button.fav){font:inherit;color:inherit;background:none;margin:0;-webkit-appearance:none;appearance:none}
+:where(button.fav){border:0;padding:0}
+:where(button.chip,button.pchip,button.fav):focus-visible{outline:2px solid var(--amber);outline-offset:2px}
 .led.loaded{background:var(--green);box-shadow:0 0 8px var(--green)}.led.failed{background:var(--red);box-shadow:0 0 8px var(--red)}
 .mid{font-weight:500;color:var(--ink-hi);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .tag{font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim);border:1px solid var(--hair);border-radius:var(--r-pill);padding:1px 8px;margin-left:8px;white-space:nowrap}

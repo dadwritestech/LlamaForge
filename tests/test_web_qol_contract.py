@@ -49,6 +49,55 @@ if __name__ == "__main__":
     unittest.main()
 
 
+class WebA11yContractTest(unittest.TestCase):
+    """GitHub #30: interactive <span> controls must be <button type="button">
+    so they are keyboard-focusable and activatable without a mouse."""
+
+    def read(self, rel):
+        return read(os.path.join("web", rel))
+
+    def test_only_set_filter_is_a_button(self):
+        src = self.read("js/models.js")
+        self.assertIn('data-onlyset', src)
+        # Must be a <button> element, not a <span>
+        self.assertIn('<button type="button" class="chip', src)
+
+    def test_favorite_star_is_a_button_with_aria(self):
+        src = self.read("js/models.js")
+        self.assertIn('data-fav=', src)
+        # Must be a <button> element
+        self.assertIn('<button type="button" class="fav', src)
+        # Must expose ARIA state for screen readers
+        self.assertIn('aria-pressed=', src)
+        self.assertIn('aria-label=', src)
+
+    def test_preset_chips_are_buttons(self):
+        src = self.read("js/models.js")
+        self.assertIn('data-preset-apply=', src)
+        # preset chips must be buttons
+        self.assertIn('<button type="button" class="pchip', src)
+
+    def test_profile_chips_are_buttons(self):
+        src = self.read("js/profiles.js")
+        self.assertIn('data-prof-launch=', src)
+        self.assertIn('data-prof-gallery', src)
+        self.assertIn('data-prof-import', src)
+        # profile chips must be buttons
+        self.assertIn('<button type="button" class="pchip', src)
+
+    def test_css_resets_button_appearance_for_chips(self):
+        """When <span> is replaced by <button>, default browser button
+        styling (outline, background, padding) must be suppressed so the
+        visual appearance is unchanged."""
+        index = self.read("index.html")
+        # Zero-specificity reset using :where()
+        self.assertIn(":where(button.chip,button.pchip,button.fav)", index)
+        # Must NOT have the old border:inherit style
+        self.assertNotIn("button.chip,button.pchip{border:inherit", index)
+        # Must have focus-visible styling
+        self.assertIn(":focus-visible", index)
+
+
 class IndexHeadTest(unittest.TestCase):
     """Text inside <head> makes the parser open <body> early, so every later
     <link>/<style> lands in body as a grid item and the layout falls apart."""
