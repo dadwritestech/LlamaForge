@@ -209,11 +209,10 @@ body.app{display:grid;grid-template-columns:var(--nav-w) 1fr;min-height:100vh;ma
 .fav{color:var(--dim);font-size:15px;cursor:pointer;user-select:none;line-height:1}
 .fav:hover{color:var(--amber-text)}
 .fav.on{color:var(--amber-text);text-shadow:0 0 6px var(--amber-dim)}
-/* button reset: when <span> is replaced by <button>, suppress native button styling */
-button.chip,button.pchip{border:inherit;background:inherit;color:inherit;font:inherit;padding:inherit;cursor:pointer;user-select:none;outline:none}
-button.chip:focus-visible,button.pchip:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
-button.fav{border:0;background:none;color:inherit;padding:0;cursor:pointer;user-select:none;outline:none;font-size:inherit;line-height:inherit}
-button.fav:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
+/* button reset (zero specificity: the .chip/.pchip/.fav rules and skin overrides still win) */
+:where(button.chip,button.pchip,button.fav){font:inherit;color:inherit;background:none;margin:0;-webkit-appearance:none;appearance:none}
+:where(button.fav){border:0;padding:0}
+:where(button.chip,button.pchip,button.fav):focus-visible{outline:2px solid var(--amber);outline-offset:2px}
 .led.loaded{background:var(--green);box-shadow:0 0 8px var(--green)}.led.failed{background:var(--red);box-shadow:0 0 8px var(--red)}
 .mid{font-weight:500;color:var(--ink-hi);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .tag{font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim);border:1px solid var(--hair);border-radius:var(--r-pill);padding:1px 8px;margin-left:8px;white-space:nowrap}
@@ -247,7 +246,7 @@ button.tag.elastic:disabled{cursor:progress;opacity:.6}
 .chip{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim);border:1px solid var(--hair);border-radius:var(--r-pill);padding:6px 12px;cursor:pointer;
   user-select:none;transition:color .12s,border-color .12s,background .12s}
 .chip:hover{color:var(--ink-hi);border-color:var(--hair-hi)}
-.chip.on,button.chip.on{color:var(--on-accent);background:var(--cyan);border-color:var(--cyan)}
+.chip.on{color:var(--on-accent);background:var(--cyan);border-color:var(--cyan)}
 .kgroup{border:1px solid var(--hair);border-radius:var(--r);margin-bottom:10px;overflow:hidden;background:var(--panel)}
 .kgroup>summary{cursor:pointer;padding:10px 14px;font-family:var(--disp);letter-spacing:.12em;text-transform:uppercase;font-size:11px;color:var(--amber-text);background:var(--panel2);user-select:none}
 .kgroup>summary:hover{color:var(--ink-strong)}

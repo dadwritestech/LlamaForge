@@ -238,7 +238,7 @@ function rowHead(m, showBackend) {
     ? `<span class="tag be-${esc(be)}">${esc(BACKEND_LABEL[be] || be)}</span>` : "";
   return `${compareMode?`<input type="checkbox" class="cmp" data-cmp="${esc(m.id)}" ${cmpSet.has(m.id)?"checked":""} title="pick to compare">`:""}
         <span class="led ${loaded?"loaded":""} ${m.status==="loading"?"loading":""} ${m.failed?"failed":""}"></span>
-        <button type="button" class="fav ${isFav?"on":""}" data-fav="${esc(m.id)}" aria-label="${isFav?"unfavorite":"favorite"}" aria-pressed="${isFav}">${isFav?'&#9733;':'&#9734;'}</button>
+        <button type="button" class="fav ${isFav?"on":""}" data-fav="${esc(m.id)}" aria-label="${isFav?"unfavorite":"favorite"}" aria-pressed="${isFav}">&starf;</button>
         <span class="mid" title="${esc(m.id)}">${esc(m.id)}${beTag}${slots.chip(m)}${elastic.chip(S.STATE, m)}${buildTag(m)}${vis?'<span class="tag vis">vision</span>':''}${!m.in_ini?'<span class="tag">auto</span>':''}${m.endpoint?`<span class="tag ep" data-ep="${esc(m.endpoint)}" title="click to copy endpoint">${esc(m.endpoint.replace('http://',''))}</span>`:''}</span>
         <span class="ctxpill"><span class="k">CTX</span> ${esc(m.eff_ctx)}</span>
         ${statCell(m, loaded, stuckSecs)}

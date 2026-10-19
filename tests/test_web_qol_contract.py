@@ -89,18 +89,13 @@ class WebA11yContractTest(unittest.TestCase):
         """When <span> is replaced by <button>, default browser button
         styling (outline, background, padding) must be suppressed so the
         visual appearance is unchanged."""
-        # Check classic (index.html base styles)
         index = self.read("index.html")
-        # Should have a button reset targeting .chip
-        self.assertIn("button.chip", index)
-        # Check stowage skin
-        stowage = self.read("css/stowage.css")
-        self.assertIn("button.chip", stowage)
-        self.assertIn("button.pchip", stowage)
-        # Check hearth skin
-        hearth = self.read("css/hearth.css")
-        self.assertIn("button.chip", hearth)
-        self.assertIn("button.pchip", hearth)
+        # Zero-specificity reset using :where()
+        self.assertIn(":where(button.chip,button.pchip,button.fav)", index)
+        # Must NOT have the old border:inherit style
+        self.assertNotIn("button.chip,button.pchip{border:inherit", index)
+        # Must have focus-visible styling
+        self.assertIn(":focus-visible", index)
 
 
 class IndexHeadTest(unittest.TestCase):
