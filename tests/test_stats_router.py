@@ -1,7 +1,12 @@
 import conftest_paths  # noqa: F401
-import json, os, tempfile, unittest, urllib.error
+import json, os, tempfile, unittest, urllib.error, urllib.parse
 import stats
 from unittest import mock
+
+
+def _model_of(path):
+    """The model a /metrics?model=...&... scrape names."""
+    return urllib.parse.parse_qs(urllib.parse.urlsplit(path).query)["model"][0]
 
 
 class RouterCase(unittest.TestCase):
@@ -85,6 +90,17 @@ class TestRouterMetricsScrape(RouterCase):
                         f"never scraped with ?model=; saw {seen}")
         self.assertNotIn("/metrics", seen)        # bare form must not be used
 
+    def test_scrape_never_loads_a_model(self):
+        # /models said loaded, then something unloaded it before the scrape:
+        # without autoload=false the router reloads it to answer /metrics.
+        seen = []
+        self._wire(prompt=1, gen=1, seen=seen)
+        self.tr.poll_once()
+        scrapes = [p for p in seen if p.startswith("/metrics?model=")]
+        self.assertTrue(scrapes)
+        for p in scrapes:
+            self.assertTrue(p.endswith("&autoload=false"), p)
+
     def test_router_up_with_no_model_loaded(self):
         def fake_get(path, timeout=4):
             if path == "/models":
@@ -121,7 +137,7 @@ class TestPool(RouterCase):
             if path == "/models":
                 return json.dumps({"data": [{"id": "default", "status": {"value": "unloaded"}}] + [
                     {"id": m, "status": {"value": "loaded"}} for m in counters]})
-            mid = path.split("=", 1)[1]
+            mid = _model_of(path)
             p, g, tps = counters[mid]
             return (f"llamacpp:prompt_tokens_total {p}\n"
                     f"llamacpp:tokens_predicted_total {g}\n"
@@ -210,7 +226,7 @@ class TestProcessSlots(RouterCase):
                 raise urllib.error.URLError("connection refused")
             if path == "/models":
                 return json.dumps({"data": [{"id": m, "status": {"value": "loaded"}} for m in router]})
-            return metrics(router[path.split("=", 1)[1]])
+            return metrics(router[_model_of(path)])
 
         ports = {m: f"http://127.0.0.1:{8100 + i}" for i, m in enumerate(procs)}
         by_port = {v: k for k, v in ports.items()}
