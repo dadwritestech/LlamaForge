@@ -35,8 +35,7 @@ class RuffConfigTest(unittest.TestCase):
         with open(path) as f:
             content = f.read()
         # ruff.toml at root applies to the whole repo; backend is the Python source
-        self.assertIn("backend", content.lower() or True,
-                      "ruff.toml should reference or target backend")
+        self.assertIn("backend", content.lower())
 
 
 class ESLintConfigTest(unittest.TestCase):
@@ -65,7 +64,7 @@ class ESLintConfigTest(unittest.TestCase):
         # Find the innerHTML selector
         found = False
         for item in restricted:
-            if isinstance(item, dict) and item.get("selector") == "MemberExpression[property.name='innerHTML']":
+            if isinstance(item, dict) and item.get("selector") == "AssignmentExpression[left.type='MemberExpression'][left.property.name='innerHTML']":
                 found = True
                 break
         self.assertTrue(

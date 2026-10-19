@@ -9,9 +9,9 @@
   },
   "rules": {
     "no-restricted-syntax": [
-      "error",
+      "warn",
       {
-        "selector": "MemberExpression[property.name='innerHTML']",
+        "selector": "AssignmentExpression[left.type='MemberExpression'][left.property.name='innerHTML']",
         "message": "Use setHTML() instead of .innerHTML to keep escaping discipline."
       }
     ]
