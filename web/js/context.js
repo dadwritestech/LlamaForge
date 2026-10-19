@@ -24,7 +24,7 @@ export async function loadContext() {
         <button id="wk-new">New</button>
         <button id="wk-del">Delete</button>
       </div>
-      <textarea id="wk-text" rows="12" placeholder="${docs.length?"":"No documents yet - hit New to create one."}"></textarea>
+      <textarea id="wk-text" rows="12" aria-label="Document content" placeholder="${docs.length?"":"No documents yet - hit New to create one."}"></textarea>
       <div class="actions"><button id="wk-save" class="primary">Save doc</button></div>
     </div>
     <div class="card"><h3>Profiles</h3>

@@ -14,8 +14,8 @@ export function loadWillRun() {
   setHTML($("#view-willrun"), `
     <div class="card">
       <div class="formrow" style="gap:8px;margin:0;align-items:center">
-        <input id="wr-repo" placeholder="HuggingFace repo, e.g. unsloth/GLM-4.5-Air-GGUF" style="flex:1 1 280px;min-width:0">
-        <input id="wr-quant" placeholder="quant" value="q4_k_m" style="width:150px">
+        <input id="wr-repo" aria-label="HuggingFace repo" placeholder="HuggingFace repo, e.g. unsloth/GLM-4.5-Air-GGUF" style="flex:1 1 280px;min-width:0">
+        <input id="wr-quant" aria-label="Quantization" placeholder="quant" value="q4_k_m" style="width:150px">
         <button id="wr-go" class="primary">Estimate</button>
       </div>
       <div id="wr-out" class="note" style="margin-top:10px">Enter a HuggingFace repo to estimate placement and speed on this machine. Numbers are approximate (&plusmn;order-of-magnitude).</div>
