@@ -144,6 +144,21 @@ class TestLastAttempt(unittest.TestCase):
         r = diag.diagnose(attempt("m", 50002, "unknown model architecture: 'qwen9'", status=1), model="m")
         self.assertTrue(r["error"].startswith("unknown model architecture"), r["error"])
 
+    def test_port_already_in_use(self):
+        log = attempt("m", 54321, "couldn't bind HTTP server socket, hostname: 0.0.0.0, port: 54321", status=1)
+        r = diag.diagnose(log, model="m")
+        self.assertIsNotNone(r)
+        self.assertIn("54321", r["error"])
+        self.assertIn("54321", r["suggestion"])
+        self.assertIn("port", r["suggestion"].lower())
+
+    def test_port_already_in_use_without_model_filter(self):
+        log = "couldn't bind HTTP server socket, hostname: 0.0.0.0, port: 9876"
+        r = diag.diagnose(log)
+        self.assertIsNotNone(r)
+        self.assertIn("9876", r["error"])
+        self.assertIn("9876", r["suggestion"])
+
 
 if __name__ == "__main__":
     unittest.main()
