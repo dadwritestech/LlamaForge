@@ -51,6 +51,9 @@ _RULES = [
      "The model file could not be opened.",
      "The GGUF path is missing, moved, or an unfinished download. Re-scan drives "
      "from Setup, or fix the model path."),
+    ("bind", r"couldn't bind HTTP server socket",
+     "Couldn't bind HTTP server socket on port <port>.",
+     "Another program is already listening on that port. Close it, or pick a different port for this model."),
     ("generic", r"error loading model|failed to load model",
      "The model failed to load.",
      "The line above is llama.cpp's own reason. The full log is at the bottom of Models."),
@@ -135,6 +138,10 @@ def diagnose(log_text, settings=None, model=None):
             fix = fix.format(arg=_arg_name(line))
         elif kind == "quant":
             fix = compat.load_failure(int(re.search(r"invalid ggml type (\d+)", line).group(1)))
+        elif kind == "bind":
+            port_m = re.search(r"port:\s*(\d+)", line)
+            port = port_m.group(1) if port_m else ""
+            fix = f"Another program is already listening on port {port}. Close it, or pick a different port for this model."
         return {"error": line or err, "suggestion": fix}
     for ln in reversed(lines):
         m = re.search(r"exited with status (-?\d+)", ln)
