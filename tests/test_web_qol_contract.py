@@ -98,6 +98,33 @@ class WebA11yContractTest(unittest.TestCase):
         self.assertIn(":focus-visible", index)
 
 
+class ModelEditorA11yTest(unittest.TestCase):
+    """GitHub #28: every input/select in the model settings editor must have
+    an id, and every label must have a matching for attribute so screen
+    readers announce each field name and clicking the label focuses the field."""
+
+    def read(self, rel):
+        return read(os.path.join("web", rel))
+
+    def test_knob_inputs_have_ids_and_labels_have_for(self):
+        src = self.read("js/models.js")
+        # The knobField function must generate an id from the knob key
+        self.assertIn('"k-" + esc(k.key)', src)
+        # Labels must carry a for="${id}" attribute to link to their control
+        self.assertIn('for="${id}"', src)
+        # Inputs/selects must carry an id="${id}" attribute
+        self.assertIn('id="${id}"', src)
+
+    def test_knob_input_ids_are_escaped(self):
+        """IDs must be derived from the knob key and escaped with esc() so
+        special characters in key names can't break the HTML."""
+        src = self.read("js/models.js")
+        # The id value must be wrapped in esc() when used in the label
+        self.assertIn('for="${id}"', src)
+        # The id must be generated from esc(k.key)
+        self.assertIn('"k-" + esc(k.key)', src)
+
+
 class IndexHeadTest(unittest.TestCase):
     """Text inside <head> makes the parser open <body> early, so every later
     <link>/<style> lands in body as a grid item and the layout falls apart."""
