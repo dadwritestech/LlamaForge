@@ -15,6 +15,8 @@ Pick a model, see if it fits your GPU, load it, chat. Every llama-server flag is
   <a href="https://github.com/dadwritestech/LlamaForge/stargazers"><img alt="stars" src="https://img.shields.io/github/stars/dadwritestech/LlamaForge?style=flat-square&labelColor=0f1315&color=ffb000&cacheSeconds=1800"></a>
 </p>
 
+<p align="center"><sub>🎉 100 stars. Thank you! <a href="#star-history">Who got it here</a> · <a href="ROADMAP.md">what's next</a></sub></p>
+
 ```powershell
 irm https://raw.githubusercontent.com/dadwritestech/LlamaForge/master/install.ps1 | iex   # Windows, no admin
 ```
@@ -166,6 +168,21 @@ Everything is in the in-app **Help** tab and at **[dadwritestech.github.io/Llama
 [themes & colorblind-safe mode](docs/content/theming.md), [vLLM](docs/content/vllm.md),
 [troubleshooting](docs/content/troubleshooting.md), and [what's new](docs/content/whats-new.md).
 [ROADMAP.md](ROADMAP.md) has what's shipped and planned; it's an early preview, so priorities follow feedback.
+
+## Star history
+
+100 stars in about three months, for a solo, heavily AI-assisted side project. Thank you.
+
+Bug reports, ideas and code from [@Vergillll](https://github.com/Vergillll),
+[@Alihkhawaher](https://github.com/Alihkhawaher), [@BenjaminBilbro](https://github.com/BenjaminBilbro),
+[@BrethofAI](https://github.com/BrethofAI), [@CaspervanWetten](https://github.com/CaspervanWetten),
+[@FLOATING-POINT](https://github.com/FLOATING-POINT), [@Katchyuser](https://github.com/Katchyuser),
+[@jay23606](https://github.com/jay23606), [@mikinko](https://github.com/mikinko) and
+[@tmill328](https://github.com/tmill328) shaped what's here. If you've filed an issue, you're part of this.
+
+<a href="https://star-history.com/#dadwritestech/LlamaForge&Date">
+  <img src="https://api.star-history.com/svg?repos=dadwritestech/LlamaForge&type=Date&theme=dark" alt="LlamaForge star history" width="600">
+</a>
 
 ## Credits & license
 
