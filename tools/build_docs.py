@@ -73,11 +73,19 @@ def build(out_dir, content=None):
         with open(dest, "w", encoding="utf-8") as f:
             f.write(htmlpage)
         written.append(dest)
+        # the page's markdown too, for llms.txt readers; its sibling links
+        # (slug.md) and image paths (docs/img/...) resolve as they are
+        _, md = docs.parse_frontmatter(docs._read(os.path.join(docs.content_dir(), p["slug"] + ".md")))
+        with open(os.path.join(out_dir, p["slug"] + ".md"), "w", encoding="utf-8") as f:
+            f.write(md.lstrip("\n"))
     # landing page: if no page is named "index", copy the first page as index.html
     index = os.path.join(out_dir, "index.html")
     if pages and not any(p["slug"] == "index" for p in pages):
         shutil.copyfile(os.path.join(out_dir, pages[0]["slug"] + ".html"), index)
         written.append(index)
+    llms = os.path.join(_ROOT, "llms.txt")
+    if os.path.isfile(llms):
+        shutil.copyfile(llms, os.path.join(out_dir, "llms.txt"))
     # copy images
     img_src = os.path.join(docs.content_dir(), "img")
     if os.path.isdir(img_src):
