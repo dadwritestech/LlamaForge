@@ -2,9 +2,9 @@ name: docs
 on:
   push:
     branches: [master]
-    paths: ['docs/content/**', 'backend/docs.py', 'tools/build_docs.py', '.github/workflows/docs.yml']
+    paths: ['docs/content/**', 'llms.txt', 'backend/docs.py', 'tools/build_docs.py', '.github/workflows/docs.yml']
   pull_request:
-    paths: ['docs/content/**', 'backend/docs.py', 'tools/build_docs.py', '.github/workflows/docs.yml']
+    paths: ['docs/content/**', 'llms.txt', 'backend/docs.py', 'tools/build_docs.py', '.github/workflows/docs.yml']
   workflow_dispatch: {}   # allow rebuilding Pages by hand from the Actions tab
 permissions:
   contents: read

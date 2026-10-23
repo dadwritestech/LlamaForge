@@ -1,0 +1,46 @@
+# LlamaForge
+
+> A browser control panel for llama.cpp's own `llama-server` router. It installs the official llama.cpp build for your GPU, edits `models.ini`, rates models against your VRAM, and loads, unloads and chats with GGUF models. LlamaForge runs no models itself.
+
+- Install with one line (`install.ps1` on Windows, `install.sh` on Linux/macOS): no admin, no compiler. Then click **Install llama.cpp** in the dashboard, which fetches the official release for your GPU (CUDA, Vulkan, Metal or CPU).
+- Three local services: the dashboard on `http://127.0.0.1:8090` (loopback only), the llama.cpp router on `http://127.0.0.1:8080` (OpenAI-compatible API at `/v1`, always behind an API key), and llama.cpp's chat UI on `http://127.0.0.1:8091`. The dashboard also serves Anthropic- and OpenAI-compatible endpoints for coding agents, plus an MCP server.
+- The backend is pure Python standard library. Per-model settings are every flag the installed `llama-server --help` lists, parsed live, so they follow the llama.cpp version you run. It also drives ik_llama.cpp builds and, on Windows, vLLM in WSL2.
+- Early preview, MIT. Windows + NVIDIA is the most-tested path; Linux and macOS pass CI but have had little real-hardware use.
+
+## Getting started
+
+- [Introduction](https://dadwritestech.github.io/LlamaForge/index.md): What LlamaForge is, who it's for, supported platforms, and the dashboard / router / chat architecture.
+- [Installation](https://dadwritestech.github.io/LlamaForge/install.md): The one-line installers, what they do, installer options, installing llama.cpp from the dashboard, and updating.
+- [First Run](https://dadwritestech.github.io/LlamaForge/first-run.md): The onboarding wizard, Lite vs Advanced mode, and fresh-install safety nets.
+
+## Guides
+
+- [Models & Tuning](https://dadwritestech.github.io/LlamaForge/models.md): Editing every llama-server flag per model, presets, launch profiles, and Save + Reload.
+- [Discover Models](https://dadwritestech.github.io/LlamaForge/discover.md): Hugging Face GGUF search with a VRAM fit rating for each file, and resumable downloads.
+- [Build & Update](https://dadwritestech.github.io/LlamaForge/build.md): Official prebuilt llama.cpp releases with rollback, or building from source with CMake flags detected for your GPU.
+- [Setup](https://dadwritestech.github.io/LlamaForge/setup.md): Prerequisite checks, installing missing tools, scanning drives for GGUFs already on disk, and pruning stale entries.
+- [Usage Stats](https://dadwritestech.github.io/LlamaForge/stats.md): Per-model tokens, runs and speed from the router's `/metrics`. Per-client stats are not possible.
+- [vLLM Backend](https://dadwritestech.github.io/LlamaForge/vllm.md): vLLM in WSL2 as a second engine for safetensors models (Windows only).
+- [Context Wiki](https://dadwritestech.github.io/LlamaForge/context-wiki.md): Markdown docs grouped into profiles, injected into requests or exported into agent config files.
+- [Connect an Agent](https://dadwritestech.github.io/LlamaForge/agents.md): One-click Claude Code, Codex and pi.dev config for local models, via the Anthropic-compatible shim or the router directly.
+- [Theming & Accessibility](https://dadwritestech.github.io/LlamaForge/theming.md): The Stowage, Hearth and Classic skins, light/dark, and the colorblind-safe mode.
+- [Embers](https://dadwritestech.github.io/LlamaForge/embers.md): Small always-on local agents that watch a topic, keep a wiki that only holds verbatim-quoted facts, and write scheduled briefs.
+- [MCP Server](https://dadwritestech.github.io/LlamaForge/mcp.md): Let Claude Code, Codex or any MCP client load models, check fit, search Hugging Face and hand tasks to a local model.
+- [Voice](https://dadwritestech.github.io/LlamaForge/voice.md): Text to speech on your GPU through llama.cpp's `llama-tts`, with an OpenAI-style endpoint.
+
+## Reference
+
+- [config.json Reference](https://dadwritestech.github.io/LlamaForge/config.md): Every config.json key with its type, default and meaning, plus preset bindings and how the file is loaded and saved.
+- [models.ini Format](https://dadwritestech.github.io/LlamaForge/models-ini.md): The preset file llama-server reads via `--models-preset`: one section per model plus the `[*]` defaults.
+- [HTTP API](https://dadwritestech.github.io/LlamaForge/api.md): The dashboard's `/api/*` management routes and its agent-facing chat endpoints.
+- [Keyboard Shortcuts](https://dadwritestech.github.io/LlamaForge/keymap.md): Global and Models-tab shortcuts.
+- [Troubleshooting](https://dadwritestech.github.io/LlamaForge/troubleshooting.md): How a failed load is diagnosed from the router log, plus missing prerequisites, installer and first-run problems.
+
+## Optional
+
+- [FAQ](https://dadwritestech.github.io/LlamaForge/faq.md): How LlamaForge compares to LM Studio, Ollama and Jan, platforms, and GPU requirements.
+- [What's New](https://dadwritestech.github.io/LlamaForge/whats-new.md): Recent releases, each linking to its full reference.
+- [README](https://raw.githubusercontent.com/dadwritestech/LlamaForge/master/README.md): Project overview, feature list and comparison table.
+- [Roadmap](https://raw.githubusercontent.com/dadwritestech/LlamaForge/master/ROADMAP.md): What's shipped and what's planned, without dates.
+- [Community recipes](https://raw.githubusercontent.com/dadwritestech/LlamaForge/master/recipes/README.md): Shareable, tested model setups as JSON, and how to import one.
+- [Contributing](https://raw.githubusercontent.com/dadwritestech/LlamaForge/master/CONTRIBUTING.md): Ground rules, running the tests, and pull request conventions.
