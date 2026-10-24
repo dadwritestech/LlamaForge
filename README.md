@@ -1,9 +1,8 @@
 <p align="center">
-  <picture>
-    <source srcset="docs/hero.webp" type="image/webp">
-    <img src="docs/hero.png" alt="LlamaForge - a control panel for llama.cpp" width="100%">
-  </picture>
+  <img src="docs/mascot/llamaforge-mascot.png" alt="The LlamaForge mascot: a llama blacksmith with a hammer, and Ember, a little living flame, sitting on its head" width="190">
 </p>
+
+<h1 align="center">LlamaForge</h1>
 
 <p align="center"><b>The real llama.cpp server, run from a browser tab.</b><br>
 Pick a model, see if it fits your GPU, load it, chat. Every llama-server flag is still there when you want it.</p>
@@ -13,6 +12,7 @@ Pick a model, see if it fits your GPU, load it, chat. Every llama-server flag is
   <a href="LICENSE"><img alt="license" src="https://img.shields.io/badge/license-MIT-c8d2d4?style=flat-square&labelColor=0f1315"></a>
   <img alt="status" src="https://img.shields.io/badge/status-early%20preview-ff5c57?style=flat-square&labelColor=0f1315">
   <a href="https://github.com/dadwritestech/LlamaForge/stargazers"><img alt="stars" src="https://img.shields.io/github/stars/dadwritestech/LlamaForge?style=flat-square&labelColor=0f1315&color=ffb000&cacheSeconds=1800"></a>
+  <a href="docs/mascot/llamaforge-mascot.png"><img alt="forged by a llama and its ember" src="https://img.shields.io/badge/forged%20by-%F0%9F%A6%99%20a%20llama%20%2B%20%F0%9F%94%A5%20ember-e8661c?style=flat-square&labelColor=0f1315"></a>
 </p>
 
 <p align="center"><sub>🎉 100 stars. Thank you! <a href="#star-history">Who got it here</a> · <a href="ROADMAP.md">what's next</a></sub></p>
