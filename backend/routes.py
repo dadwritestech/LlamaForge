@@ -27,6 +27,7 @@ import vram_predict
 import wsl, vllm_ctl, vllm_registry, vllm_setup, vllm_job, vllm_hub, vllm_download
 import gguf, diag, backends, prebuilt, version, slots, slotctl, slotproc, builds, compat
 import mcp_server, piinstall, tts, logfiles, loadprog, gamemode, footprint, elastic, slotkeep
+import claudelaunch
 from builder import BuildManager
 from embers import panel as embers_panel
 
@@ -1223,6 +1224,103 @@ def post_agent_config(req):
     except Exception:
         raise ApiError(500, "agent configuration could not be generated") from None
     return 200, out
+
+
+# ---- one-click Claude Code on a folder (claudelaunch.py) ----
+
+def _claude_cli(c):
+    """The configured claude_bin if it exists, else the usual install spots."""
+    override = c.get("claude_bin") or ""
+    if override and os.path.isfile(override):
+        return override
+    return claudelaunch.locate()
+
+
+def _claude_ctx(row, state):
+    """Live n_ctx of a loaded model (never autoloads), else the configured ctx-size."""
+    if row.get("status") == "loaded":
+        q = urllib.parse.quote(row["id"], safe="")
+        try:
+            st, props = router(f"/props?model={q}&autoload=false", timeout=5)
+            n = ((props or {}).get("default_generation_settings") or {}).get("n_ctx") \
+                if st == 200 and isinstance(props, dict) else None
+            if n:
+                return int(n)
+        except Exception:
+            pass
+    raw = (row.get("settings") or {}).get("ctx-size") \
+        or (state.get("global") or {}).get("ctx-size")
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _claude_assess(mid):
+    """Resolve a model in the active llama backend and run the readiness checks."""
+    active = REGISTRY.active_engine()
+    if active not in backends.LLAMA_FAMILY:
+        raise ApiError(400, f"Claude Code needs the active llama backend: {active}")
+    row, backend = _resolve_model_row(mid, active)
+    if backend != active:
+        raise ApiError(400, f"model is not owned by active backend: {row['id']}")
+    c = cfg()
+    state = REGISTRY.state()
+    cli = _claude_cli(c)
+    small = claudelaunch.choose_small(
+        [r for r in state.get("models", []) if r.get("backend") == active], row["id"])
+    items, ready = claudelaunch.checks(
+        cli, bool(c.get("anthropic_shim_enabled", True)), row.get("status") == "loaded",
+        _claude_ctx(row, state), row.get("settings"), row["id"], small)
+    return {"c": c, "row": row, "cli": cli, "small": small, "checks": items, "ready": ready}
+
+
+def get_claude_check(req):
+    a = _claude_assess(req.q("model"))
+    return 200, {
+        "model": a["row"]["id"],
+        "cli": {"path": a["cli"], "version": claudelaunch.version(a["cli"]) if a["cli"] else ""},
+        "small": a["small"],
+        "checks": a["checks"],
+        "ready": a["ready"],
+        "recent": a["c"].get("claude_recent_dirs") or [],
+        "install_hint": claudelaunch.INSTALL_HINT[claudelaunch.os_name()],
+    }
+
+
+def post_claude_pick_folder(req):
+    argv = claudelaunch.pick_folder_argv(claudelaunch.os_name(), python=sys.executable)
+    if not argv:
+        return 200, {"path": "", "unsupported": True}
+    return 200, {"path": claudelaunch.pick_folder(argv)}
+
+
+def post_claude_launch(req):
+    body = req.body
+    if not isinstance(body, dict):
+        raise ApiError(400, "launch request must be an object")
+    unknown = set(body) - {"model", "folder"}
+    if unknown:
+        raise ApiError(400, "unsupported launch fields: " + ", ".join(sorted(unknown)))
+    folder = body.get("folder")
+    if not isinstance(folder, str) or not folder.strip():
+        raise ApiError(400, "folder is required")
+    folder = os.path.abspath(os.path.expanduser(folder.strip()))
+    if not os.path.isdir(folder):
+        raise ApiError(400, f"not a folder: {folder}")
+    a = _claude_assess(body.get("model"))
+    if not a["ready"]:
+        raise ApiError(409, "; ".join(i["text"] for i in a["checks"] if i["level"] == "error"))
+    c = a["c"]
+    try:
+        plan = claudelaunch.launch(
+            a["cli"], folder, dict(os.environ), _agent_endpoint_for("claude-code", False, c),
+            network_policy.effective_key(c) or "llamaforge", a["row"]["id"], a["small"])
+    except OSError as e:
+        raise ApiError(500, f"couldn't open a terminal: {e.strerror or e}") from None
+    config.mutate(lambda cc: cc.__setitem__(
+        "claude_recent_dirs", claudelaunch.remember(cc.get("claude_recent_dirs"), folder)))
+    return 200, {"launched": plan["kind"] != "manual", "command": plan["command"]}
 
 
 def get_wiki_docs(req):
@@ -2663,6 +2761,7 @@ GET_ROUTES = {
     "/api/embers/page":       _embers(embers_panel.get_page),
     "/api/embers/raw":        _embers(embers_panel.get_raw),
     "/api/embers/log":        _embers(embers_panel.get_log),
+    "/api/claude/check":      get_claude_check,
 }
 
 POST_ROUTES = {
@@ -2732,6 +2831,10 @@ POST_ROUTES = {
     "/v1/messages/count_tokens": post_count_tokens,
     "/api/agent/config":        post_agent_config,
     "/api/agent/apply":         post_agent_apply,
+    "/api/claude/pick-folder":  post_claude_pick_folder,
+    "/api/claude/launch":       post_claude_launch,
+    "/api/claude/pick-folder":  post_claude_pick_folder,
+    "/api/claude/launch":       post_claude_launch,
     "/api/wiki/doc":            post_wiki_doc,
     "/api/wiki/doc/delete":     post_wiki_doc_delete,
     "/api/wiki/profile":        post_wiki_profile,

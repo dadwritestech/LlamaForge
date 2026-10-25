@@ -142,6 +142,7 @@ function editorButtons(m) {
       ${m.status==="loaded"||m.status==="loading"?`<button class="ghost" data-act="unload">${m.status==="loading"?"Cancel / Unload":"Unload"}</button>`:`<button data-act="load"${slots.slotsOn()?' title="load as the main model: it gets the fastest GPU that fits"':""}>Load</button>`}
       ${slots.canLoadWorker(m)?`<button class="ghost" data-act="loadw" title="load beside the main model, on the GPUs it doesn't use; never unloads anything">Load as worker</button>`:""}
       ${m.status==="loaded"?`<button data-act="chat">Chat</button>`:""}
+      ${m.status==="loaded"?`<button class="ghost" data-act="claude" title="open Claude Code on a folder, running on this model">Claude Code</button>`:""}
       <button class="ghost" data-act="client">Client config</button>
       <button class="ghost" data-act="profile" title="save a one-click launch: model + preset + engine build">Save as profile</button>
       <button class="danger" data-act="unregister" title="remove from models.ini; does not delete the GGUF">Unregister</button>`;
@@ -1077,6 +1078,7 @@ export function initModels() {
     if (!btn) return;
     const row = btn.closest(".row"), id = row.dataset.id, msg = $("[data-msg]", row), act = btn.dataset.act;
     if (act === "chat") { emit("chat", id); return; }
+    if (act === "claude") { emit("claude-code", id); return; }
     if (act === "profile") { emit("profile-save", {id, backend: row.dataset.backend}); return; }
     const clientOpening = act === "client"
       ? openClientConfig(id, row.dataset.backend) : null;
