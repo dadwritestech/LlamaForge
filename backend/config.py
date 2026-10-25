@@ -50,6 +50,8 @@ DEFAULTS = {
     "active_engine": "llamacpp",              # which binary the router uses: llamacpp | ikllama
     "auto_load_model": "",                    # model id to load automatically on launch ("" = none)
     "pi_bin":        "",                       # pi coding agent: .js entry, package dir or binary ("" = PATH)
+    "claude_bin":    "",                       # Claude Code CLI override ("" = PATH / usual install spots)
+    "claude_recent_dirs": [],                  # folders recently opened with Claude Code, newest first
     "presets":     {},                       # named knob sets: {name: {knob: value}}
     "profiles":    {},                       # {name: {model, backend, preset, engine}}
     "preset_bindings": {},                    # {model_id: preset_name} auto-applied on bind/edit
