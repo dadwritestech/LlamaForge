@@ -1,0 +1,30 @@
+0.00.053.406 W DEPRECATED: argument '--split-mode' specified multiple times, use comma-separated values instead (only last value will be used)
+0.00.054.758 W DEPRECATED: argument '-c' specified multiple times, use comma-separated values instead (only last value will be used)
+0.00.054.897 I srv  llama_server: initializing ...
+0.00.054.909 I cmn  common_param: common_params_print_info: verbosity = 3 (adjust with the `-lv N` CLI arg)
+0.00.055.151 W srv  server_setup: security: no API key is set and CORS allows all origins (see https://github.com/ggml-org/llama.cpp/pull/25655)
+0.00.069.476 I srv    load_model: loading model 'D:/Local/models/LlamaForge-downloads/unsloth--Qwen3.8-27B-GGUF/Qwen3.8-27B-UD-IQ4_XS.gguf'
+0.00.712.421 W common_fit_params: failed to fit params to free device memory: n_gpu_layers already set by user to 99, abort
+0.00.910.983 W model has unused tensor blk.64.attn_norm.weight (size = 20480 bytes) -- ignoring
+0.00.910.994 W model has unused tensor blk.64.post_attention_norm.weight (size = 20480 bytes) -- ignoring
+0.00.911.007 W model has unused tensor blk.64.attn_q.weight (size = 51609600 bytes) -- ignoring
+0.00.911.012 W model has unused tensor blk.64.attn_k.weight (size = 5570560 bytes) -- ignoring
+0.00.911.016 W model has unused tensor blk.64.attn_v.weight (size = 5570560 bytes) -- ignoring
+0.00.911.033 W model has unused tensor blk.64.attn_output.weight (size = 25804800 bytes) -- ignoring
+0.00.911.038 W model has unused tensor blk.64.attn_q_norm.weight (size = 1024 bytes) -- ignoring
+0.00.911.043 W model has unused tensor blk.64.attn_k_norm.weight (size = 1024 bytes) -- ignoring
+0.00.911.048 W model has unused tensor blk.64.ffn_gate.weight (size = 73113600 bytes) -- ignoring
+0.00.911.052 W model has unused tensor blk.64.ffn_down.weight (size = 73113600 bytes) -- ignoring
+0.00.911.057 W model has unused tensor blk.64.ffn_up.weight (size = 73113600 bytes) -- ignoring
+0.00.911.063 W model has unused tensor blk.64.nextn.eh_proj.weight (size = 43008000 bytes) -- ignoring
+0.00.911.069 W model has unused tensor blk.64.nextn.enorm.weight (size = 20480 bytes) -- ignoring
+0.00.911.074 W model has unused tensor blk.64.nextn.hnorm.weight (size = 20480 bytes) -- ignoring
+0.00.911.089 W model has unused tensor blk.64.nextn.shared_head_norm.weight (size = 20480 bytes) -- ignoring
+0.05.179.934 E ggml_backend_cuda_buffer_type_alloc_buffer: allocating 1197.00 MiB on device 0: cudaMalloc failed: out of memory
+0.05.179.938 E ggml_backend_buft_alloc_buffer_n_default: failed to allocate CUDA0 buffer of size 1255145472
+0.05.187.819 E llama_init_from_model: failed to initialize the context: failed to allocate buffer for rs cache
+0.05.187.824 E cmn  common_init_: failed to create context with model 'D:/Local/models/LlamaForge-downloads/unsloth--Qwen3.8-27B-GGUF/Qwen3.8-27B-UD-IQ4_XS.gguf'
+0.05.187.826 E cmn  common_init_: failed to create context with model 'D:/Local/models/LlamaForge-downloads/unsloth--Qwen3.8-27B-GGUF/Qwen3.8-27B-UD-IQ4_XS.gguf'
+0.05.187.829 E srv    load_model: failed to create_context with model 'D:/Local/models/LlamaForge-downloads/unsloth--Qwen3.8-27B-GGUF/Qwen3.8-27B-UD-IQ4_XS.gguf'
+0.05.187.832 I srv   operator (): operator (): cleaning up before exit...
+0.05.189.060 E srv  server_run_i: exiting due to model loading error
