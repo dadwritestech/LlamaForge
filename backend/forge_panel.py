@@ -11,15 +11,51 @@ import time
 import urllib.request
 
 import config
+import footprint
+import gguf
 import hardware
 import network_policy
 import slotctl
 import slotproc
-from forge import inventory, job, probe, report, runner
+from forge import inventory, job, probe, report, runner, space
 
 SANDBOX_ID = "forge-sandbox"
 SANDBOX_PORT_BASE = 8160
 _INTENTS = ("coding", "chat", "long", "agent")
+_DRAFT_KEYS = ("spec-draft-model", "model-draft")
+DRAFT_EXTRA_MIB = 256                   # the drafter's own KV and compute buffer
+
+
+def make_estimate(n_gpus, layout_of=gguf.layout, size_of=os.path.getsize):
+    """estimate(cand) -> MiB per GPU, or None when the model can't be read (then
+    the load probe decides). footprint.predict sizes the model at the candidate's
+    context and KV types; the split shares it by ratio, the drafter adds to its
+    own device and the projector to the first GPU."""
+    layouts, sizes = {}, {}
+
+    def size(path):
+        if path not in sizes:
+            try:
+                sizes[path] = size_of(path)
+            except OSError:
+                sizes[path] = 0
+        return sizes[path]
+
+    def estimate(c):
+        s = c["settings"]
+        path = s.get("model") or ""
+        if path not in layouts:
+            layouts[path] = layout_of(path) or None
+        if not layouts[path]:
+            return None
+        mm = size(s["mmproj"]) if s.get("mmproj") else 0
+        p = footprint.predict(s, layouts[path], mmproj_bytes=mm)
+        draft = next((s[k] for k in _DRAFT_KEYS if s.get(k)), None)
+        draft_mib = (size(draft) >> 20) + DRAFT_EXTRA_MIB if draft else 0
+        per = space.split_estimate(s, int(p["need_mib"]), draft_mib, n_gpus)
+        per[0] += int(p.get("first_gpu_mib") or 0)
+        return per
+    return estimate
 
 
 def _vram_used():
@@ -125,7 +161,8 @@ class Panel:
             return {p: sanity.sample(self._post, p) for p in prompts}
 
         return job.Job(self._state_path(mid), inv, req, load=prober.load, stop=stop,
-                       bench=bench, sample=sample, lease=self._lease, clock=time.time)
+                       bench=bench, sample=sample, lease=self._lease, clock=time.time,
+                       estimate=make_estimate(len(gpus)))
 
     @contextlib.contextmanager
     def _lease(self):

@@ -122,6 +122,50 @@ class JobRun(unittest.TestCase):
         self.assertEqual(rig.stops, len(rig.loads))           # every loaded process stopped
         self.assertEqual(self.state()["stage"], "done")         # persisted
 
+    def test_search_is_staged_placements_then_drafters_then_windows(self):
+        rig = Rig()
+        st = rig.job(self.path, req=dict(REQ, time="thorough")).run()
+        self.assertEqual(st["stage"], "done")
+        n_a = sum(1 for _, rnd in rig.benched if rnd == "A")
+        loads = rig.loads[1:n_a]                    # the fit stage; [0] is the current setup
+        drafted = [i for i, s in enumerate(loads) if "spec-draft-model" in s]
+        plain = [i for i, s in enumerate(loads) if "spec-draft-model" not in s]
+        self.assertTrue(drafted and plain)
+        self.assertLess(max(plain), min(drafted))             # every placement before any drafter
+        # drafters only on the best plain placements: never on the slow 5060 Ti alone
+        self.assertFalse(any(loads[i].get("device") == "CUDA1" for i in drafted))
+        bases = {json.dumps(job._plain_twin(loads[i]), sort_keys=True) for i in drafted}
+        self.assertLessEqual(len(bases), job.TOP_PLACEMENTS["thorough"])
+        # other draft windows only on the leading drafters, after the default window
+        windows = [i for i in drafted if loads[i]["spec-draft-n-max"] != "7"]
+        self.assertTrue(windows)
+        self.assertLess(max(i for i in drafted if i not in windows), min(windows))
+        leaders = {(loads[i]["device"] if "device" in loads[i] else loads[i].get("tensor-split"),
+                    loads[i]["spec-draft-device"]) for i in windows}
+        self.assertLessEqual(len(leaders), job.TOP_DRAFTED["thorough"])
+        win = st["result"]["winner"]["settings"]
+        self.assertEqual((win["device"], win["spec-draft-device"]), ("CUDA0", "CUDA1"))
+
+    def test_staged_search_loads_far_fewer_than_the_cross_product(self):
+        rig = Rig()
+        rig.job(self.path, req=dict(REQ, time="thorough")).run()
+        every = sum(len(space.spec_variants(c, "thorough"))
+                    for c in space.candidates(INV, dict(REQ, time="thorough")))
+        self.assertLess(len(rig.loads), every / 2)
+
+    def test_estimate_prunes_in_every_stage(self):
+        rig = Rig()
+        # a drafter sharing the target's GPU never fits
+        est = lambda c: ([20000, 0] if c["settings"].get("spec-draft-device") == "CUDA0"
+                         and c["settings"].get("device") == "CUDA0" else None)
+        j = job.Job(self.path, INV, REQ, load=rig.load, stop=rig.stop, bench=rig.bench,
+                    sample=rig.sample, lease=rig.lease, cancel=rig.cancel, estimate=est)
+        st = j.run()
+        self.assertFalse(any(s.get("device") == "CUDA0" and s.get("spec-draft-device") == "CUDA0"
+                             for s in rig.loads))
+        self.assertTrue(any("needs" in r["reason"] for r in self.state()["rejected"]))
+        self.assertEqual(st["stage"], "done")
+
     def test_current_config_is_measured_and_compared(self):
         st = Rig().job(self.path).run()
         self.assertIn(job.CURRENT, st["rows"])

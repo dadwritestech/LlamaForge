@@ -139,6 +139,21 @@ class Candidates(unittest.TestCase):
         plain = next(c for c in self.cands() if "spec-draft-model" not in c["settings"])
         self.assertEqual(space.spec_variants(plain, "thorough"), [plain])
 
+    def test_plain_only_then_drafters_on_one_placement(self):
+        r = {"intent": "coding", "ctx": 32768, "allow_loss": False, "time": "quick"}
+        plain = space.candidates(INV, r, drafters=False)
+        self.assertTrue(plain and all(not c["spec"] for c in plain))
+        self.assertEqual(len(plain), len([c for c in self.cands() if not c["spec"]]))
+        solo0 = next(c for c in plain if c["settings"].get("device") == "CUDA0")
+        drafted = space.with_drafters(solo0, INV)
+        self.assertEqual(sorted(d["settings"]["spec-draft-device"] for d in drafted), ["CUDA0", "CUDA1"])
+        full = {c["id"] for c in self.cands()}
+        for d in drafted:                 # the same candidates the one-shot search makes
+            self.assertIn(d["id"], full)
+            self.assertEqual(d["spec"], "dflash")
+            self.assertEqual(d["parts"], solo0["parts"] + 1)
+            self.assertEqual(d["settings"]["temp"], "0.7")
+
 
 class Prune(unittest.TestCase):
     def test_rejects_predicted_overflow_with_reason(self):
@@ -185,7 +200,10 @@ class Label(unittest.TestCase):
     def test_plain_words(self):
         s = {"split-mode": "none", "device": "CUDA0", "spec-draft-model": "/m/dflash.gguf",
              "spec-draft-device": "CUDA1", "cache-type-k": "q8_0", "cache-type-v": "q8_0", "ctx-size": "32768"}
-        self.assertEqual(space.label(s, GPU16), "RTX 5080 alone + drafter on RTX 5060 Ti, KV 8-bit, 32k")
+        self.assertEqual(space.label(s, GPU16), "RTX 5080 alone + drafter dflash on RTX 5060 Ti, KV 8-bit, 32k")
+        s2 = dict(s, **{"spec-draft-model": "/m/Qwen3.8-27B-DFlash2-Q8_0-selfc.gguf", "spec-draft-n-max": "10"})
+        self.assertEqual(space.label(s2, GPU16),
+                         "RTX 5080 alone + drafter Qwen3.8-27B-DFlash2-Q8_0-selfc (10 ahead) on RTX 5060 Ti, KV 8-bit, 32k")
         s = {"split-mode": "layer", "tensor-split": "22,10", "cache-type-k": "q8_0",
              "cache-type-v": "q4_0", "ctx-size": "131072"}
         self.assertEqual(space.label(s, GPU16), "layer split 22:10, KV 8/4-bit, 128k")

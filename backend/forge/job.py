@@ -3,7 +3,10 @@
 Stages
   fit+A    every candidate (and the user's current setup) is loaded once: does it
            fit, a short speed round, and greedy samples for the sanity check -
-           all while it's loaded, so nothing is loaded twice in this stage
+           all while it's loaded, so nothing is loaded twice in this stage.
+           The search is staged so it stays an hour, not a night: plain
+           placements first, then drafters on the best few of them, then other
+           draft windows on the best drafters only
   B        the finalists (top few, the best plain one, the current setup) get a
            longer round with different prompts; the ranking uses these numbers
   sanity   each drafting finalist vs the same setup without the drafter
@@ -24,6 +27,9 @@ CURRENT = "current"
 ROUND_A = {"code": 3, "prose": 3, "summary": 2}
 ROUND_B = {"code": 8, "prose": 8, "summary": 3}
 FINALISTS = {"quick": 3, "thorough": 5}
+TOP_PLACEMENTS = {"quick": 2, "thorough": 3}   # plain placements that get drafters
+TOP_DRAFTED = {"quick": 1, "thorough": 2}      # drafters that get other windows
+SEARCH = 2                                     # bump when the plan changes shape
 LOAD_TIMEOUT = 300
 
 _RUNNING = threading.Lock()
@@ -42,7 +48,7 @@ class _BenchFailed(Exception):
 
 
 def _fingerprint(inv, req):
-    key = {"req": req, "base": inv.get("base"), "gpus": inv.get("gpus"),
+    key = {"search": SEARCH, "req": req, "base": inv.get("base"), "gpus": inv.get("gpus"),
            "drafters": inv.get("drafters"), "caps": inv.get("caps")}
     return hashlib.sha1(json.dumps(key, sort_keys=True, default=str).encode()).hexdigest()[:16]
 
@@ -75,7 +81,7 @@ class Job:
 
     def _fresh(self, fp):
         return {"version": 1, "fingerprint": fp, "req": self.req, "stage": "fit",
-                "cands": [], "rejected": [], "rows": {}, "failed": {}, "tokens": {},
+                "phase": "plain", "cands": [], "rejected": [], "rows": {}, "failed": {}, "tokens": {},
                 "finalists": [], "rows_b": {}, "sanity": {}, "result": None,
                 "error": None, "current": None, "started_at": self._now(), "finished_at": None}
 
@@ -160,21 +166,57 @@ class Job:
         self.save()
 
     # ---------------------------------------------------------- stages
+    def _add(self, cands):
+        """Prune and queue candidates not seen before."""
+        st = self.state
+        seen = {c["id"] for c in st["cands"]} | {r["id"] for r in st["rejected"]}
+        keep, rejected = space.prune([c for c in cands if c["id"] not in seen],
+                                     self._estimate, self.inv.get("gpus") or [])
+        st["cands"] += keep
+        st["rejected"] += rejected
+
     def _plan(self):
         st = self.state
         if st["cands"]:
             return
-        cands = []
-        for c in space.candidates(self.inv, self.req):
-            cands.extend(space.spec_variants(c, self.req.get("time", "quick")))
-        keep, rejected = space.prune(cands, self._estimate, self.inv.get("gpus") or [])
         base = dict(self.inv.get("base") or {})
-        current = {"id": CURRENT, "label": "your current setup", "settings": base,
-                   "lossy": False, "parts": 1, "spec": None,
-                   "ctx": int(base.get("ctx-size") or 0) or None}
-        st["cands"] = [current] + keep
-        st["rejected"] = rejected
+        st["cands"] = [{"id": CURRENT, "label": "your current setup", "settings": base,
+                        "lossy": False, "parts": 1, "spec": None,
+                        "ctx": int(base.get("ctx-size") or 0) or None}]
+        self._add(space.candidates(self.inv, self.req, drafters=False))
         self.save()
+
+    def _leaders(self, drafted, k):
+        rows = [r for i, r in self.state["rows"].items()
+                if i != CURRENT and bool(r.get("spec")) == drafted]
+        return [r["id"] for r in space.rank(rows, self.req.get("intent", "coding"))[:k]]
+
+    def _expand(self):
+        """Next search phase: queue its candidates. False when the search is over."""
+        st, by = self.state, self._by_id()
+        t = self.req.get("time", "quick")
+        phase = st.get("phase", "plain")
+        if phase == "plain":
+            new = [d for i in self._leaders(False, TOP_PLACEMENTS.get(t, 2))
+                   for d in space.with_drafters(by[i], self.inv)]
+            st["phase"] = "draft"
+        elif phase == "draft":
+            new = [v for i in self._leaders(True, TOP_DRAFTED.get(t, 1))
+                   for v in space.spec_variants(by[i], t)]
+            st["phase"] = "window"
+        else:
+            return False
+        self._add(new)
+        self.save()
+        return True
+
+    def _fit_pending(self):
+        st = self.state
+        for c in list(st["cands"]):
+            if c["id"] in st["rows"] or c["id"] in st["failed"]:
+                continue
+            self._check_cancel()
+            self._stage_a(c)
 
     def _by_id(self):
         return {c["id"]: c for c in self.state["cands"]}
@@ -243,11 +285,9 @@ class Job:
                 with self._lease():
                     self._plan()
                     st["stage"] = "fit"
-                    for c in st["cands"]:
-                        if c["id"] in st["rows"] or c["id"] in st["failed"]:
-                            continue
-                        self._check_cancel()
-                        self._stage_a(c)
+                    self._fit_pending()
+                    while self._expand():
+                        self._fit_pending()
                     if not st["finalists"]:
                         self._pick_finalists()
                     st["stage"] = "speed"

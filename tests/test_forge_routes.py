@@ -118,6 +118,28 @@ class ApplyUndo(Base):
         self.assertEqual(e.exception.status, 400)
 
 
+class Estimate(unittest.TestCase):
+    GPUS = 2
+
+    def est(self, settings, layout=None):
+        lay = layout if layout is not None else {"arch": "x", "kv": {}, "tensors": []}
+        sizes = {"/m/q.gguf": 10000 << 20, "/m/d.gguf": 2000 << 20, "/m/mm.gguf": 800 << 20}
+        fake = lambda s, l, mmproj_bytes=0: {"need_mib": 12000, "first_gpu_mib": 1000 if mmproj_bytes else 0}
+        with mock.patch.object(forge_panel.footprint, "predict", fake):
+            e = forge_panel.make_estimate(self.GPUS, layout_of=lambda p: lay, size_of=lambda p: sizes[p])
+            return e({"id": "c", "settings": settings})
+
+    def test_solo_with_drafter_on_the_other_gpu(self):
+        s = {"model": "/m/q.gguf", "split-mode": "none", "device": "CUDA1",
+             "spec-draft-model": "/m/d.gguf", "spec-draft-device": "CUDA0", "mmproj": "/m/mm.gguf"}
+        need = self.est(s)
+        self.assertGreater(need[0], 2000 + 1000)     # drafter + projector on CUDA0
+        self.assertEqual(need[1], 12000)
+
+    def test_unreadable_model_is_left_to_the_probe(self):
+        self.assertIsNone(self.est({"model": "/m/q.gguf"}, layout=False))
+
+
 class Wiring(unittest.TestCase):
     def test_routes_registered(self):
         import routes

@@ -10,6 +10,7 @@ those candidates are marked lossy).
 """
 import hashlib
 import json
+import os
 
 # Split modes that run on CUDA. `row` parses and then fails; `graph` is documented
 # by some builds and rejected by their parser. Neither is ever generated.
@@ -186,10 +187,11 @@ def _kv_options(base, caps, allow_loss):
     return out
 
 
-def candidates(inv, req):
+def candidates(inv, req, drafters=True):
     """Fit-level candidates: placement x drafter (and where it runs) x KV types, at the
     requested context. Draft windows are expanded later (spec_variants) - they don't
-    change memory, so the fit stage needn't load each one."""
+    change memory, so the fit stage needn't load each one. drafters=False: plain
+    placements only (the staged search adds drafters to the best of them)."""
     caps = inv["caps"]
     k = caps["keys"]
     owned = set(_OWNED) | {v for c, v in k.items() if c.startswith("draft") and v}
@@ -197,7 +199,7 @@ def candidates(inv, req):
     steps = STEPS_THOROUGH if req.get("time") == "thorough" else STEPS_QUICK
     out = []
     for p in placements(inv.get("gpus") or [], caps, steps):
-        for kind, dset in _drafter_options(inv, caps):
+        for kind, dset in (_drafter_options(inv, caps) if drafters else [(None, {})]):
             for ck, cv, lossy in _kv_options(inv.get("base") or {}, caps, req.get("allow_loss")):
                 s = dict(base)
                 s.update(p["settings"])
@@ -211,6 +213,17 @@ def candidates(inv, req):
                             "settings": s, "lossy": lossy, "ctx": int(req["ctx"]),
                             "devices": p["devices"], "spec": kind,
                             "parts": len(p["devices"]) + (1 if kind else 0)})
+    return out
+
+
+def with_drafters(cand, inv):
+    """A plain candidate with each drafter (and each place it can run) added."""
+    out = []
+    for kind, dset in _drafter_options(inv, inv["caps"])[1:]:
+        s = dict(cand["settings"])
+        s.update(dset)
+        out.append(dict(cand, id=_cid(s), label=label(s, inv.get("gpus") or []),
+                        settings=s, spec=kind, parts=cand.get("parts", 1) + 1))
     return out
 
 
@@ -339,8 +352,12 @@ def label(s, gpus):
     else:
         where = gpus[0]["name"] if gpus else "GPU"
     draft_dev = s.get("spec-draft-device") or s.get("device-draft")
-    if s.get("spec-draft-model") or s.get("model-draft"):
-        where += f" + drafter on {_gpu_name(gpus, draft_dev)}" if draft_dev else " + drafter"
+    draft = s.get("spec-draft-model") or s.get("model-draft")
+    if draft:
+        name = os.path.splitext(os.path.basename(str(draft).replace("\\", "/")))[0]
+        n = next((s[k] for k in _FLAGS_N_MAX_KEYS if s.get(k)), None)
+        where += f" + drafter {name}" + (f" ({n} ahead)" if n else "")
+        where += f" on {_gpu_name(gpus, draft_dev)}" if draft_dev else ""
     elif s.get("spec-type") == "draft-mtp":
         where += " + MTP"
     parts = [where, _kv_words(s.get("cache-type-k"), s.get("cache-type-v"))]
