@@ -12,6 +12,7 @@
 //   "chat"     open the Chat tab on a model    emit(evt, modelId)
 //   "load-chat" load a model, then open Chat   emit(evt, modelId)
 //   "profile-save" open Save as profile        emit(evt, {id, backend})
+//   "claude-code" open Claude Code on a folder emit(evt, modelId)
 const handlers = {};
 
 export function on(evt, fn) {

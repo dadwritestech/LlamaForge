@@ -22,6 +22,7 @@ import { loadEmbers, poll as pollEmbers } from "./embers.js";
 import { initWizard } from "./wizard.js";
 import { initOnboarding } from "./onboarding.js";
 import { initProfiles } from "./profiles.js";
+import { initClaudeCode } from "./claudecode.js";
 import { on } from "./bus.js";
 
 /* ---------- tab loaders ---------- */
@@ -54,6 +55,7 @@ initWizard();
 initOnboarding();
 models.initModels();
 initProfiles();
+initClaudeCode();
 stats.initStats();
 
 // deep-linkable tabs: #<tab> in the URL activates that tab (docs deep-links +

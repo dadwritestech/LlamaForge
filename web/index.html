@@ -426,6 +426,15 @@ button:disabled{opacity:.4;cursor:not-allowed}
 .ask-dialog label.f{display:grid;gap:6px;margin-top:12px}
 .ask-dialog label.f input{width:100%}
 .ask-dialog .actions{margin-top:18px}
+.cc-checks{list-style:none;margin:14px 0;padding:0;display:grid;gap:7px;font-size:12px;line-height:1.5}
+.cc-checks li{display:grid;grid-template-columns:3.6em 1fr;gap:10px;align-items:baseline}
+.cc-checks .lv{font-size:10px;letter-spacing:.12em;text-transform:uppercase;font-weight:600}
+.cc-checks .lv.ok{color:var(--green)}.cc-checks .lv.warn{color:var(--amber-text)}.cc-checks .lv.error{color:var(--red)}
+.cc-folder-l{display:grid;gap:6px;margin-top:6px}
+.cc-folder{display:flex;gap:8px}.cc-folder input{flex:1;min-width:0}
+.cc-recent{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}.cc-recent .chip{text-transform:none;letter-spacing:0}
+.cc-actions{margin-top:16px;display:flex;justify-content:flex-end;gap:8px}
+.cc-err{color:var(--red)}
 #network-access fieldset{
   margin:14px 0;padding:12px;border:1px solid var(--hair);border-radius:var(--r-sm);display:grid;gap:9px
 }
