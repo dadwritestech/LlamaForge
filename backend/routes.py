@@ -29,6 +29,7 @@ import gguf, diag, backends, prebuilt, version, slots, slotctl, slotproc, builds
 import mcp_server, piinstall, tts, logfiles, loadprog, gamemode, footprint, elastic, slotkeep
 from builder import BuildManager
 from embers import panel as embers_panel
+import forge_panel
 
 # vLLM is managed through WSL2, so the whole vLLM surface is Windows-only.
 VLLM_SUPPORTED = osplat.IS_WIN
@@ -3165,6 +3166,8 @@ def post_elastic_grow(req):
 # themselves, so these two join them here.
 GET_ROUTES["/api/elastic"] = get_elastic
 POST_ROUTES["/api/elastic/grow"] = post_elastic_grow
+FORGE = forge_panel.Panel(sys.modules[__name__])
+FORGE.register(GET_ROUTES, POST_ROUTES)
 embers_panel.MAIN_FN = lambda: SLOTS._main()   # Ask lists the pool's main model first
 
 
