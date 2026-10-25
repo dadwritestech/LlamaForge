@@ -13,6 +13,7 @@ import { on, emit } from "./bus.js";
 import { activeTab } from "./ui.js";
 import * as slots from "./slots.js";
 import * as elastic from "./elastic.js";
+import * as autoforge from "./autoforge.js";
 import { bayPlans, bayInputs } from "./bays.js";
 
 const LITE_KNOBS = new Set(["n-gpu-layers","ctx-size","cache-type-k","cache-type-v",
@@ -191,8 +192,11 @@ function editor(m) {
       <span class="ed-btns">${editorButtons(m)}</span>
       <span class="msg" data-msg></span>
     </div>
-    <div class="ed-note">${editorNote(m)}</div>`;
+    <div class="ed-note">${editorNote(m)}</div>
+    ${forgeable(m) ? `<div class="ed-forge">${autoforge.markup(m.id)}</div>` : ""}`;
 }
+// Auto-Forge drives llama-server with the model's models.ini section, so only those
+const forgeable = m => (m.backend || "llamacpp") === "llamacpp" && m.in_ini;
 function applyKnobFilter(root) {
   $$(".fld", root).forEach(f => {
     const hitQ = !kquery || f.dataset.desc.includes(kquery);
@@ -359,12 +363,13 @@ function syncEditor(row, m) {
   if (row._ks !== ks) {          // first open, or the schema/model actually changed
     setHTML(edit, editor(m));
     row._ks = ks;
-    row._slot = row._live = row._btns = row._note = null;
+    row._slot = row._live = row._btns = row._note = row._forge = null;
   }
   const regions = [[".ed-slot", x => slots.block(x, renderModels), "_slot"],
                    [".ed-live", editorLive, "_live"],
                    [".ed-btns", editorButtons, "_btns"],
-                   [".ed-note", editorNote, "_note"]];
+                   [".ed-note", editorNote, "_note"],
+                   [".ed-forge", x => autoforge.markup(x.id), "_forge"]];
   for (const [sel, build, key] of regions) {
     const el = $(sel, edit);
     if (!el) continue;
@@ -913,6 +918,7 @@ export async function refreshVllmLog() {
 
 /* ---------- event wiring ---------- */
 export function initModels() {
+  autoforge.initAutoForge(renderModels);
   // The Models toolbar lives in index.html with stable ids, so it is wired
   // directly rather than through the delegated handlers the dynamic rows use.
   const ms = $("#model-search"); if (ms) ms.oninput = () => filterModels(ms);
@@ -1065,6 +1071,7 @@ export function initModels() {
         await saveVision(vis.closest(".row"), vis.dataset.vision, vis.dataset.visionOn === "true");
       return;
     }
+    if (autoforge.handleClick(e)) return;
     // autotune
     const tRef = e.target.closest("[data-tune-refine]");
     if (tRef) { e.stopPropagation(); await handleTuneRefine(tRef.dataset.tuneRefine); return; }
