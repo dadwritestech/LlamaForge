@@ -56,6 +56,34 @@ def content_blocks_to_openai(role, content):
     return out
 
 
+def _fold_system(msgs, content):
+    """Claude Code sends role=system messages mid-conversation (hook context).
+    Strict chat templates (Qwen's) raise unless every system message leads, so
+    before the first turn it joins the system prompt; after that it becomes a
+    <system-reminder> on the latest user turn (or a new one after a tool result)."""
+    if isinstance(content, str):
+        text = content
+    else:
+        text = "".join(b.get("text", "") for b in content or []
+                       if isinstance(b, dict) and b.get("type") == "text")
+    if not text:
+        return
+    if all(m["role"] == "system" for m in msgs):
+        if msgs:
+            msgs[0]["content"] += "\n\n" + text
+        else:
+            msgs.append({"role": "system", "content": text})
+        return
+    note = f"<system-reminder>\n{text}\n</system-reminder>"
+    last = msgs[-1]
+    if last["role"] != "user":
+        msgs.append({"role": "user", "content": note})
+    elif isinstance(last["content"], str):
+        last["content"] += "\n\n" + note
+    else:
+        last["content"].append({"type": "text", "text": "\n\n" + note})
+
+
 def map_tools(tools):
     out = []
     for t in tools or []:
@@ -88,7 +116,10 @@ def to_openai_request(a):
         if text:
             msgs.append({"role": "system", "content": text})
     for m in a.get("messages", []):
-        msgs.extend(content_blocks_to_openai(m.get("role"), m.get("content")))
+        if m.get("role") == "system":
+            _fold_system(msgs, m.get("content"))
+        else:
+            msgs.extend(content_blocks_to_openai(m.get("role"), m.get("content")))
     out["messages"] = msgs
     if "max_tokens" in a:
         out["max_tokens"] = a["max_tokens"]

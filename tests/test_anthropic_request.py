@@ -64,5 +64,55 @@ class TestRequestTranslation(unittest.TestCase):
         self.assertEqual(sh.map_tool_choice({"type": "any"}), "required")
 
 
+def reminder(text):
+    return f"<system-reminder>\n{text}\n</system-reminder>"
+
+
+class TestMidConversationSystem(unittest.TestCase):
+    """Claude Code 2.1 sends role=system messages mid-conversation (hook context).
+    Strict chat templates (Qwen) raise unless every system message comes first."""
+
+    def roles(self, o):
+        return [m["role"] for m in o["messages"]]
+
+    def test_system_after_user_folds_into_that_user_turn(self):
+        o = sh.to_openai_request({"model": "m", "system": "top", "messages": [
+            {"role": "user", "content": "hey"},
+            {"role": "system", "content": [{"type": "text", "text": "hook ctx"},
+                                           {"type": "tool_addition"}]}]})
+        self.assertEqual(self.roles(o), ["system", "user"])
+        self.assertEqual(o["messages"][1]["content"], "hey\n\n" + reminder("hook ctx"))
+
+    def test_system_after_tool_result_becomes_user_turn(self):
+        o = sh.to_openai_request({"model": "m", "messages": [
+            {"role": "user", "content": "go"},
+            {"role": "assistant", "content": [{"type": "tool_use", "id": "t1", "name": "x", "input": {}}]},
+            {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t1", "content": "ok"}]},
+            {"role": "system", "content": "note"}]})
+        self.assertEqual(self.roles(o), ["user", "assistant", "tool", "user"])
+        self.assertEqual(o["messages"][3]["content"], reminder("note"))
+
+    def test_system_before_any_turn_joins_the_system_prompt(self):
+        o = sh.to_openai_request({"model": "m", "system": "top", "messages": [
+            {"role": "system", "content": "more"}, {"role": "user", "content": "hi"}]})
+        self.assertEqual(o["messages"], [{"role": "system", "content": "top\n\nmore"},
+                                         {"role": "user", "content": "hi"}])
+
+    def test_folds_into_multipart_user_turn(self):
+        o = sh.to_openai_request({"model": "m", "messages": [
+            {"role": "user", "content": [{"type": "text", "text": "see"}, {"type": "image",
+             "source": {"type": "base64", "media_type": "image/png", "data": "AA"}}]},
+            {"role": "system", "content": "note"}]})
+        self.assertEqual(self.roles(o), ["user"])
+        self.assertEqual(o["messages"][0]["content"][-1],
+                         {"type": "text", "text": "\n\n" + reminder("note")})
+
+    def test_empty_system_message_is_dropped(self):
+        o = sh.to_openai_request({"model": "m", "messages": [
+            {"role": "user", "content": "hi"},
+            {"role": "system", "content": [{"type": "tool_addition"}]}]})
+        self.assertEqual(o["messages"], [{"role": "user", "content": "hi"}])
+
+
 if __name__ == "__main__":
     unittest.main()
