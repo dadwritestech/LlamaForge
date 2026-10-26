@@ -27,6 +27,7 @@
 - [Embers](https://dadwritestech.github.io/LlamaForge/embers.md): Small always-on local agents that watch a topic, keep a wiki that only holds verbatim-quoted facts, and write scheduled briefs.
 - [MCP Server](https://dadwritestech.github.io/LlamaForge/mcp.md): Let Claude Code, Codex or any MCP client load models, check fit, search Hugging Face and hand tasks to a local model.
 - [Voice](https://dadwritestech.github.io/LlamaForge/voice.md): Text to speech on your GPU through llama.cpp's `llama-tts`, with an OpenAI-style endpoint.
+- [Auto-Forge](https://dadwritestech.github.io/LlamaForge/autoforge.md): Measures GPU placements, KV cache types and speculative drafters for one model in a sandbox, checks drafters token for token, and applies the fastest setup with Undo (NVIDIA).
 
 ## Reference
 

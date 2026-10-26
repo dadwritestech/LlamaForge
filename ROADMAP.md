@@ -9,6 +9,10 @@ gets built next.
 
 Released:
 
+- **Auto-Forge** (NVIDIA): measures placements, KV cache types and speculative
+  drafters for one model in a sandbox, checks drafters token for token, and
+  applies the fastest setup to `models.ini` with Undo. Plus one-click Claude Code
+  on a folder. (v0.17.0)
 - **Elastic VRAM** (NVIDIA, off by default): when another app needs the GPU, a
   loaded model moves layers to the CPU instead of unloading, keeps its
   conversation through llama.cpp's slot save/restore, and moves back once the

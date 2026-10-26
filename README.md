@@ -67,7 +67,11 @@ every server flag instead of a curated subset.
   - A loading model shows real progress (weights, draft, vision), straight from llama.cpp's load callback. One-click switches for **Thinking** (Auto / On / Off plus a token budget, with a note on whether the model's chat template can really turn it off) and **Vision** (off frees the projector's VRAM; the file stays on disk).
   - Presets, launch profiles (model + preset + pinned llama.cpp build in one click), side-by-side compare, and copy-paste client snippets.
   - **Game mode** unloads your models when a game starts and loads them again when it closes; pick any to keep loaded.
-  - **Elastic VRAM** (new in v0.16.4, off by default; NVIDIA): when another app needs the GPU, a loaded model moves layers to the CPU instead of unloading, keeps its conversation, and moves back once the memory is free. Slower while it's shrunk.
+  - **Elastic VRAM** (off by default; NVIDIA): when another app needs the GPU, a loaded model moves layers to the CPU instead of unloading, keeps its conversation, and moves back once the memory is free. Slower while it's shrunk.
+  - **Auto-Forge** (new in v0.17.0; NVIDIA): finds the fastest way to run a model on your GPUs by measuring it. It tries placements, KV cache types and speculative drafters in a sandbox, checks that a drafter gives the same answers, and applies the winner to `models.ini` with one-click Undo. Here it took a Qwen3.8-27B from 26.8 to 126.0 tokens/s on code. [How it works](docs/content/autoforge.md).
+
+    ![Auto-Forge: from 27 to 126 tokens a second](docs/content/img/forge-speed.png)
+
   - Turn on **Multi-model** in Setup to keep a main model and workers loaded at once. A planner places each one on the GPUs that fit it, using footprints measured on your machine. A model can also be pinned to its own llama.cpp (or ik_llama.cpp) build.
 - **Chat**: llama.cpp's own chat UI (markdown, reasoning, images) inside the dashboard, on its own port, with the API key added for you.
 - **Voice**: text to speech on your GPU through llama.cpp's own `llama-tts`: Qwen3-TTS in 10 languages, or the tiny English Pocket TTS that runs faster than real time even on a CPU, optionally in a voice you record or upload (only clone voices you may use).
@@ -165,7 +169,7 @@ needs a key. Details and how to report a vulnerability privately: [SECURITY.md](
 
 Everything is in the in-app **Help** tab and at **[dadwritestech.github.io/LlamaForge](https://dadwritestech.github.io/LlamaForge/)**:
 [configuration](docs/content/config.md), [keyboard shortcuts](docs/content/keymap.md),
-[themes & colorblind-safe mode](docs/content/theming.md), [vLLM](docs/content/vllm.md),
+[themes & colorblind-safe mode](docs/content/theming.md), [Auto-Forge](docs/content/autoforge.md), [vLLM](docs/content/vllm.md),
 [troubleshooting](docs/content/troubleshooting.md), and [what's new](docs/content/whats-new.md).
 [ROADMAP.md](ROADMAP.md) has what's shipped and planned; it's an early preview, so priorities follow feedback.
 
