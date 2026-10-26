@@ -37,16 +37,32 @@ def first_divergence(a, b):
     return None
 
 
-def check(plain, spec, early=EARLY, max_early=MAX_EARLY):
-    """plain/spec = {prompt: tokens}. {ok, early, compared, splits, reason}."""
+def fragile(runs, early=EARLY):
+    """Prompts whose greedy output already differs early between plain runs
+    (different placements, no drafter): a near tie that float rounding flips.
+    They can't tell a drafter from noise. runs = [{prompt: tokens}, ...]."""
+    out = set()
+    for i, a in enumerate(runs):
+        for b in runs[i + 1:]:
+            for p, toks in a.items():
+                d = first_divergence(toks, b.get(p) or toks)
+                if d is not None and d < early:
+                    out.add(p)
+    return out
+
+
+def check(plain, spec, early=EARLY, max_early=MAX_EARLY, ignore=()):
+    """plain/spec = {prompt: tokens}; ignore = fragile prompts (near ties), not
+    counted. {ok, early, compared, ties, splits, reason}."""
     splits = {}
     for p, a in plain.items():
         if p in spec:
             splits[p] = first_divergence(a, spec[p])
-    n_early = sum(1 for d in splits.values() if d is not None and d < early)
+    judged = {p: d for p, d in splits.items() if p not in ignore}
+    n_early = sum(1 for d in judged.values() if d is not None and d < early)
     ok = n_early <= max_early
-    return {"ok": ok, "early": n_early, "compared": len(splits),
-            "splits": list(splits.values()),
+    return {"ok": ok, "early": n_early, "compared": len(judged),
+            "ties": len(splits) - len(judged), "splits": list(splits.values()),
             "reason": "" if ok else (f"greedy output changed within {early} tokens on "
-                                     f"{n_early} of {len(splits)} prompts - the drafter "
+                                     f"{n_early} of {len(judged)} prompts that plain runs agree on - the drafter "
                                      f"is changing the answers")}

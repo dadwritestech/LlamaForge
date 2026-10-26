@@ -39,6 +39,32 @@ class Check(unittest.TestCase):
         self.assertEqual(r["compared"], 0)
 
 
+class NearTies(unittest.TestCase):
+    """Plain placements disagree on some prompts by float rounding alone (a near
+    tie at token 1 is not the drafter's doing): those prompts can't judge it."""
+    A, B, C = [1] * 64, [2] + [1] * 63, [1] * 30 + [2] * 34
+
+    def test_prompts_where_plain_runs_disagree_are_fragile(self):
+        runs = [{"p": self.A, "q": self.A, "r": self.A},
+                {"p": self.B, "q": self.A, "r": self.C}]
+        self.assertEqual(sanity.fragile(runs), {"p", "r"})
+
+    def test_drafter_splitting_only_on_near_ties_passes(self):
+        plain = {"p": self.A, "q": self.A, "r": self.A}
+        spec = {"p": self.B, "q": self.A, "r": self.C}
+        self.assertFalse(sanity.check(plain, spec)["ok"])
+        r = sanity.check(plain, spec, ignore={"p", "r"})
+        self.assertTrue(r["ok"])
+        self.assertEqual(r["ties"], 2)
+
+    def test_drafter_splitting_on_stable_prompts_still_fails(self):
+        plain = {"p": self.A, "q": self.A, "r": self.A}
+        spec = {"p": self.B, "q": self.B, "r": self.B}
+        r = sanity.check(plain, spec, ignore={"p"})
+        self.assertFalse(r["ok"])
+        self.assertIn("2 of 2 prompts", r["reason"])
+
+
 class Sample(unittest.TestCase):
     def test_greedy_tokens_cache_off(self):
         seen = {}

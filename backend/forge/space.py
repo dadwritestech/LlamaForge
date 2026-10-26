@@ -227,8 +227,9 @@ def with_drafters(cand, inv):
     return out
 
 
-def spec_variants(cand, time="quick"):
-    """The candidate at each draft window worth timing (itself when it doesn't draft)."""
+def spec_variants(cand, time="quick", gpus=()):
+    """The candidate at each draft window worth timing (itself when it doesn't draft).
+    gpus names devices in the relabelled variants."""
     kind = cand.get("spec")
     if not kind:
         return [cand]
@@ -238,7 +239,7 @@ def spec_variants(cand, time="quick"):
     out = []
     for n in _SPEC[kind][3 if time == "thorough" else 2]:
         s = dict(cand["settings"], **{n_key: str(n)})
-        out.append(dict(cand, id=_cid(s), settings=s))
+        out.append(dict(cand, id=_cid(s), settings=s, label=label(s, list(gpus))))
     return out
 
 

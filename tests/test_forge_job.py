@@ -166,6 +166,23 @@ class JobRun(unittest.TestCase):
         self.assertTrue(any("needs" in r["reason"] for r in self.state()["rejected"]))
         self.assertEqual(st["stage"], "done")
 
+    def test_near_ties_between_plain_placements_dont_fail_a_drafter(self):
+        rig = Rig()
+        tie = [7] + [1] * 63                     # a different first token
+
+        def sample(prompts):                     # prompts 0-1 are near ties: they flip with the split
+            s = rig.loaded
+            flip = s.get("split-mode") != "none" or "spec-draft-model" in s
+            return {p: (tie if flip and i < 2 else [1] * 64) for i, p in enumerate(prompts)}
+
+        rig.sample = sample
+        rig.diverge = False
+        st = rig.job(self.path).run()
+        win = st["result"]["winner"]["settings"]
+        self.assertIn("spec-draft-model", win)
+        checked = [v for v in self.state()["sanity"].values() if v.get("checked")]
+        self.assertTrue(checked and all(v["ok"] for v in checked))
+
     def test_current_config_is_measured_and_compared(self):
         st = Rig().job(self.path).run()
         self.assertIn(job.CURRENT, st["rows"])

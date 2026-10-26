@@ -136,6 +136,8 @@ class Candidates(unittest.TestCase):
         c = next(c for c in self.cands(time="thorough") if "spec-draft-model" in c["settings"])
         ns = sorted(int(v["settings"]["spec-draft-n-max"]) for v in space.spec_variants(c, "thorough"))
         self.assertEqual(ns, [5, 7, 10])
+        for v in space.spec_variants(c, "thorough", gpus=INV["gpus"]):
+            self.assertIn(f"({v['settings']['spec-draft-n-max']} ahead)", v["label"])
         plain = next(c for c in self.cands() if "spec-draft-model" not in c["settings"])
         self.assertEqual(space.spec_variants(plain, "thorough"), [plain])
 

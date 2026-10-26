@@ -202,7 +202,7 @@ class Job:
             st["phase"] = "draft"
         elif phase == "draft":
             new = [v for i in self._leaders(True, TOP_DRAFTED.get(t, 1))
-                   for v in space.spec_variants(by[i], t)]
+                   for v in space.spec_variants(by[i], t, self.inv.get("gpus") or [])]
             st["phase"] = "window"
         else:
             return False
@@ -237,6 +237,8 @@ class Job:
 
     def _sanity(self):
         st, by = self.state, self._by_id()
+        ties = sanity.fragile([t for i, t in st["tokens"].items()
+                               if i != CURRENT and i in by and not by[i].get("spec")])
         for fid in st["finalists"]:
             c = by.get(fid)
             if not c or not c.get("spec") or fid in st["sanity"]:
@@ -248,7 +250,7 @@ class Job:
                 st["sanity"][fid] = {"ok": True, "checked": False,
                                      "reason": "no plain run to compare against"}
                 continue
-            r = sanity.check(st["tokens"][twin], st["tokens"].get(fid) or {})
+            r = sanity.check(st["tokens"][twin], st["tokens"].get(fid) or {}, ignore=ties)
             r["checked"] = True
             st["sanity"][fid] = r
         self.save()
