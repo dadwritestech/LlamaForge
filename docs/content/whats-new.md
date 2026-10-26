@@ -8,6 +8,11 @@ order: 1
 
 This page summarizes the most recent additions to LlamaForge. Each entry links to the full reference for that capability. For the longer-term direction, see the project's `ROADMAP.md`.
 
+## v0.17.1: Claude Code launch fixes
+
+- **Claude Code on a folder works from the Launch button on Windows.** The terminal window no longer closes the moment it opens, and Claude Code no longer gets `401 invalid x-api-key` when LlamaForge itself was started from a Claude session (it used that session's login instead of the panel key).
+- **No more 500 on the first message.** Claude Code 2.1 sends system messages in the middle of a conversation; Qwen's chat template rejects those ("System message must be at the beginning"). The Anthropic endpoint now moves them where every template accepts them.
+
 ## v0.17.0: Auto-Forge, Claude Code on a folder
 
 - **Auto-Forge.** Finds the fastest way to run a model on your GPUs by measuring it, not guessing. In a private sandbox it tries GPU placements, KV cache types and speculative drafters (DFlash, MTP) at the context you ask for, benchmarks code, prose and prompt speed, and checks token for token that a drafter gives the same answers as the model without it. Pick what you use the model for (coding, chat, long documents, agents), quick or thorough, and optionally allow lossy KV or try without the vision projector. **Apply** writes only what it changed into `models.ini`; **Undo** puts your values back. On a Qwen3.8-27B with an RTX 5080 and an RTX 5060 Ti it went from 26.8 to 126.0 tokens/s on code and from 26.5 to 71.0 on prose. The old setup sat mostly on the slower card at 70k context, and Forge was asked for 32k; the 5080 alone without a drafter did 52.1 (one machine, one model). NVIDIA only, and new. See [Auto-Forge](autoforge.md). API: `/api/forge/status`, `/api/forge/start`, `/api/forge/cancel`, `/api/forge/apply`, `/api/forge/undo`.
