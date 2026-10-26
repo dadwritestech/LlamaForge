@@ -68,7 +68,7 @@ every server flag instead of a curated subset.
   - Presets, launch profiles (model + preset + pinned llama.cpp build in one click), side-by-side compare, and copy-paste client snippets.
   - **Game mode** unloads your models when a game starts and loads them again when it closes; pick any to keep loaded.
   - **Elastic VRAM** (off by default; NVIDIA): when another app needs the GPU, a loaded model moves layers to the CPU instead of unloading, keeps its conversation, and moves back once the memory is free. Slower while it's shrunk.
-  - **Auto-Forge** (new in v0.17.0; NVIDIA): finds the fastest way to run a model on your GPUs by measuring it. It tries placements, KV cache types and speculative drafters in a sandbox, checks that a drafter gives the same answers, and applies the winner to `models.ini` with one-click Undo. Here it took a Qwen3.8-27B from 26.8 to 126.0 tokens/s on code. [How it works](docs/content/autoforge.md).
+  - **Auto-Forge** (new in v0.17.0; NVIDIA): finds the fastest way to run a model on your GPUs by measuring it. It tries placements, KV cache types and speculative drafters in a sandbox, checks that a drafter gives the same answers, and applies the winner to `models.ini` with one-click Undo. Here it took a Qwen3.8-27B from 26.8 tokens/s on code (mostly on the slower GPU) to 126.0, and to 2.4x the best plain setup. [How it works](docs/content/autoforge.md).
 
     ![Auto-Forge: from 27 to 126 tokens a second](docs/content/img/forge-speed.png)
 

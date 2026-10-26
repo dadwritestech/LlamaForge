@@ -12,13 +12,13 @@ Auto-Forge finds the fastest way to run one model on your GPUs, measured on your
 
 ## What it found here
 
-On Qwen3.8-27B (IQ4_XS) with an RTX 5080 and an RTX 5060 Ti on PCIe x4, my own setup split the model across both GPUs and ran at 26.8 tokens/s on code and 26.5 on prose. A thorough Auto-Forge run (coding, 32k context, vision allowed off) considered 53 setups, benchmarked 49 of them, re-ran 7 finalists and took 87 minutes. Its pick was:
+On Qwen3.8-27B (IQ4_XS) with an RTX 5080 and an RTX 5060 Ti on PCIe x4, my own setup ran the model almost entirely on the 5060 Ti (the slower card), with 70k context and vision on, at 26.8 tokens/s on code and 26.5 on prose. A thorough Auto-Forge run (coding, 32k context, vision allowed off) considered 53 setups, benchmarked 49 of them, re-ran 7 finalists and took 87 minutes. Its pick was:
 
 - the model on the 5080 alone,
 - a DFlash2 drafter on the 5060 Ti, drafting 5 tokens ahead,
 - 4-bit KV cache (what the setup already used), 32k context, no vision projector.
 
-That ran at **126.0 tokens/s on code and 71.0 on prose** (+371% and +168%). My best hand-tuned result, found the day before with the same layout, was 131.6 and 70.0. These are numbers from one machine and one model; your gains depend on your GPUs, the model and whether a drafter exists for it.
+That ran at **126.0 tokens/s on code and 71.0 on prose** (+371% and +168%). Part of that is simply the faster card: the 5080 alone without a drafter did 52.1 and 51.5, so the drafter roughly doubled code speed on top of that. Forge was asked for 32k context; my old setup kept 70k. My best hand-tuned result, found the day before with the same layout, was 131.6 and 70.0. These are numbers from one machine and one model; your gains depend on your GPUs, the model and whether a drafter exists for it.
 
 ## Using it
 
