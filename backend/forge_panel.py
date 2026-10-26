@@ -202,6 +202,7 @@ class Panel:
         if not 512 <= ctx <= 1 << 20:
             raise self._d.ApiError(400, "ctx must be between 512 and 1048576")
         r = {"intent": intent, "ctx": ctx, "allow_loss": bool(b.get("allow_loss")),
+             "drop_vision": bool(b.get("drop_vision")),
              "time": "thorough" if b.get("time") == "thorough" else "quick"}
         if self.runner.running():
             raise self._d.ApiError(409, "a Forge run is already going")
@@ -232,11 +233,17 @@ class Panel:
         if not win:
             raise self._d.ApiError(400, "no Forge result to apply for this model")
         current = config.read_sections().get(mid) or {}
+        # vision goes off through the vision switch, which parks the projector's
+        # path: Undo, or the switch itself, turns it back on
+        vision_off = bool(win.get("novision") and current.get("mmproj"))
+        if vision_off:
+            config.set_vision(mid, False)
         updates, undo = report.apply_plan(win["settings"], current)
-        updates.pop("model", None)
-        undo.pop("model", None)
+        for k in ("model", "mmproj"):
+            updates.pop(k, None)
+            undo.pop(k, None)
         self._d._apply_knobs_and_reload(mid, updates)
-        st["applied"] = {"undo": undo, "updates": updates}
+        st["applied"] = {"undo": undo, "updates": updates, "vision_off": vision_off}
         self._write(mid, st)
         return 200, {"ok": True, "updates": updates}
 
@@ -246,6 +253,11 @@ class Panel:
         applied = (st or {}).get("applied")
         if not applied:
             raise self._d.ApiError(400, "nothing to undo")
+        if applied.get("vision_off"):
+            try:
+                config.set_vision(mid, True)
+            except ValueError:          # the user already turned it back on, or the file moved
+                pass
         self._d._apply_knobs_and_reload(mid, applied["undo"])
         st["applied"] = None
         self._write(mid, st)

@@ -187,6 +187,16 @@ def _kv_options(base, caps, allow_loss):
     return out
 
 
+def _vision_options(base, drop):
+    """[(settings, novision)]: the user's own, then - when asked and there is a
+    projector - the same without it. Not lossless: the model can't read images,
+    but it frees the projector's ~1 GB on the first GPU."""
+    out = [(base, False)]
+    if drop and base.get("mmproj"):
+        out.append(({k: v for k, v in base.items() if "mmproj" not in k}, True))
+    return out
+
+
 def candidates(inv, req, drafters=True):
     """Fit-level candidates: placement x drafter (and where it runs) x KV types, at the
     requested context. Draft windows are expanded later (spec_variants) - they don't
@@ -198,21 +208,22 @@ def candidates(inv, req, drafters=True):
     base = {key: v for key, v in (inv.get("base") or {}).items() if key not in owned}
     steps = STEPS_THOROUGH if req.get("time") == "thorough" else STEPS_QUICK
     out = []
-    for p in placements(inv.get("gpus") or [], caps, steps):
-        for kind, dset in (_drafter_options(inv, caps) if drafters else [(None, {})]):
-            for ck, cv, lossy in _kv_options(inv.get("base") or {}, caps, req.get("allow_loss")):
-                s = dict(base)
-                s.update(p["settings"])
-                s["ctx-size"] = str(req["ctx"])
-                if k["fit"]:
-                    s[k["fit"]] = "off"     # a silent fit-down would fake a pass
-                s[k["ctk"] or "cache-type-k"] = ck
-                s[k["ctv"] or "cache-type-v"] = cv
-                s.update(dset)
-                out.append({"id": _cid(s), "label": label(s, inv.get("gpus") or []),
-                            "settings": s, "lossy": lossy, "ctx": int(req["ctx"]),
-                            "devices": p["devices"], "spec": kind,
-                            "parts": len(p["devices"]) + (1 if kind else 0)})
+    for vbase, novision in _vision_options(base, req.get("drop_vision")):
+        for p in placements(inv.get("gpus") or [], caps, steps):
+            for kind, dset in (_drafter_options(inv, caps) if drafters else [(None, {})]):
+                for ck, cv, lossy in _kv_options(inv.get("base") or {}, caps, req.get("allow_loss")):
+                    s = dict(vbase)
+                    s.update(p["settings"])
+                    s["ctx-size"] = str(req["ctx"])
+                    if k["fit"]:
+                        s[k["fit"]] = "off"     # a silent fit-down would fake a pass
+                    s[k["ctk"] or "cache-type-k"] = ck
+                    s[k["ctv"] or "cache-type-v"] = cv
+                    s.update(dset)
+                    out.append({"id": _cid(s), "label": label(s, inv.get("gpus") or [], novision),
+                                "settings": s, "lossy": lossy, "novision": novision,
+                                "ctx": int(req["ctx"]), "devices": p["devices"], "spec": kind,
+                                "parts": len(p["devices"]) + (1 if kind else 0)})
     return out
 
 
@@ -222,7 +233,7 @@ def with_drafters(cand, inv):
     for kind, dset in _drafter_options(inv, inv["caps"])[1:]:
         s = dict(cand["settings"])
         s.update(dset)
-        out.append(dict(cand, id=_cid(s), label=label(s, inv.get("gpus") or []),
+        out.append(dict(cand, id=_cid(s), label=label(s, inv.get("gpus") or [], cand.get("novision")),
                         settings=s, spec=kind, parts=cand.get("parts", 1) + 1))
     return out
 
@@ -239,7 +250,8 @@ def spec_variants(cand, time="quick", gpus=()):
     out = []
     for n in _SPEC[kind][3 if time == "thorough" else 2]:
         s = dict(cand["settings"], **{n_key: str(n)})
-        out.append(dict(cand, id=_cid(s), settings=s, label=label(s, list(gpus))))
+        out.append(dict(cand, id=_cid(s), settings=s,
+                        label=label(s, list(gpus), cand.get("novision"))))
     return out
 
 
@@ -343,8 +355,8 @@ def _kv_words(k, v):
     return f"KV {bk}-bit" if bk == bv else f"KV {bk}/{bv}-bit"
 
 
-def label(s, gpus):
-    """"RTX 5080 alone + drafter on RTX 5060 Ti, KV 8-bit, 32k"."""
+def label(s, gpus, novision=False):
+    """"RTX 5080 alone + drafter on RTX 5060 Ti, KV 8-bit, 32k[, no vision]"."""
     mode = s.get("split-mode")
     if mode == "none" and s.get("device"):
         where = f"{_gpu_name(gpus, s['device'])} alone"
@@ -365,4 +377,6 @@ def label(s, gpus):
     ctx = int(s.get("ctx-size") or 0)
     if ctx:
         parts.append(f"{ctx // 1024}k")
+    if novision:
+        parts.append("no vision")
     return ", ".join(parts)

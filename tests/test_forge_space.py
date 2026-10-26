@@ -157,6 +157,42 @@ class Candidates(unittest.TestCase):
             self.assertEqual(d["settings"]["temp"], "0.7")
 
 
+class NoVision(unittest.TestCase):
+    VIS = dict(INV, base=dict(INV["base"], mmproj="/m/mmproj-F16.gguf", **{"no-mmproj-offload": "true"}))
+    REQ = {"intent": "coding", "ctx": 32768, "allow_loss": False, "time": "quick"}
+
+    def test_off_unless_asked(self):
+        cs = space.candidates(self.VIS, self.REQ, drafters=False)
+        self.assertTrue(all(c["settings"].get("mmproj") for c in cs))
+        self.assertFalse(any(c.get("novision") for c in cs))
+
+    def test_each_placement_also_without_the_projector(self):
+        with_v = space.candidates(self.VIS, self.REQ, drafters=False)
+        cs = space.candidates(self.VIS, dict(self.REQ, drop_vision=True), drafters=False)
+        off = [c for c in cs if c.get("novision")]
+        self.assertEqual(len(off), len(with_v))
+        self.assertEqual(len(cs), 2 * len(with_v))
+        for c in off:
+            self.assertFalse(any("mmproj" in k for k in c["settings"]))
+            self.assertEqual(c["settings"]["temp"], "0.7")
+            self.assertIn("no vision", c["label"])
+        self.assertEqual(len({c["id"] for c in cs}), len(cs))
+
+    def test_nothing_to_drop_without_a_projector(self):
+        cs = space.candidates(INV, dict(self.REQ, drop_vision=True), drafters=False)
+        self.assertFalse(any(c.get("novision") for c in cs))
+
+    def test_drafters_and_windows_keep_it(self):
+        cs = space.candidates(self.VIS, dict(self.REQ, drop_vision=True), drafters=False)
+        solo = next(c for c in cs if c.get("novision") and c["settings"].get("device") == "CUDA0")
+        for d in space.with_drafters(solo, self.VIS):
+            self.assertTrue(d["novision"])
+            self.assertIn("no vision", d["label"])
+            for v in space.spec_variants(d, "thorough", GPU16):
+                self.assertTrue(v["novision"])
+                self.assertIn("no vision", v["label"])
+
+
 class Prune(unittest.TestCase):
     def test_rejects_predicted_overflow_with_reason(self):
         cs = [{"id": "a", "settings": {}}, {"id": "b", "settings": {}}, {"id": "c", "settings": {}}]

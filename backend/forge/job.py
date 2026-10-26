@@ -132,7 +132,8 @@ class Job:
                 "summary": rnd.get("summary"), "prefill": rnd.get("prefill"),
                 "vram_mib": sum(vram) if vram else None, "vram_per_gpu": vram,
                 "parts": cand.get("parts", 1), "ctx": cand.get("ctx"),
-                "lossy": cand.get("lossy", False), "spec": cand.get("spec"),
+                "lossy": cand.get("lossy", False), "novision": bool(cand.get("novision")),
+                "spec": cand.get("spec"),
                 "load_s": load.get("load_s")}
 
     def _stage_a(self, cand):
@@ -274,7 +275,8 @@ class Job:
         if cur:
             vs = {m: _pct(win.get(m), cur.get(m)) for m in ("code", "prose", "summary", "prefill")}
         st["result"] = {"winner": win, "ranked": ranked, "current": cur, "vs_current": vs,
-                        "unverified_quality": bool(win.get("lossy"))}
+                        "unverified_quality": bool(win.get("lossy")),
+                        "drops_vision": bool(win.get("novision"))}
 
     # ---------------------------------------------------------- run
     def run(self):

@@ -87,3 +87,15 @@ test("setup sheet keeps the last request", () => {
   assert.match(h, /value="thorough" selected/);
   assert.match(h, /data-af-loss checked/);
 });
+
+test("no-vision: setup checkbox, row tag and result warning", () => {
+  assert.match(af.setupMarkup("m", {drop_vision: true}), /data-af-novision checked/);
+  assert.doesNotMatch(af.setupMarkup("m", {}), /data-af-novision checked/);
+  const st = structuredClone(done);
+  st.leaderboard[0].novision = true;
+  st.result.drops_vision = true;
+  const html = af.liveMarkup("m", st);
+  assert.match(html, />no vision</);
+  assert.match(html, /Turns vision off/);
+  assert.doesNotMatch(af.liveMarkup("m", done), /no vision|Turns vision off/);
+});

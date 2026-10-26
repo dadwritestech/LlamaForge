@@ -44,6 +44,7 @@ export function setupMarkup(id, req = {}) {
       ${opt("quick", "Quick", req.time)}${opt("thorough", "Thorough", req.time)}
     </select>
     <label class="af-loss" title="Also try 8-bit / 4-bit KV cache. Faster or longer context, answers can change slightly."><input type="checkbox" data-af-loss ${req.allow_loss ? "checked" : ""}> allow lossy KV</label>
+    <label class="af-loss" title="Also try without the vision projector (mmproj). Frees about 1 GB on the first GPU, which can make room for a drafter; the model can no longer read images. Applying such a result turns vision off with the usual switch, so you can turn it back on."><input type="checkbox" data-af-novision ${req.drop_vision ? "checked" : ""}> try without vision</label>
     <button type="button" class="qbtn" data-af-start="${esc(id)}">Forge</button>
   </div>`;
 }
@@ -51,6 +52,7 @@ export function setupMarkup(id, req = {}) {
 function rowMarkup(r) {
   const tags = [r.finalist && r.id !== "current" ? `<span class="tag">finalist</span>` : "",
     r.lossy ? `<span class="tag warn" title="lossy KV cache: answers can differ slightly">lossy</span>` : "",
+    r.novision ? `<span class="tag warn" title="without the vision projector: can't read images">no vision</span>` : "",
     r.sanity && r.sanity.ok === false ? `<span class="tag bad" title="${esc(r.sanity.reason || "")}">drafter diverged</span>` : ""].join("");
   const per = (r.vram_per_gpu || []).map(gb).join(" + ");
   return `<tr${r.id === "current" ? ` class="af-cur"` : ""}>
@@ -86,7 +88,9 @@ export function resultMarkup(id, st) {
     ? `<button type="button" class="qbtn" data-af-undo="${esc(id)}">Undo</button><span class="af-note">applied to models.ini</span>`
     : (w.id === "current" ? `<span class="af-note">your current setup is already the best</span>`
       : `<button type="button" class="qbtn load" data-af-apply="${esc(id)}">Apply</button>`);
-  return `<div class="af-result"><div class="af-win">${esc(w.label || w.id)}</div>${gain}${quality}<div class="af-act">${act}</div></div>`;
+  const vision = res.drops_vision
+    ? `<div class="af-q warn">Turns vision off: the model can't read images until you turn it back on (Undo or the vision switch).</div>` : "";
+  return `<div class="af-result"><div class="af-win">${esc(w.label || w.id)}</div>${gain}${quality}${vision}<div class="af-act">${act}</div></div>`;
 }
 
 export function liveMarkup(id, st) {
@@ -134,7 +138,8 @@ async function start(row, id) {
   const req = {model: id, intent: row.querySelector("[data-af-intent]")?.value,
     ctx: +(row.querySelector("[data-af-ctx]")?.value || 32768),
     time: row.querySelector("[data-af-time]")?.value,
-    allow_loss: !!row.querySelector("[data-af-loss]")?.checked};
+    allow_loss: !!row.querySelector("[data-af-loss]")?.checked,
+    drop_vision: !!row.querySelector("[data-af-novision]")?.checked};
   const ok = await askYes(`Auto-Forge unloads every model and uses all GPUs until it finishes `
     + `(${req.time === "thorough" ? "about an hour" : "15-30 minutes"}). Your models load back afterwards. Start?`);
   if (!ok) return;

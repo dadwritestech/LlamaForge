@@ -122,6 +122,18 @@ class JobRun(unittest.TestCase):
         self.assertEqual(rig.stops, len(rig.loads))           # every loaded process stopped
         self.assertEqual(self.state()["stage"], "done")         # persisted
 
+    def test_a_no_vision_winner_says_so(self):
+        # the projector costs GPU0 room: without it the drafted solo setup fits
+        vis = dict(INV, base=dict(INV["base"], mmproj="/m/mmproj.gguf"))
+        rig = Rig(fail=lambda s: "out of memory" if s.get("mmproj") and "spec-draft-model" in s
+                  and s.get("device") == "CUDA0" else None)
+        st = rig.job(self.path, inv=vis, req=dict(REQ, drop_vision=True)).run()
+        win = st["result"]["winner"]
+        self.assertNotIn("mmproj", win["settings"])
+        self.assertTrue(win["novision"])
+        self.assertTrue(st["result"]["drops_vision"])
+        self.assertTrue(any(r.get("novision") is False for r in st["rows"].values()))
+
     def test_search_is_staged_placements_then_drafters_then_windows(self):
         rig = Rig()
         st = rig.job(self.path, req=dict(REQ, time="thorough")).run()

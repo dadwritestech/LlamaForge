@@ -112,6 +112,33 @@ class ApplyUndo(Base):
         with self.assertRaises(ApiError):
             self.panel.post_undo(Req({"model": "m"}))
 
+    def test_a_no_vision_winner_parks_the_projector_and_undo_brings_it_back(self):
+        self.sections["m"]["mmproj"] = "/m/mmproj.gguf"
+        self.write_result()
+        with open(self.panel._state_path("m"), encoding="utf-8") as f:
+            st = json.load(f)
+        st["result"]["winner"]["novision"] = True
+        with open(self.panel._state_path("m"), "w", encoding="utf-8") as f:
+            json.dump(st, f)
+        order = []
+        self.d._apply_knobs_and_reload = lambda mid, upd: order.append(("knobs", dict(upd)))
+        with mock.patch.object(config, "set_vision",
+                               lambda mid, on: order.append(("vision", mid, on))):
+            self.panel.post_apply(Req({"model": "m"}))
+            self.assertEqual(order[0], ("vision", "m", False))   # through the vision switch
+            self.assertNotIn("mmproj", order[1][1])
+            self.panel.post_undo(Req({"model": "m"}))
+            self.assertEqual(order[-2], ("vision", "m", True))   # before the reload picks it up
+            self.assertEqual(order[-1][0], "knobs")
+
+    def test_start_passes_drop_vision(self):
+        seen = {}
+        fake = types.SimpleNamespace(run=lambda: None, snapshot=lambda: None, cancel=threading.Event())
+        with mock.patch.object(self.panel, "_make_job", lambda mid, r: seen.update(r) or fake):
+            self.panel.post_start(Req({"model": "m", "drop_vision": True}))
+            self.panel.runner.join(2)
+        self.assertTrue(seen["drop_vision"])
+
     def test_apply_without_a_result(self):
         with self.assertRaises(ApiError) as e:
             self.panel.post_apply(Req({"model": "m"}))
