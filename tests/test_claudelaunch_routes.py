@@ -114,6 +114,12 @@ class LaunchRouteTest(Base):
         self.assertEqual(args.args[5:7], ("big", "tiny"))
         self.assertEqual(config.load()["claude_recent_dirs"], [self.tmp, "/old"])
 
+    def test_quoted_pasted_folder_is_accepted(self):
+        with mock.patch.object(routes.claudelaunch, "launch",
+                               return_value={"kind": "spawn", "command": "cmd"}) as launch:
+            routes.post_claude_launch(Req(body={"model": "big", "folder": f' "{self.tmp}" '}))
+        self.assertEqual(launch.call_args.args[1], self.tmp)
+
     def test_manual_plan_is_not_launched(self):
         with mock.patch.object(routes.claudelaunch, "launch",
                                return_value={"kind": "manual", "command": "cmd"}):

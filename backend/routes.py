@@ -1303,10 +1303,10 @@ def post_claude_launch(req):
     unknown = set(body) - {"model", "folder"}
     if unknown:
         raise ApiError(400, "unsupported launch fields: " + ", ".join(sorted(unknown)))
-    folder = body.get("folder")
-    if not isinstance(folder, str) or not folder.strip():
+    folder = claudelaunch.clean_folder(body.get("folder"))
+    if not folder:
         raise ApiError(400, "folder is required")
-    folder = os.path.abspath(os.path.expanduser(folder.strip()))
+    folder = os.path.abspath(os.path.expanduser(folder))
     if not os.path.isdir(folder):
         raise ApiError(400, f"not a folder: {folder}")
     a = _claude_assess(body.get("model"))

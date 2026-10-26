@@ -247,6 +247,18 @@ class TestPickFolder(unittest.TestCase):
         self.assertIn("FolderBrowserDialog", argv[-1])
         self.assertIn("TopMost", argv[-1])
 
+    def test_windows_owner_is_shown_so_topmost_applies(self):
+        # A never-shown owner leaves the dialog behind the browser: the panel is a
+        # background process and Windows won't let it take the foreground.
+        script = cl.pick_folder_argv("win", which_from({"powershell": "ps.exe"}), "py")[-1]
+        self.assertIn("$o.Show()", script)
+        self.assertLess(script.index("$o.Show()"), script.index("ShowDialog($o)"))
+
+    def test_windows_script_runs_on_windows_powershell_5(self):
+        # .NET Framework's FolderBrowserDialog has no UseDescriptionForTitle.
+        script = cl.pick_folder_argv("win", which_from({"powershell": "ps.exe"}), "py")[-1]
+        self.assertNotIn("UseDescriptionForTitle", script)
+
     def test_mac_osascript(self):
         argv = cl.pick_folder_argv("mac", which_from({"osascript": "/usr/bin/osascript"}), "py")
         self.assertEqual(argv[0], "/usr/bin/osascript")
@@ -265,6 +277,21 @@ class TestPickFolder(unittest.TestCase):
     def test_pick_returns_trimmed_path_or_blank(self):
         self.assertEqual(cl.pick_folder(["x"], run=lambda a: (0, "D:\\code\\proj\r\n")), "D:\\code\\proj")
         self.assertEqual(cl.pick_folder(["x"], run=lambda a: (1, "")), "")
+
+
+class TestCleanFolder(unittest.TestCase):
+    def test_strips_copy_as_path_quotes_and_space(self):
+        # Explorer's "Copy as path" wraps the path in double quotes.
+        self.assertEqual(cl.clean_folder('  "D:\\code\\my proj"  '), "D:\\code\\my proj")
+        self.assertEqual(cl.clean_folder("'/home/u/proj'\n"), "/home/u/proj")
+
+    def test_leaves_unbalanced_or_inner_quotes(self):
+        self.assertEqual(cl.clean_folder('D:\\a"b'), 'D:\\a"b')
+        self.assertEqual(cl.clean_folder('"D:\\x'), '"D:\\x')
+
+    def test_non_string_is_blank(self):
+        self.assertEqual(cl.clean_folder(None), "")
+        self.assertEqual(cl.clean_folder(5), "")
 
 
 class TestRemember(unittest.TestCase):

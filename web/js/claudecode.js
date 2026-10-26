@@ -80,6 +80,15 @@ function copy(text) {
 function wire() {
   const folder = $("#cc-folder");
   folder.addEventListener("input", syncLaunch);
+  // Explorer's "Copy as path" wraps the path in quotes
+  folder.addEventListener("paste", e => {
+    const text = e.clipboardData?.getData("text") ?? "";
+    const m = text.trim().match(/^(["'])(.*)\1$/s);
+    if (!m) return;
+    e.preventDefault();
+    folder.setRangeText(m[2].trim(), folder.selectionStart, folder.selectionEnd, "end");
+    syncLaunch();
+  });
   folder.addEventListener("keydown", e => {
     if (e.key === "Enter" && !$("[data-cc-launch]").disabled) { e.preventDefault(); launch(); }
   });
@@ -99,6 +108,7 @@ async function browse(e) {
   const btn = e.currentTarget;
   btn.disabled = true;
   btn.textContent = "Waiting for the folder dialog…";
+  toast("Folder dialog opened: if you can't see it, check the taskbar. You can also type or paste a path.", "ok");
   const r = await api("/api/claude/pick-folder", {}).catch(() => ({path: ""}));
   if (!btn.isConnected) return;
   btn.disabled = false;

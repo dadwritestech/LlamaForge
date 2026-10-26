@@ -278,10 +278,16 @@ def launch(claude, folder, base_env, endpoint, token, model, small, name=None,
 _PS_PICK = (
     "[Console]::OutputEncoding=[Text.Encoding]::UTF8;"
     "Add-Type -AssemblyName System.Windows.Forms;"
-    "$o=New-Object System.Windows.Forms.Form -Property @{TopMost=$true};"
+    # The panel is a background process, so Windows won't give this window the
+    # foreground. An invisible TopMost owner that is actually shown puts the dialog
+    # above the browser anyway (z-order isn't subject to the foreground lock).
+    "$o=New-Object System.Windows.Forms.Form -Property @{TopMost=$true;ShowInTaskbar=$false;"
+    "FormBorderStyle='None';Opacity=0;StartPosition='CenterScreen';Size='1,1'};"
+    "$o.Show();$o.Activate();"
     "$d=New-Object System.Windows.Forms.FolderBrowserDialog;"
-    f"$d.Description='{TITLE}';$d.UseDescriptionForTitle=$true;"
-    "if($d.ShowDialog($o) -eq 'OK'){[Console]::Out.Write($d.SelectedPath)}")
+    f"$d.Description='{TITLE}';$d.ShowNewFolderButton=$true;"
+    "$r=$d.ShowDialog($o);$o.Close();"
+    "if($r -eq 'OK'){[Console]::Out.Write($d.SelectedPath)}")
 
 _TK_PICK = ("import tkinter as t, tkinter.filedialog as f; r=t.Tk(); r.withdraw(); "
             f"r.attributes('-topmost', 1); print(f.askdirectory(title='{TITLE}') or '', end='')")
@@ -313,6 +319,17 @@ def pick_folder(argv, run=None):
     run = run or (lambda a: _run(a, timeout=PICK_TIMEOUT))
     rc, out = run(argv)
     return out.strip() if rc == 0 else ""
+
+
+def clean_folder(text):
+    """A typed or pasted folder: trimmed, minus one pair of wrapping quotes
+    (Explorer's "Copy as path" adds them)."""
+    if not isinstance(text, str):
+        return ""
+    s = text.strip()
+    if len(s) >= 2 and s[0] == s[-1] and s[0] in "\"'":
+        s = s[1:-1].strip()
+    return s
 
 
 def remember(recent, folder, cap=RECENT_CAP):
