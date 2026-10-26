@@ -114,10 +114,12 @@ class ApplyUndo(Base):
 
     def test_a_no_vision_winner_parks_the_projector_and_undo_brings_it_back(self):
         self.sections["m"]["mmproj"] = "/m/mmproj.gguf"
+        self.sections["m"]["mmproj-offload"] = "true"     # the novision winner dropped it too
         self.write_result()
         with open(self.panel._state_path("m"), encoding="utf-8") as f:
             st = json.load(f)
         st["result"]["winner"]["novision"] = True
+        st["cands"] = [{"id": "current", "settings": dict(self.sections["m"])}]
         with open(self.panel._state_path("m"), "w", encoding="utf-8") as f:
             json.dump(st, f)
         order = []
@@ -126,10 +128,23 @@ class ApplyUndo(Base):
                                lambda mid, on: order.append(("vision", mid, on))):
             self.panel.post_apply(Req({"model": "m"}))
             self.assertEqual(order[0], ("vision", "m", False))   # through the vision switch
-            self.assertNotIn("mmproj", order[1][1])
+            self.assertFalse([k for k in order[1][1] if "mmproj" in k])
             self.panel.post_undo(Req({"model": "m"}))
             self.assertEqual(order[-2], ("vision", "m", True))   # before the reload picks it up
             self.assertEqual(order[-1][0], "knobs")
+
+    def test_apply_writes_only_what_forge_changed_from_its_baseline(self):
+        self.write_result()
+        with open(self.panel._state_path("m"), encoding="utf-8") as f:
+            st = json.load(f)
+        st["cands"] = [{"id": "current", "settings": {"model": "/m/q.gguf", "tensor-split": "1,1",
+                                                      "temp": "0.7", "mmap": "false"}}]
+        st["result"]["winner"]["settings"]["mmap"] = "false"     # stale: the user renamed it since
+        with open(self.panel._state_path("m"), "w", encoding="utf-8") as f:
+            json.dump(st, f)
+        self.panel.post_apply(Req({"model": "m"}))
+        self.assertEqual(self.calls.applied[-1][1],
+                         {"split-mode": "none", "device": "CUDA0", "tensor-split": None})
 
     def test_start_passes_drop_vision(self):
         seen = {}

@@ -7,10 +7,20 @@ _OWNED = set(space._OWNED) | {"cache-type-k", "cache-type-v", "spec-draft-model"
                               "model-draft", "device-draft", "draft-max"}
 
 
-def apply_plan(winner, current):
+def apply_plan(winner, current, base=None):
     """(updates, undo) for config.set_keys: the section becomes the winner for the
-    keys Forge decides; everything else the user wrote is left alone."""
+    keys Forge decides; everything else the user wrote is left alone.
+
+    base = the settings Forge started from (the "current" candidate). With it,
+    only what Forge changed from base is written: base has the [*] keys merged
+    in and may hold keys the user has renamed or removed since the run, and
+    neither belongs in this section."""
     updates = {}
+    if base is not None:
+        for k in set(base) | set(winner):
+            if winner.get(k) != base.get(k) and current.get(k) != winner.get(k):
+                updates[k] = winner.get(k)
+        return updates, {k: current.get(k) for k in updates}
     for k, v in winner.items():
         if current.get(k) != v:
             updates[k] = v

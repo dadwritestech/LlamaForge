@@ -238,9 +238,11 @@ class Panel:
         vision_off = bool(win.get("novision") and current.get("mmproj"))
         if vision_off:
             config.set_vision(mid, False)
-        updates, undo = report.apply_plan(win["settings"], current)
-        for k in ("model", "mmproj"):
-            updates.pop(k, None)
+        base = next((c.get("settings") for c in st.get("cands") or []
+                     if c.get("id") == job.CURRENT), None)
+        updates, undo = report.apply_plan(win["settings"], current, base)
+        for k in [k for k in updates if k == "model" or "mmproj" in k]:   # vision is the switch's
+            updates.pop(k)
             undo.pop(k, None)
         self._d._apply_knobs_and_reload(mid, updates)
         st["applied"] = {"undo": undo, "updates": updates, "vision_off": vision_off}

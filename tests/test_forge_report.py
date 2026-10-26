@@ -52,6 +52,19 @@ class Apply(unittest.TestCase):
         updates, _ = report.apply_plan({"model": "/m/q.gguf"}, {"model": "/m/q.gguf", "mmproj": "/m/p"})
         self.assertNotIn("mmproj", updates)
 
+    def test_with_a_baseline_only_forges_own_changes_are_written(self):
+        # base = what Forge started from: the [*] keys merged in, and a key the
+        # user has since renamed (mmap -> load-mode); neither may come back
+        base = {"model": "/m/q.gguf", "load-on-startup": "false", "mmap": "false",
+                "ctx-size": "70000", "main-gpu": "1", "temp": "1.0"}
+        winner = {"model": "/m/q.gguf", "load-on-startup": "false", "mmap": "false",
+                  "ctx-size": "32768", "device": "CUDA0", "temp": "1.0"}
+        current = {"model": "/m/q.gguf", "load-mode": "none", "ctx-size": "70000",
+                   "main-gpu": "1", "temp": "0.6"}
+        updates, undo = report.apply_plan(winner, current, base)
+        self.assertEqual(updates, {"ctx-size": "32768", "device": "CUDA0", "main-gpu": None})
+        self.assertEqual(undo, {"ctx-size": "70000", "device": None, "main-gpu": "1"})
+
 
 class Summary(unittest.TestCase):
     def state(self):
