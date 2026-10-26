@@ -112,6 +112,15 @@ class ProberLoad(unittest.TestCase):
         self.assertEqual(p.stopped, 1)
         self.assertLess(p.t, 30)                 # didn't wait for the timeout
 
+    def test_the_previous_run_s_error_in_the_shared_log_is_ignored(self):
+        old = ("\n=== 2026-10-26 01:20:24 llama-server -m a.gguf\n"
+               "E srv    load_model: failed to load draft model, 'd.gguf'\n"
+               "E srv  llama_server: exiting due to model loading error\n")
+        now = "\n=== 2026-10-26 01:20:25 llama-server -m a.gguf\nI srv    load_model: loading model 'a.gguf'\n"
+        p = FakeProc(ready_after=4, log=old + now)
+        r = prober(p).load({}, timeout=60)
+        self.assertTrue(r["ok"], r["reason"])
+
     def test_process_exit_reads_reason_from_log(self):
         p = FakeProc(ready_after=None, fail_after=3, log=fixture("oom-kv-cache.txt"))
         r = prober(p).load({}, timeout=60)

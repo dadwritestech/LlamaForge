@@ -25,6 +25,18 @@ def _ignored(line):
     return "common_fit_params" in line
 
 
+def this_run(log):
+    """The part of a shared log since the last start: slotproc writes a
+    "=== <time> <argv>" header each time, and an older process's error must not
+    fail this one."""
+    if not log:
+        return log
+    i = log.rfind("\n=== ")
+    if i < 0:
+        return log[4:] if log.startswith("=== ") else log
+    return log[i + 1:]
+
+
 def failure_reason(log):
     """None while the log shows nothing fatal, else one short reason."""
     if not log:
@@ -92,7 +104,7 @@ class Prober:
             st = self._state()
             if st == "ready":
                 break
-            why = failure_reason(self._log())
+            why = failure_reason(this_run(self._log()))
             if why:
                 return self._fail(t0, why)
             if st in ("failed", None):
