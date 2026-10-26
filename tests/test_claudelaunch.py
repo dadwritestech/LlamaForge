@@ -103,6 +103,25 @@ class TestEnv(unittest.TestCase):
         self.assertEqual(e["PATH"], "/bin")
         self.assertEqual(e["HOME"], "/h")
 
+    def test_strips_parent_claude_session(self):
+        # A panel started from inside a Claude session passes its host-session
+        # variables down; the child then uses that session's login, not the key.
+        base = dict(self.BASE, CLAUDECODE="1", CLAUDE_CODE_ENTRYPOINT="claude-desktop",
+                    CLAUDE_CODE_SDK_HAS_HOST_AUTH_REFRESH="1", CLAUDE_CODE_SESSION_ID="s",
+                    CLAUDE_AGENT_SDK_VERSION="1", CLAUDE_CODE_MAX_OUTPUT_TOKENS="9")
+        e = cl.session_env(base, "http://127.0.0.1:8090", "k", "big", "tiny")
+        for k in ("CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_SDK_HAS_HOST_AUTH_REFRESH",
+                  "CLAUDE_CODE_SESSION_ID", "CLAUDE_AGENT_SDK_VERSION", "CLAUDE_CODE_MAX_OUTPUT_TOKENS"):
+            self.assertNotIn(k, e)
+        self.assertEqual(e["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"], "1")
+        self.assertEqual(e["ANTHROPIC_AUTH_TOKEN"], "k")
+
+    def test_keeps_own_claude_settings_outside_a_session(self):
+        base = dict(self.BASE, CLAUDE_CODE_MAX_OUTPUT_TOKENS="9", CLAUDE_CODE_OAUTH_TOKEN="sk-ant-x")
+        e = cl.session_env(base, "http://127.0.0.1:8090", "k", "big", "tiny")
+        self.assertEqual(e["CLAUDE_CODE_MAX_OUTPUT_TOKENS"], "9")
+        self.assertNotIn("CLAUDE_CODE_OAUTH_TOKEN", e)
+
     def test_does_not_mutate_base(self):
         self.env()
         self.assertEqual(self.BASE["ANTHROPIC_API_KEY"], "sk-real")

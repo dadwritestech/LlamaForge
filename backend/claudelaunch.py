@@ -33,7 +33,8 @@ INSTALL_HINT = {
 
 # Inherited settings that would send the session to the cloud, or add to what we
 # send: a real ANTHROPIC_API_KEY must never reach the local endpoint.
-_STRIP_EXACT = ("CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_FOUNDRY")
+_STRIP_EXACT = ("CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_FOUNDRY",
+                "CLAUDE_CODE_OAUTH_TOKEN")
 
 # (binary, flag before the command; "" = none)
 _LINUX_TERMINALS = (("x-terminal-emulator", "-e"), ("gnome-terminal", "--"),
@@ -126,9 +127,18 @@ def env_changes(base, endpoint, token, model, small):
         "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
         "API_TIMEOUT_MS": "1800000",                  # a long local prefill isn't a hang
     }
-    unsets = sorted(k for k in base
-                    if k not in sets and (k.startswith("ANTHROPIC_") or k in _STRIP_EXACT))
+    unsets = sorted(k for k in base if k not in sets and _strip(k, "CLAUDECODE" in base))
     return sets, unsets
+
+
+def _strip(name, in_claude_session):
+    if name.startswith("ANTHROPIC_") or name in _STRIP_EXACT:
+        return True
+    # A panel started inside a Claude session (the desktop app, or a terminal
+    # Claude launched) inherits its host-session variables; with them the child
+    # uses that session's login instead of ANTHROPIC_AUTH_TOKEN.
+    return in_claude_session and (name == "CLAUDECODE"
+                                  or name.startswith(("CLAUDE_CODE_", "CLAUDE_AGENT_SDK_")))
 
 
 def session_env(base, endpoint, token, model, small):

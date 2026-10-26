@@ -2834,8 +2834,6 @@ POST_ROUTES = {
     "/api/agent/apply":         post_agent_apply,
     "/api/claude/pick-folder":  post_claude_pick_folder,
     "/api/claude/launch":       post_claude_launch,
-    "/api/claude/pick-folder":  post_claude_pick_folder,
-    "/api/claude/launch":       post_claude_launch,
     "/api/wiki/doc":            post_wiki_doc,
     "/api/wiki/doc/delete":     post_wiki_doc_delete,
     "/api/wiki/profile":        post_wiki_profile,
