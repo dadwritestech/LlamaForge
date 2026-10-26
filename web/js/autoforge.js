@@ -16,9 +16,12 @@ const cache = new Map();            // model id -> last /api/forge/status
 const inflight = new Set();
 let timer = null;
 let redraw = () => {};
+let settingsChanged = () => {};
 
-/** cb(): status changed, re-render the open row (models.js passes renderModels). */
-export function initAutoForge(cb) { redraw = cb; }
+/** cb(): status changed, re-render the open row (models.js passes renderModels).
+ *  changed(id): Apply or Undo rewrote the model's models.ini section, so the
+ *  editor's inputs are stale. */
+export function initAutoForge(cb, changed = () => {}) { redraw = cb; settingsChanged = changed; }
 
 const num = v => (v == null || !Number.isFinite(+v)) ? "–" : (+v).toFixed(1);
 const int = v => (v == null || !Number.isFinite(+v)) ? "–" : String(Math.round(+v));
@@ -149,11 +152,16 @@ async function start(row, id) {
   redraw(); refresh(id);
 }
 
-async function post(path, id, okMsg) {
+const REWRITES = new Set(["/api/forge/apply", "/api/forge/undo"]);
+
+export async function act(path, id, okMsg) {
   const r = await api(path, {model: id}).catch(e => ({error: String(e.message || e)}));
   if (!r || r.error) toast((r && r.error) || "failed", "err");
-  else if (okMsg) toast(okMsg, "ok");
-  refresh(id);
+  else {
+    if (okMsg) toast(okMsg, "ok");
+    if (REWRITES.has(path)) await settingsChanged(id);
+  }
+  await refresh(id);
 }
 
 /** Click handling for the region; models.js calls this from its delegated listener.
@@ -164,8 +172,8 @@ export function handleClick(e) {
   e.stopPropagation();
   const row = t.closest(".row");
   if (t.dataset.afStart) start(row, t.dataset.afStart);
-  else if (t.dataset.afCancel) post("/api/forge/cancel", t.dataset.afCancel, "Cancelling after this candidate");
-  else if (t.dataset.afApply) post("/api/forge/apply", t.dataset.afApply, "Applied; the model reloads with it");
-  else if (t.dataset.afUndo) post("/api/forge/undo", t.dataset.afUndo, "Restored your previous settings");
+  else if (t.dataset.afCancel) act("/api/forge/cancel", t.dataset.afCancel, "Cancelling after this candidate");
+  else if (t.dataset.afApply) act("/api/forge/apply", t.dataset.afApply, "Applied; the model reloads with it");
+  else if (t.dataset.afUndo) act("/api/forge/undo", t.dataset.afUndo, "Restored your previous settings");
   return true;
 }

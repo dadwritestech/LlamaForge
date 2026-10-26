@@ -99,3 +99,17 @@ test("no-vision: setup checkbox, row tag and result warning", () => {
   assert.match(html, /Turns vision off/);
   assert.doesNotMatch(af.liveMarkup("m", done), /no vision|Turns vision off/);
 });
+
+test("apply and undo tell the editor its settings changed; cancel doesn't", async () => {
+  globalThis.document = {querySelector: () => null};
+  globalThis.fetch = async (path) => ({json: async () => path.includes("/status") ? {stage: "done"} : {ok: true}});
+  const changed = [];
+  af.initAutoForge(() => {}, id => changed.push(id));
+  await af.act("/api/forge/apply", "m", "");
+  await af.act("/api/forge/undo", "m", "");
+  await af.act("/api/forge/cancel", "m", "");
+  assert.deepEqual(changed, ["m", "m"]);
+  globalThis.fetch = async () => ({json: async () => ({error: "nope"})});
+  await af.act("/api/forge/apply", "m", "");
+  assert.deepEqual(changed, ["m", "m"]);           // a failed apply changed nothing
+});
