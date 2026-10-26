@@ -229,6 +229,22 @@ class TestLaunchPlan(unittest.TestCase):
         self.assertIn("cd '/work/my repo'", p["command"])
         self.assertIn("unset ANTHROPIC_API_KEY", p["command"])
 
+    def test_windows_console_keeps_its_own_stdio(self):
+        # Redirecting stdio to NUL survives CREATE_NEW_CONSOLE: cmd /k then reads
+        # EOF and the window closes at once, taking claude with it.
+        calls = []
+        cl.spawn(self.plan("win", folder="D:\\p"), popen=lambda argv, **kw: calls.append(kw))
+        for k in ("stdin", "stdout", "stderr"):
+            self.assertIsNone(calls[0].get(k), k)
+
+    def test_unix_launchers_get_null_stdio(self):
+        calls = []
+        p = self.plan("linux", found={"xterm": "/usr/bin/xterm"},
+                      folder=tempfile.gettempdir())
+        p["script_path"] = os.path.join(tempfile.mkdtemp(), "c.sh")
+        cl.spawn(p, popen=lambda argv, **kw: calls.append(kw))
+        self.assertEqual(calls[0]["stdin"], cl.subprocess.DEVNULL)
+
     def test_quotes_hostile_values(self):
         sets = {"ANTHROPIC_MODEL": "a'b; rm -rf ~"}
         p = cl.launch_plan("linux", "/bin/claude", "/w", {}, sets, [], script_dir="/t",

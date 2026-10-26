@@ -253,9 +253,11 @@ def spawn(plan, popen=subprocess.Popen):
         with open(plan["script_path"], "w", encoding="utf-8", newline="\n") as f:
             f.write(plan["script"])
         os.chmod(plan["script_path"], 0o700)
+    # A new console must keep its own stdio: redirecting to NUL survives
+    # CREATE_NEW_CONSOLE, so cmd /k would read EOF and close the window at once.
+    null = None if plan["creationflags"] & CREATE_NEW_CONSOLE else subprocess.DEVNULL
     popen(plan["argv"], cwd=plan["cwd"], env=plan["env"], creationflags=plan["creationflags"],
-          stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-          close_fds=True)
+          stdin=null, stdout=null, stderr=null, close_fds=True)
 
 
 def launch(claude, folder, base_env, endpoint, token, model, small, name=None,
