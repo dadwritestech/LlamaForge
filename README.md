@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/mascot/llamaforge-mascot.png" alt="The LlamaForge mascot: a llama blacksmith with a hammer, and Ember, a little living flame, sitting on its head" width="190">
+  <img src="docs/mascot/llamaforge-mascot.png" alt="The LlamaForge mascot: Meet LlamaSmith with a hammer, and Ember, a little living flame, sitting on its head" width="190">
 </p>
 
 <h1 align="center">LlamaForge</h1>
