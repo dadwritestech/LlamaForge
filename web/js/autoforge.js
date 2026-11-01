@@ -6,6 +6,7 @@
 // while a run is going. Every dynamic value goes through esc().
 import { esc, api, toast, askYes } from "./core.js";
 import { drawCard } from "./forgecard.js";
+import { noteForgeWin } from "./starask.js";
 
 const POLL_MS = 2000;
 const STAGE = { fit: "trying every candidate", speed: "re-measuring the finalists on fresh prompts",
@@ -143,7 +144,14 @@ export async function refresh(id) {
   inflight.add(id);
   try {
     const st = await api(`/api/forge/status?model=${encodeURIComponent(id)}`);
-    if (st && !st.error) { cache.set(id, st); redraw(); }
+    if (st && !st.error) {
+      const was = cache.get(id);
+      cache.set(id, st); redraw();
+      // a run the user watched just finished: the moment to ask for a star
+      const w = st.result && st.result.winner, vs = (st.result && st.result.vs_current) || {};
+      if (was && was.running && !st.running && w && w.id !== "current" && !st.result.current_faster)
+        noteForgeWin(id, 1 + Math.max(vs.code ?? 0, vs.prose ?? 0) / 100);
+    }
     schedule(id, st && st.running);
   } catch (e) {
     /* router or panel restarting: try again on the next open */

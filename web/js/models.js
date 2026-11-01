@@ -7,6 +7,7 @@
 // scroll and half-typed knob values survive the 4-second poll. See syncEditor()
 // for how the editor separates what the server owns from what the user is
 // typing. Nothing here may re-render a knob input the user might be editing.
+import * as starask from "./starask.js";
 import { $, $$, esc, setHTML, api, toast, meter, motionOK, askYes, askText } from "./core.js";
 import { S, models as modelRows, config as cfgOf } from "./state.js";
 import { on, emit } from "./bus.js";
@@ -421,7 +422,7 @@ async function processQ() {
     const m = modelRows().find(x => x.id === job.id);
     if (m && m.status === "loaded") {
       if ((m.backend || "llamacpp") === "llamacpp") emit("chat", job.id);
-      else toast(`${job.id} is loaded`, "ok");
+      else { toast(`${job.id} is loaded`, "ok"); starask.noteLoad(); }
     } else {
       toast(`${job.id} did not load - open it in My Models for the reason`, "err");
     }
@@ -1040,6 +1041,7 @@ export function initModels() {
       toast(`Unloading workers, then loading ${id}...`, "ok");
       const r = await slots.load(id, "main", true);
       toast(r.success ? `${id} is loaded` : `${id}: ${slots.errText(r)}`.slice(0, 220), r.success ? "ok" : "err");
+      if (r.success) starask.noteLoad();
       await refresh(true); return;
     }
     if (e.target.closest("#view-models [data-slot-apply]")) {
@@ -1110,7 +1112,7 @@ export function initModels() {
       } else if (act === "load") {
         msg.className = "msg work"; msg.textContent = "loading (may take seconds)...";
         const r = await slots.load(id);
-        r.success ? toast("Loaded","ok") : (msg.className="msg err", msg.textContent=slots.errText(r));
+        r.success ? (toast("Loaded","ok"), starask.noteLoad()) : (msg.className="msg err", msg.textContent=slots.errText(r));
       } else if (act === "loadw") {
         msg.className = "msg work"; msg.textContent = "loading beside the main model...";
         const r = await slots.load(id, "worker");

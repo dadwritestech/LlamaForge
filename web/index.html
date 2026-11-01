@@ -108,6 +108,14 @@ body.app{display:grid;grid-template-columns:var(--nav-w) 1fr;min-height:100vh;ma
 .side-head{display:flex;align-items:center;gap:10px;padding:4px 6px 14px;border-bottom:1px solid var(--hair);margin-bottom:10px}
 .brand-word{font-family:var(--disp);font-weight:700;letter-spacing:.12em;color:var(--ink-strong);white-space:nowrap;text-transform:uppercase}
 .brand-word span{color:var(--amber)}
+.brand-ver #lf-version{color:inherit}
+.brand-star{color:var(--dim);text-decoration:none;margin-left:4px}
+.brand-star:hover,.brand-star:focus-visible{color:var(--amber)}
+.star-ask{position:fixed;right:18px;bottom:18px;z-index:900;max-width:340px;padding:14px 16px;background:var(--panel,#13233d);border:1px solid var(--amber);border-left-width:4px;box-shadow:0 8px 24px rgba(0,0,0,.35)}
+.star-ask .sa-line{font-weight:600;color:var(--ink-strong,var(--ink))}
+.star-ask .sa-sub{font-size:12px;color:var(--dim);margin:4px 0 10px}
+.star-ask .sa-act{display:flex;gap:8px}
+.star-ask .sa-act a{text-decoration:none}
 .brand-word{line-height:1.15}
 .brand-word .brand-ver{display:block;margin-top:1px;font-family:var(--mono,monospace);font-weight:400;letter-spacing:.04em;font-size:10px;color:var(--dim);text-transform:none}
 /* Hearth-only chrome (hearth.css shows these); Classic renders as before */
@@ -727,7 +735,7 @@ button.danger:hover,.ef-danger:hover{background:var(--red-tint);border-color:var
 <nav id="sidebar">
   <div class="side-head">
     <div class="logo"></div>
-    <span class="brand-word">Llama<span>Forge</span> <small id="lf-version" class="brand-ver"></small></span>
+    <span class="brand-word">Llama<span>Forge</span> <small class="brand-ver"><span id="lf-version"></span> <a class="brand-star" href="https://github.com/dadwritestech/LlamaForge" target="_blank" rel="noopener" title="Star LlamaForge on GitHub">&#9733; star</a></small></span>
     <button id="nav-toggle" class="nav-toggle" title="Collapse / expand" aria-label="Toggle sidebar">‹</button>
     <div id="nav-hint" class="nav-hint" hidden>Click to expand &rsaquo;</div>
   </div>

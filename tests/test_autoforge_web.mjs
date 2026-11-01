@@ -6,8 +6,12 @@ const core = await readFile(new URL("../web/js/core.js", import.meta.url), "utf8
 const coreUrl = `data:text/javascript;base64,${Buffer.from(core).toString("base64")}`;
 const card = await readFile(new URL("../web/js/forgecard.js", import.meta.url), "utf8");
 const cardUrl = `data:text/javascript;base64,${Buffer.from(card).toString("base64")}`;
+const star = (await readFile(new URL("../web/js/starask.js", import.meta.url), "utf8"))
+  .replace('"./core.js"', `"${coreUrl}"`);
+const starUrl = `data:text/javascript;base64,${Buffer.from(star).toString("base64")}`;
 const source = (await readFile(new URL("../web/js/autoforge.js", import.meta.url), "utf8"))
-  .replace('"./core.js"', `"${coreUrl}"`).replace('"./forgecard.js"', `"${cardUrl}"`);
+  .replace('"./core.js"', `"${coreUrl}"`).replace('"./forgecard.js"', `"${cardUrl}"`)
+  .replace('"./starask.js"', `"${starUrl}"`);
 const fc = await import(cardUrl);
 const af = await import(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}`);
 
