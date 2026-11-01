@@ -78,13 +78,21 @@ def pins(settings):
 
 
 CAP_MIN, CAP_MAX, CAP_DEFAULT = 2, 4, 3
+HEADROOM_DEFAULT = 1536             # config.DEFAULTS["slot_headroom_mib"]
 
 
-def router_pool(cfg, no_autoload_supported):
+def router_pool(cfg, no_autoload_supported, margin_supported=False):
     """router_ctl.start's pool for this config: None (one model at a time, as
     always) unless multi_model is on. A build without --no-models-autoload
     stays single unless the user opted into autoload anyway: otherwise any
-    client request could load a model the planner never saw."""
+    client request could load a model the planner never saw.
+
+    With autoload on, a build that has --models-memory-margin (llama.cpp
+    v0.8.0) also gets slot_headroom_mib as the router's own margin, so a
+    client-loaded model unloads the least recently used one when VRAM runs
+    short instead of failing to fit. With autoload off the planner already
+    keeps that headroom, and a second, router-side eviction rule would only
+    fight it."""
     if not cfg.get("multi_model"):
         return None
     autoload = bool(cfg.get("slot_autoload"))
@@ -94,7 +102,15 @@ def router_pool(cfg, no_autoload_supported):
         cap = int(cfg.get("slot_cap", CAP_DEFAULT))
     except (TypeError, ValueError):
         cap = CAP_DEFAULT
-    return {"models_max": min(max(cap, CAP_MIN), CAP_MAX), "autoload": autoload}
+    pool = {"models_max": min(max(cap, CAP_MIN), CAP_MAX), "autoload": autoload}
+    if autoload and margin_supported:
+        try:
+            margin = int(cfg.get("slot_headroom_mib", HEADROOM_DEFAULT))
+        except (TypeError, ValueError):
+            margin = HEADROOM_DEFAULT
+        if margin > 0:
+            pool["memory_margin_mib"] = margin
+    return pool
 
 
 _LIST_DEVICE = re.compile(r"^\s*CUDA(\d+):\s*(.+?)\s*\(", re.M)

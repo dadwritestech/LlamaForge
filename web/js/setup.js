@@ -522,7 +522,7 @@ function slotsMarkup() {
       <div class="kv"><label class="k" for="mm-auto">let client requests load models</label><span class="v">${box("mm-auto", st.slot_autoload)}</span></div>
       <div class="actions"><button id="mm-save">Save</button><span class="msg" id="mm-msg"></span></div>
       <div class="note">A model loads only when the VRAM math says it fits beside the ones already up, with the headroom above left free on every GPU it touches. The <b>main</b> model (the one you work with) gets the fastest GPU that fits; <b>workers</b> go on the GPUs the main doesn't use. Sizes are predicted from the GGUF until a load measures them.</div>
-      <div class="note">Turning it on or off, the count, and client loading restart the router, which unloads every model; the headroom applies from the next load. With client loading on, a request for an unloaded model loads it without the VRAM check (llama.cpp drops the least recently used model when the count is full).</div>
+      <div class="note">Turning it on or off, the count, and client loading restart the router, which unloads every model; the headroom applies from the next load. With client loading on, a request for an unloaded model loads it without the VRAM check (llama.cpp drops the least recently used model when the count is full). On llama.cpp v0.8.0 and newer the router also keeps the headroom free itself: it drops the least recently used model when a new one would not fit, so a changed headroom restarts the router in that mode.</div>
     </div>`;
 }
 

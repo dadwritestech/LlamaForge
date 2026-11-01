@@ -2159,7 +2159,7 @@ CONFIG_WRITABLE = {
     "elastic_headroom_mib":    _v_int(512, 16384),
 }
 # what the router is started with: changing one restarts it (and unloads models)
-_POOL_KEYS = ("multi_model", "slot_cap", "slot_autoload")
+_POOL_KEYS = ("multi_model", "slot_cap", "slot_autoload", "slot_headroom_mib")
 
 
 def post_config(req):
@@ -2202,7 +2202,8 @@ def _active_server_bin(c=None):
 
 def _router_pool(c, sbin):
     """router_ctl's pool for config `c` on binary `sbin` (None = single)."""
-    return slots.router_pool(c, bool(sbin) and router_ctl.supports_no_autoload(sbin))
+    return slots.router_pool(c, bool(sbin) and router_ctl.supports_no_autoload(sbin),
+                             bool(sbin) and router_ctl.supports_models_memory_margin(sbin))
 
 
 def _sync_router_pool(c):

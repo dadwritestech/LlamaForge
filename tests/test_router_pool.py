@@ -79,6 +79,14 @@ class Start(unittest.TestCase):
         argv = spawn({"models_max": 2, "autoload": True}).args[0]
         self.assertNotIn("--no-models-autoload", argv)
 
+    def test_pool_margin_becomes_the_routers_memory_margin(self):
+        argv = spawn({"models_max": 3, "autoload": True, "memory_margin_mib": 1536}).args[0]
+        self.assertEqual(argv[argv.index("--models-memory-margin") + 1], "1536")
+
+    def test_no_memory_margin_without_one_in_the_pool(self):
+        self.assertNotIn("--models-memory-margin", spawn({"models_max": 3, "autoload": True}).args[0])
+        self.assertNotIn("--models-memory-margin", spawn().args[0])
+
     def test_device_order_is_left_alone(self):
         # forcing CUDA_DEVICE_ORDER would re-aim every device / main-gpu pin
         call = spawn({"models_max": 3, "autoload": False})
@@ -149,6 +157,8 @@ class RoutesBase(unittest.TestCase):
         mock.patch.object(routes.os.path, "exists", return_value=True).start()
         mock.patch.object(routes.router_ctl, "supports_no_autoload", return_value=True).start()
         mock.patch.object(routes.router_ctl, "supports_router_mode", return_value=True).start()
+        self.margin = mock.patch.object(routes.router_ctl, "supports_models_memory_margin",
+                                        return_value=False).start()
         self.running = mock.patch.object(routes.router_ctl, "is_running",
                                          return_value=True).start()
         self.pool_now = mock.patch.object(routes.router_ctl, "running_pool",
@@ -240,8 +250,18 @@ class SlotSettings(RoutesBase):
         self.assertEqual(out["router"], {"restarted": True, "error": ""})
 
     def test_headroom_alone_does_not(self):
+        # the planner reads headroom live; the router only cares in autoload mode
+        self.pool_now.return_value = POOL
         routes.post_config(Req(body={"slot_headroom_mib": 2048}))
         self.restart.assert_not_called()
+
+    def test_headroom_is_the_routers_margin_in_autoload_mode(self):
+        self.cfg.update(slot_autoload=True, slot_headroom_mib=1536)
+        self.margin.return_value = True
+        self.pool_now.return_value = {"models_max": 3, "autoload": True, "memory_margin_mib": 1536}
+        routes.post_config(Req(body={"slot_headroom_mib": 2048}))
+        self.assertEqual(self.restart.call_args.args[-1],
+                         {"models_max": 3, "autoload": True, "memory_margin_mib": 2048})
 
     def test_unrelated_keys_never_restart(self):
         # the router may be single (the runner's) with multi_model on; a theme
@@ -274,6 +294,25 @@ class RouterPool(unittest.TestCase):
         self.assertIsNone(slots.router_pool({"multi_model": True}, False))
         self.assertEqual(slots.router_pool({"multi_model": True, "slot_autoload": True}, False),
                          {"models_max": 3, "autoload": True})
+
+    def test_autoload_gets_a_memory_margin_on_builds_that_have_it(self):
+        # client requests load models behind the planner's back; the router's own
+        # --models-memory-margin unloads by free VRAM instead of running out
+        c = {"multi_model": True, "slot_autoload": True, "slot_headroom_mib": 2048}
+        self.assertEqual(slots.router_pool(c, True, margin_supported=True),
+                         {"models_max": 3, "autoload": True, "memory_margin_mib": 2048})
+        self.assertNotIn("memory_margin_mib", slots.router_pool(c, True))
+
+    def test_planner_mode_needs_no_router_margin(self):
+        # autoload off: the planner already keeps slot_headroom_mib free
+        c = {"multi_model": True, "slot_headroom_mib": 2048}
+        self.assertNotIn("memory_margin_mib", slots.router_pool(c, True, margin_supported=True))
+
+    def test_margin_defaults_and_zero_disables(self):
+        c = {"multi_model": True, "slot_autoload": True}
+        self.assertEqual(slots.router_pool(c, True, margin_supported=True)["memory_margin_mib"], 1536)
+        c["slot_headroom_mib"] = 0
+        self.assertNotIn("memory_margin_mib", slots.router_pool(c, True, margin_supported=True))
 
 
 if __name__ == "__main__":

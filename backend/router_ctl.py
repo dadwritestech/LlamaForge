@@ -83,6 +83,12 @@ def supports_cors_origins(server_bin):
     return "--cors-origins" in _help_text(server_bin)
 
 
+def supports_models_memory_margin(server_bin):
+    """llama.cpp v0.8.0's router can unload the least recently used model
+    when a new one won't fit beside a per-device margin of free memory."""
+    return "--models-memory-margin" in _help_text(server_bin)
+
+
 def supports_slot_save(server_bin):
     """Elastic VRAM keeps conversations through /slots save/restore, which
     needs a save folder; the router hands its own flag to every model."""
@@ -186,6 +192,8 @@ def start(server_bin, models_ini, port, host, api_key, logdir, local_key="", poo
             "--host", host, "--port", str(port), "--metrics"]
     if pool and not pool.get("autoload", True):
         args.append("--no-models-autoload")
+    if pool and pool.get("memory_margin_mib"):
+        args += ["--models-memory-margin", str(pool["memory_margin_mib"])]
     if slot_save and supports_slot_save(server_bin):
         try:                      # never let this block the router starting
             os.makedirs(slot_save_dir(logdir), exist_ok=True)
