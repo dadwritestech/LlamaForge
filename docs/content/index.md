@@ -31,6 +31,8 @@ LlamaForge runs three local HTTP services:
 
 The ports and the router's bind address are configured by the `panel_port`, `router_port`, `chat_port` and `router_host` keys in `config.json` (defaults `8090`, `8080`, `8091` and `127.0.0.1`). The Setup tab's Network Access panel supports only local `127.0.0.1` and LAN `0.0.0.0` router scopes. LAN requires a usable API key and LlamaForge-owned starts fail closed until it is configured; the dashboard itself never leaves `127.0.0.1`.
 
+**Headless machines.** To use the dashboard on a GPU box you reach over SSH, start it with `./run.sh` in that SSH session. When `SSH_CONNECTION` is set, or on Linux with no `DISPLAY`/`WAYLAND_DISPLAY`, or with `LLAMAFORGE_HEADLESS=1`, `run.sh` doesn't try to open a browser. It prints the tunnel to run on your own computer instead, for example `ssh -N -L 8090:127.0.0.1:8090 -p 2222 you@192.168.1.40`, using the address and port of your current SSH session. Then open `http://127.0.0.1:8090` locally. The dashboard keeps listening on `127.0.0.1` only. `LLAMAFORGE_NO_BROWSER=1` turns off both the browser and the hint.
+
 Clients — `curl`, an OpenAI SDK, or any OpenAI-compatible chat client — talk to the router, not the dashboard. The dashboard's job is configuration: it writes model presets into `models.ini`, starts and stops the router, and reads back the router's own metrics endpoint for the Stats tab.
 
 When vLLM is enabled (Windows only, via WSL2), it runs as another process inside WSL and is bridged back to a Windows localhost port (`vllm_port` in `config.json`); it shares the same Models list, Discover tab, and stats as llama.cpp.

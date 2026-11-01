@@ -225,6 +225,30 @@ class RunPs1PreflightTest(RunnerIntegrationMixin, unittest.TestCase):
 class RunShPreflightTest(RunnerIntegrationMixin, unittest.TestCase):
     runner_name = "run.sh"
 
+    def _headless(self, **extra):
+        env = self._environment()
+        del env["LLAMAFORGE_NO_BROWSER"]
+        env.pop("SSH_CONNECTION", None)
+        env.update(extra)
+        return subprocess.run(
+            ["bash", str(self.tmp / self.runner_name)], cwd=self.tmp, env=env,
+            text=True, capture_output=True, timeout=20, check=False)
+
+    def test_over_ssh_it_prints_the_tunnel_instead_of_a_browser(self):
+        result = self._headless(SSH_CONNECTION="10.0.0.9 51000 192.168.1.40 2222",
+                                USER="bhaskar")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        p = self.panel_port
+        self.assertIn(f"ssh -N -L {p}:127.0.0.1:{p} -p 2222 bhaskar@192.168.1.40",
+                      result.stdout)
+
+    def test_headless_flag_without_ssh_names_this_host_on_port_22(self):
+        env = {"LLAMAFORGE_HEADLESS": "1", "USER": "u"}
+        result = self._headless(**env)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(f"-L {self.panel_port}:127.0.0.1:{self.panel_port} u@", result.stdout)
+        self.assertNotIn(" -p ", result.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

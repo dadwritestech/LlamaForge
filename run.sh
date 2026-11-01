@@ -116,10 +116,23 @@ if ! listening "$panel_port"; then
   echo "started LlamaForge dashboard on port $panel_port"
 fi
 
-# 3. open the dashboard
-if [ -z "${LLAMAFORGE_NO_BROWSER:-}" ]; then
+# 3. open the dashboard. On a GPU box reached over SSH (or with no screen) a
+# browser can't open here, and the dashboard only listens on 127.0.0.1 on
+# purpose, so print the tunnel that reaches it from the user's own computer.
+url="http://127.0.0.1:$panel_port/"
+if [ -n "${LLAMAFORGE_NO_BROWSER:-}" ]; then
+  :
+elif [ -n "${LLAMAFORGE_HEADLESS:-}${SSH_CONNECTION:-}" ] || {
+     [ "$(uname)" != "Darwin" ] && [ -z "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]; }; then
+  set -- ${SSH_CONNECTION:-}            # client-ip client-port server-ip server-port
+  box="${3:-$(hostname 2>/dev/null || echo this-machine)}"
+  sshport=""; [ -n "${4:-}" ] && [ "$4" != 22 ] && sshport=" -p $4"
+  echo
+  echo "No browser here. The dashboard stays on 127.0.0.1, so from your own computer run:"
+  echo "  ssh -N -L $panel_port:127.0.0.1:$panel_port$sshport ${USER:-you}@$box"
+  echo "then open $url there."
+else
   sleep 2
-  url="http://127.0.0.1:$panel_port/"
   if [ "$(uname)" = "Darwin" ]; then
     open "$url"
   else

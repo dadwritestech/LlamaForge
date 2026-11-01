@@ -169,6 +169,10 @@ needed. Pinning any of them turns fit off, so they stay unset unless you set the
 local, so a web page you visit can't drive it. LAN access is opt-in from Setup and always
 needs a key. Details and how to report a vulnerability privately: [SECURITY.md](SECURITY.md).
 
+**A GPU box with no screen:** start it with `./run.sh` over SSH and it prints the tunnel to
+run from your own computer (`ssh -N -L 8090:127.0.0.1:8090 you@box`), then open
+`http://127.0.0.1:8090` there. The dashboard never has to listen on the network.
+
 ## Docs
 
 Everything is in the in-app **Help** tab and at **[dadwritestech.github.io/LlamaForge](https://dadwritestech.github.io/LlamaForge/)**:
