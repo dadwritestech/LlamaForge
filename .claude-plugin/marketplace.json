@@ -1,0 +1,11 @@
+{
+  "name": "llamaforge",
+  "owner": { "name": "dadwritestech", "url": "https://github.com/dadwritestech" },
+  "plugins": [
+    {
+      "name": "llamaforge",
+      "source": "./",
+      "description": "Local LLMs on your own GPUs through LlamaForge: what fits, download, load, Auto-Forge the fastest setup, hand grunt work to a local model."
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "name": "llamaforge",
+  "description": "Run, size, speed-tune and use local LLMs on your own GPUs through LlamaForge (llama.cpp's router): what fits, download, load, Auto-Forge the fastest setup, hand grunt work to a local model.",
+  "author": { "name": "dadwritestech", "url": "https://github.com/dadwritestech" },
+  "homepage": "https://dadwritestech.github.io/LlamaForge/",
+  "repository": "https://github.com/dadwritestech/LlamaForge",
+  "license": "MIT",
+  "keywords": ["llama.cpp", "local-llm", "gguf", "gpu", "mcp", "self-hosted"]
+}

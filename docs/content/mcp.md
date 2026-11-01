@@ -29,6 +29,10 @@ LlamaForge ships an MCP server, so Claude Code, Codex or any MCP client can driv
 | `download_progress` | Progress of the current or last download. |
 | `ask` | One prompt to a loaded local model, no tools. |
 | `pi_run` | Hands a whole task to [pi](https://github.com/earendil-works/pi) (Mario Zechner's MIT coding agent) running on a loaded model, and returns its final answer. |
+| `forge_start` | Starts an [Auto-Forge](autoforge.md) run on one model: it measures GPU placements, KV cache types and drafters and keeps the fastest. It unloads every model for the run, so the description tells the agent to ask you first. |
+| `forge_status` | The run's stage and the top five setups (tokens/s, VRAM, context). Once it's done, the before/after numbers and a postable summary with no paths, keys or hosts in it. |
+| `forge_apply` | Writes the winning setup to the model. The agent only calls it when you say so. |
+| `forge_undo` | Puts back the settings the last apply replaced. |
 
 ### Agents don't take your main model
 

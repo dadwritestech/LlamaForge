@@ -8,6 +8,12 @@ order: 1
 
 This page summarizes the most recent additions to LlamaForge. Each entry links to the full reference for that capability. For the longer-term direction, see the project's `ROADMAP.md`.
 
+## v0.18.17: LlamaForge agent skill
+
+Your coding agent, on your own GPU. `npx skills add dadwritestech/LlamaForge` (or the Claude Code plugin: `/plugin marketplace add dadwritestech/LlamaForge`) installs a skill that teaches Claude Code, Codex and other agents to drive LlamaForge: see what fits your GPUs, download and load a model, speed-tune it, and hand it grunt work. It asks you before anything slow or disruptive. See [Agent Skill](skill.md).
+
+The [MCP server](mcp.md) gained Auto-Forge: `forge_start`, `forge_status`, `forge_apply` and `forge_undo`. An agent can start a run, follow it and show you the result; on the test machine `forge_status` reported a Qwen3.8-27B setup at 118 tokens/s on code. It applies the winner only when you say so.
+
 ## v0.18.16: Re-upload watch
 
 GGUF makers often replace a file in a release's first weeks to fix a template or a broken quant, and until now nothing told you. Once a day LlamaForge asks Hugging Face whether each model's file still matches yours. A changed one gets a **re-uploaded** badge, the date and commit message, and a **Re-download** button. See [Models](models.md).

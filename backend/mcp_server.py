@@ -54,9 +54,16 @@ INSTRUCTIONS = (
     "pi_run hands a whole task to pi - an open-source coding agent - running on a "
     "loaded local model in a directory you choose: use it to offload grunt work "
     "(summaries, boilerplate, bulk edits, first-pass reviews) to local compute. "
-    "Local models are smaller than you: give pi_run small, concrete, checkable tasks.")
+    "Local models are smaller than you: give pi_run small, concrete, checkable tasks. "
+    "forge_start runs Auto-Forge, which benchmarks setups of one model on these GPUs and "
+    "finds the fastest; it unloads every model for the run, so ask the user first. "
+    "forge_status follows it; forge_apply writes the winner only when the user agrees.")
 
 HUB_LIMIT = 20
+FORGE_INTENTS = ("coding", "chat", "long", "agent")
+FORGE_TOP = 5
+_BOARD_KEYS = ("label", "score", "code", "prose", "summary", "prefill", "vram_mib", "ctx",
+               "finalist", "sanity")
 _PROXYLESS = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
 
@@ -530,6 +537,38 @@ class Server:
                                          minimum=10, maximum=pirun.MAX_TIMEOUT)}, ["task"]),
              {"readOnlyHint": False, "destructiveHint": True, "openWorldHint": False},
              self.t_pi),
+            ("forge_start", "Auto-Forge a model", "Start Auto-Forge on an installed model: it "
+             "benchmarks GPU placements, KV cache types and speculative drafters in a sandbox "
+             "and finds the fastest setup measured on this machine. While it runs it unloads "
+             "every loaded model (they come back when it ends) and has the GPUs to itself: a "
+             "quick run takes minutes to half an hour, a thorough one can take over an hour. "
+             "Ask the user before starting. Follow it with forge_status.",
+             _schema({"model": model,
+                      "intent": _prop("string", "What the model is for; sets how speeds are "
+                                      "weighed (default coding).", enum=list(FORGE_INTENTS)),
+                      "ctx": _prop("integer", "Context every setup must hold (default 32768).",
+                                   minimum=512, maximum=1 << 20),
+                      "thorough": _prop("boolean", "Try more setups; takes longer (default false)."),
+                      "allow_lossy_kv": _prop("boolean", "Also try 8/4-bit KV cache: faster or "
+                                              "more context, answers may change slightly."),
+                      "drop_vision": _prop("boolean", "Also try without the vision projector.")},
+                     ["model"]),
+             {"readOnlyHint": False, "destructiveHint": False, "openWorldHint": False},
+             self.t_forge_start),
+            ("forge_status", "Auto-Forge progress", "Progress of an Auto-Forge run: stage, "
+             "setups done, the top five so far, and once it is done the before/after tokens a "
+             "second with a postable markdown summary.",
+             _schema({"model": _prop("string", "Model id (default: the last run).")}),
+             ro, self.t_forge_status),
+            ("forge_apply", "Apply the Auto-Forge winner", "Write the winning setup into the "
+             "model's models.ini section and reload it. Only when the user asked for it; "
+             "forge_undo puts the old values back.", _schema({"model": model}, ["model"]),
+             {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": True,
+              "openWorldHint": False}, self.t_forge_apply),
+            ("forge_undo", "Undo Auto-Forge", "Put back the values forge_apply replaced.",
+             _schema({"model": model}, ["model"]),
+             {"readOnlyHint": False, "destructiveHint": False, "openWorldHint": False},
+             self.t_forge_undo),
         ]
         return [{"name": n, "title": ti, "description": d, "inputSchema": s, "annotations": a,
                  "fn": f} for n, ti, d, s, a, f in t]
@@ -723,6 +762,42 @@ class Server:
             msg = f"pi_run failed: {r.get('error') or 'unknown error'}"
             return _Answer(msg + (f"\n\nPartial output:\n{text}" if text else ""), data, error=True)
         return _Answer(text or "(pi finished without a final message)", data)
+
+    def t_forge_start(self, a, ctx):
+        body = {"model": a["model"], "intent": a.get("intent", "coding"),
+                "ctx": a.get("ctx", 32768), "time": "thorough" if a.get("thorough") else "quick",
+                "allow_loss": bool(a.get("allow_lossy_kv")), "drop_vision": bool(a.get("drop_vision"))}
+        out = self.panel.post("/api/forge/start", body)
+        return {"started": bool(out.get("ok")), "model": a["model"], "req": out.get("req"),
+                "next": "call forge_status every minute or two until running is false"}
+
+    def t_forge_status(self, a, ctx):
+        st = self.panel.get("/api/forge/status", {"model": a["model"]} if a.get("model") else None)
+        board = [{k: r[k] for k in _BOARD_KEYS if k in r} for r in (st.get("leaderboard") or [])]
+        out = {k: st.get(k) for k in ("model", "stage", "running", "progress", "loading",
+                                      "error", "req")}
+        out["leaderboard"] = board[:FORGE_TOP]
+        out["failed"] = len(st.get("failed") or [])
+        out["applied"] = bool(st.get("applied"))
+        res = st.get("result") or {}
+        if not st.get("running") and res.get("winner"):
+            try:      # share keeps paths, keys and hosts out: safe to hand to the agent
+                sh = self.panel.get("/api/forge/share", {"model": st.get("model") or a.get("model")})
+                out["share"] = {k: sh.get(k) for k in ("before", "after", "x", "setup", "settings",
+                                                       "lossless", "drops_vision", "markdown")}
+            except ToolError:
+                pass
+        elif not st.get("running") and res:
+            out["no_winner"] = res.get("reason") or "no setup beat the current one"
+        return out
+
+    def t_forge_apply(self, a, ctx):
+        out = self.panel.post("/api/forge/apply", {"model": a["model"]})
+        return {"applied": bool(out.get("ok")), "updates": out.get("updates") or {}}
+
+    def t_forge_undo(self, a, ctx):
+        out = self.panel.post("/api/forge/undo", {"model": a["model"]})
+        return {"undone": bool(out.get("ok"))}
 
 
 # ---------------------------------------------------------------- stdio

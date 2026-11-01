@@ -25,7 +25,8 @@
 - [Connect an Agent](https://dadwritestech.github.io/LlamaForge/agents.md): One-click Claude Code, Codex and pi.dev config for local models, via the Anthropic-compatible shim or the router directly.
 - [Theming & Accessibility](https://dadwritestech.github.io/LlamaForge/theming.md): The Stowage, Hearth and Classic skins, light/dark, and the colorblind-safe mode.
 - [Embers](https://dadwritestech.github.io/LlamaForge/embers.md): Small always-on local agents that watch a topic, keep a wiki that only holds verbatim-quoted facts, and write scheduled briefs.
-- [MCP Server](https://dadwritestech.github.io/LlamaForge/mcp.md): Let Claude Code, Codex or any MCP client load models, check fit, search Hugging Face and hand tasks to a local model.
+- [MCP Server](https://dadwritestech.github.io/LlamaForge/mcp.md): Let Claude Code, Codex or any MCP client load models, check fit, search Hugging Face and hand tasks to a local model; forge_* tools run Auto-Forge.
+- [Agent Skill](https://dadwritestech.github.io/LlamaForge/skill.md): `npx skills add dadwritestech/LlamaForge` or the Claude Code plugin; teaches a coding agent to size, load, Auto-Forge and use local models through LlamaForge.
 - [Voice](https://dadwritestech.github.io/LlamaForge/voice.md): Text to speech on your GPU through llama.cpp's `llama-tts`, with an OpenAI-style endpoint.
 - [Auto-Forge](https://dadwritestech.github.io/LlamaForge/autoforge.md): Measures GPU placements, KV cache types and speculative drafters for one model in a sandbox, checks drafters token for token, and applies the fastest setup with Undo (NVIDIA).
 

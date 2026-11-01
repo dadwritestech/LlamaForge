@@ -110,6 +110,9 @@ the Open WebUI **Documents** settings for RAG.
   load and unload models, check what fits, pull GGUFs from Hugging Face, and hand a whole task to
   [pi](https://github.com/earendil-works/pi) running on a loaded local model (`pi_run`). One-line setup under
   **Setup -> MCP server**, e.g. `claude mcp add --scope user llamaforge -- python <LlamaForge>/backend/mcp_server.py`.
+- **Agent skill**: `npx skills add dadwritestech/LlamaForge` (or the Claude Code plugin) teaches your coding agent the
+  rest: what fits your GPUs, downloading, Auto-Forge, handing it grunt work. Your coding agent, on your own GPU.
+  See [Agent Skill](https://dadwritestech.github.io/LlamaForge/skill.html).
 
 ## Screenshots
 

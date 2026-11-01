@@ -120,7 +120,8 @@ class Legacy(unittest.TestCase):
         self.assertEqual([t["name"] for t in tools], [
             "status", "list_models", "load_model", "unload_model", "fit_check", "stats",
             "diagnose", "search_models", "list_files", "download_model",
-            "download_progress", "ask", "pi_run"])
+            "download_progress", "ask", "pi_run", "forge_start", "forge_status",
+            "forge_apply", "forge_undo"])
         for t in tools:
             self.assertEqual(t["inputSchema"]["type"], "object", t["name"])
             self.assertFalse(t["inputSchema"].get("additionalProperties", False), t["name"])
@@ -348,6 +349,65 @@ class Tools(unittest.TestCase):
         r = call(srv, "download_model", {"repo": "u/m", "path": "a.gguf"})
         self.assertTrue(r["result"]["isError"])
         self.assertIn("download_progress", text_of(r))
+
+
+class Forge(unittest.TestCase):
+    BOARD = [{"id": f"c{i}", "label": f"setup {i}", "score": 1 - i / 10, "code": 100 - i,
+              "prose": 50, "vram_mib": 9000, "finalist": True, "sanity": None,
+              "settings": {"model": "D:/secret/path.gguf"}} for i in range(8)]
+    SHARE = {"before": {"code": 26.8}, "after": {"code": 126.0}, "x": {"code": 4.7},
+             "markdown": "**Auto-Forge** ...", "settings": {"n-gpu-layers": "99"}}
+
+    def test_start_passes_the_choices_and_warns_about_the_gpus(self):
+        srv, panel, _ = make({("POST", "/api/forge/start"): {"ok": True, "model": "big-27b",
+                                                             "req": {"intent": "coding"}}})
+        tools = {t["name"]: t for t in srv.handle(req("tools/list"))["result"]["tools"]}
+        self.assertIn("unload", tools["forge_start"]["description"])
+        r = call(srv, "forge_start", {"model": "big-27b", "intent": "coding", "ctx": 32768,
+                                      "thorough": True, "allow_lossy_kv": True})
+        self.assertFalse(r["result"]["isError"])
+        self.assertEqual(panel.calls[-1], ("POST", "/api/forge/start", {
+            "model": "big-27b", "intent": "coding", "ctx": 32768, "time": "thorough",
+            "allow_loss": True, "drop_vision": False}))
+
+    def test_status_while_running_keeps_the_top_five_without_paths(self):
+        st = {"stage": "round_a", "running": True, "progress": {"done": 3, "total": 20},
+              "loading": "setup 3", "leaderboard": self.BOARD, "failed": [], "rejected": [],
+              "result": None, "error": None, "applied": None, "req": {"intent": "coding"},
+              "model": "big-27b"}
+        srv, panel, _ = make({("GET", "/api/forge/status"): st})
+        s = call(srv, "forge_status", {"model": "big-27b"})["result"]["structuredContent"]
+        self.assertTrue(s["running"])
+        self.assertEqual(len(s["leaderboard"]), 5)
+        self.assertNotIn("settings", s["leaderboard"][0])
+        self.assertNotIn("secret", json.dumps(s))
+        self.assertNotIn("share", s)
+
+    def test_status_when_done_brings_the_before_and_after(self):
+        st = {"stage": "done", "running": False, "progress": {"done": 20, "total": 20},
+              "loading": None, "leaderboard": self.BOARD[:2], "failed": [], "rejected": [],
+              "result": {"winner": {"id": "c0"}}, "error": None, "applied": None,
+              "req": {"intent": "coding"}, "model": "big-27b"}
+        srv, _, _ = make({("GET", "/api/forge/status"): st, ("GET", "/api/forge/share"): self.SHARE})
+        s = call(srv, "forge_status", {"model": "big-27b"})["result"]["structuredContent"]
+        self.assertEqual(s["share"]["x"], {"code": 4.7})
+        self.assertIn("Auto-Forge", s["share"]["markdown"])
+
+    def test_apply_and_undo(self):
+        srv, panel, _ = make({("POST", "/api/forge/apply"): {"ok": True, "updates": {"n-gpu-layers": "99"}},
+                              ("POST", "/api/forge/undo"): {"ok": True}})
+        tools = {t["name"]: t for t in srv.handle(req("tools/list"))["result"]["tools"]}
+        self.assertIn("asked", tools["forge_apply"]["description"])
+        self.assertFalse(call(srv, "forge_apply", {"model": "big-27b"})["result"]["isError"])
+        self.assertEqual(panel.calls[-1], ("POST", "/api/forge/apply", {"model": "big-27b"}))
+        self.assertFalse(call(srv, "forge_undo", {"model": "big-27b"})["result"]["isError"])
+        self.assertEqual(panel.calls[-1], ("POST", "/api/forge/undo", {"model": "big-27b"}))
+
+    def test_a_refused_start_is_a_tool_error(self):
+        srv, _, _ = make({("POST", "/api/forge/start"): M.PanelError("HTTP 409 from the LlamaForge panel: a Forge run is already going")})
+        r = call(srv, "forge_start", {"model": "big-27b"})
+        self.assertTrue(r["result"]["isError"])
+        self.assertIn("already going", text_of(r))
 
 
 class PickModel(unittest.TestCase):
@@ -580,7 +640,7 @@ class Setup(unittest.TestCase):
     def test_no_secrets_and_lists_the_tools(self):
         s = M.setup_info(self.PY, self.SCRIPT)
         self.assertNotIn("key", json.dumps(s).lower())
-        self.assertEqual(s["tools"][-1], "pi_run")
+        self.assertEqual(s["tools"][-1], "forge_undo")
 
     def test_pythonw_is_swapped_for_the_console_build(self):
         d = tempfile.mkdtemp()
