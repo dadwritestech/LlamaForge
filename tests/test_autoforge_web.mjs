@@ -4,8 +4,11 @@ import test from "node:test";
 
 const core = await readFile(new URL("../web/js/core.js", import.meta.url), "utf8");
 const coreUrl = `data:text/javascript;base64,${Buffer.from(core).toString("base64")}`;
+const card = await readFile(new URL("../web/js/forgecard.js", import.meta.url), "utf8");
+const cardUrl = `data:text/javascript;base64,${Buffer.from(card).toString("base64")}`;
 const source = (await readFile(new URL("../web/js/autoforge.js", import.meta.url), "utf8"))
-  .replace('"./core.js"', `"${coreUrl}"`);
+  .replace('"./core.js"', `"${coreUrl}"`).replace('"./forgecard.js"', `"${cardUrl}"`);
+const fc = await import(cardUrl);
 const af = await import(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}`);
 
 const done = {
@@ -130,4 +133,40 @@ test("apply and undo tell the editor its settings changed; cancel doesn't", asyn
   globalThis.fetch = async () => ({json: async () => ({error: "nope"})});
   await af.act("/api/forge/apply", "m", "");
   assert.deepEqual(changed, ["m", "m"]);           // a failed apply changed nothing
+});
+
+test("a real win offers Share; no win, the current setup or a slower winner doesn't", () => {
+  assert.match(af.resultMarkup("q<27b>", done), /data-af-share="q&lt;27b&gt;"/);
+  assert.match(af.resultMarkup("q", {...done, applied: {at: 1}}), /data-af-share/);
+  const best = {...done, result: {...done.result, winner: {...done.result.winner, id: "current"}}};
+  assert.doesNotMatch(af.resultMarkup("q", best), /data-af-share/);
+  const slower = {...done, result: {...done.result, current_faster: true,
+    vs_current: {code: -20, prose: -10}}};
+  assert.doesNotMatch(af.resultMarkup("q", slower), /data-af-share/);
+  const none = {...done, result: {winner: null}};
+  assert.doesNotMatch(af.resultMarkup("q", none), /data-af-share/);
+});
+
+const SHARE = {model: "qwen3.8-27b", file: "Qwen3.8-27B-UD-IQ4_XS.gguf", gpus: ["RTX 5080", "RTX 5060 Ti"],
+  intent: "coding", ctx: 32768, before: {code: 26.8, prose: 26.5}, after: {code: 126, prose: 71.2},
+  x: {code: 4.7, prose: 2.7}, lossless: true, drafter_checked: true, drops_vision: false};
+
+test("share card text leads with code for coding, prose for chat", () => {
+  const t = fc.cardText(SHARE);
+  assert.deepEqual(t.head, {metric: "code", before: "26.8", after: "126.0", x: "4.7×"});
+  assert.equal(t.other, "prose 26.5 → 71.2 tok/s (2.7×)");
+  assert.equal(t.model, "Qwen3.8-27B-UD-IQ4_XS.gguf");
+  assert.equal(t.sub, "RTX 5080 + RTX 5060 Ti  ·  32k context");
+  assert.match(t.note.text, /token-for-token/);
+  assert.equal(t.note.warn, false);
+  assert.equal(fc.cardText({...SHARE, intent: "chat"}).head.metric, "prose");
+});
+
+test("share card without a baseline, lossy or vision off says so", () => {
+  const t = fc.cardText({...SHARE, before: null, x: null, lossless: false, drops_vision: true});
+  assert.equal(t.head.before, null);
+  assert.equal(t.head.x, null);
+  assert.equal(t.other, "prose 71.2 tok/s");
+  assert.equal(t.note.warn, true);
+  assert.match(t.note.text, /Lossy.*vision off/);
 });

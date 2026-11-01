@@ -221,6 +221,16 @@ class Panel:
         out["model"] = mid
         return 200, out
 
+    def get_share(self, req):
+        """A postable card of the last result: numbers, GPUs, the flags Forge
+        decided. report.share keeps paths, keys and hosts out of it."""
+        mid = req.q("model") or self._mid or ""
+        st = self.runner.snapshot() if mid == self._mid and self.runner.running() else self._read(mid)
+        out = report.share(st, hardware.detect_gpus(), mid)
+        if not out:
+            raise self._d.ApiError(404, "no Forge result to share for this model")
+        return 200, out
+
     def post_cancel(self, req):
         return 200, {"ok": self.runner.cancel()}
 
@@ -267,6 +277,7 @@ class Panel:
 
     def register(self, get_routes, post_routes):
         get_routes["/api/forge/status"] = self.get_status
+        get_routes["/api/forge/share"] = self.get_share
         post_routes["/api/forge/start"] = self.post_start
         post_routes["/api/forge/cancel"] = self.post_cancel
         post_routes["/api/forge/apply"] = self.post_apply

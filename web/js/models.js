@@ -924,7 +924,7 @@ export async function refreshVllmLog() {
 export function initModels() {
   autoforge.initAutoForge(renderModels, async id => {
     delete diagCache[id]; invalidateKnobs(); slots.forget(id); await refresh(true);
-  });
+  }, showModal);
   // The Models toolbar lives in index.html with stable ids, so it is wired
   // directly rather than through the delegated handlers the dynamic rows use.
   const ms = $("#model-search"); if (ms) ms.oninput = () => filterModels(ms);

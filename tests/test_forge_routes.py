@@ -160,6 +160,23 @@ class ApplyUndo(Base):
         self.assertEqual(e.exception.status, 400)
 
 
+class Share(Base):
+    def test_share_reads_the_saved_result_with_short_gpu_names(self):
+        self.write_result()
+        gpus = [{"index": 0, "name": "NVIDIA GeForce RTX 5080"}]
+        with mock.patch.object(forge_panel.hardware, "detect_gpus", lambda: gpus):
+            code, out = self.panel.get_share(Req(qs={"model": "m"}))
+        self.assertEqual(code, 200)
+        self.assertEqual(out["gpus"], ["RTX 5080"])
+        self.assertEqual(out["file"], "q.gguf")
+        self.assertNotIn("temp", out["settings"])
+
+    def test_share_without_a_result(self):
+        with self.assertRaises(ApiError) as e:
+            self.panel.get_share(Req(qs={"model": "m"}))
+        self.assertEqual(e.exception.status, 404)
+
+
 class Estimate(unittest.TestCase):
     GPUS = 2
 
@@ -186,6 +203,7 @@ class Wiring(unittest.TestCase):
     def test_routes_registered(self):
         import routes
         self.assertIn("/api/forge/status", routes.GET_ROUTES)
+        self.assertIn("/api/forge/share", routes.GET_ROUTES)
         for p in ("start", "cancel", "apply", "undo"):
             self.assertIn(f"/api/forge/{p}", routes.POST_ROUTES)
 

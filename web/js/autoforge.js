@@ -5,6 +5,7 @@
 // backend does the work (/api/forge/*); this file draws its status and polls
 // while a run is going. Every dynamic value goes through esc().
 import { esc, api, toast, askYes } from "./core.js";
+import { drawCard } from "./forgecard.js";
 
 const POLL_MS = 2000;
 const STAGE = { fit: "trying every candidate", speed: "re-measuring the finalists on fresh prompts",
@@ -17,11 +18,15 @@ const inflight = new Set();
 let timer = null;
 let redraw = () => {};
 let settingsChanged = () => {};
+let modal = null;
 
 /** cb(): status changed, re-render the open row (models.js passes renderModels).
  *  changed(id): Apply or Undo rewrote the model's models.ini section, so the
- *  editor's inputs are stale. */
-export function initAutoForge(cb, changed = () => {}) { redraw = cb; settingsChanged = changed; }
+ *  editor's inputs are stale. showModal: models.js's dialog (passed in, not
+ *  imported, because models.js imports this file). */
+export function initAutoForge(cb, changed = () => {}, showModal = null) {
+  redraw = cb; settingsChanged = changed; modal = showModal;
+}
 
 const num = v => (v == null || !Number.isFinite(+v)) ? "–" : (+v).toFixed(1);
 const int = v => (v == null || !Number.isFinite(+v)) ? "–" : String(Math.round(+v));
@@ -92,10 +97,13 @@ export function resultMarkup(id, st) {
   // the baseline isn't ranked (smaller window, a drafter the search can't reproduce),
   // so a winner can still be slower than it: say so and don't make Apply the call to action
   const kept = res.current_faster && cur;
-  const act = st.applied
+  // a win worth posting: something other than the current setup, and not slower than it
+  const share = w.id !== "current" && !kept && (!cur || (vs.code ?? 0) > 0 || (vs.prose ?? 0) > 0)
+    ? `<button type="button" class="qbtn" data-af-share="${esc(id)}" title="An image and a markdown table of this result to post. No paths, keys or hosts.">Share</button>` : "";
+  const act = (st.applied
     ? `<button type="button" class="qbtn" data-af-undo="${esc(id)}">Undo</button><span class="af-note">applied to models.ini</span>`
     : (w.id === "current" ? `<span class="af-note">your current setup is already the best</span>`
-      : `<button type="button" class="qbtn${kept ? "" : " load"}" data-af-apply="${esc(id)}">${kept ? "Apply anyway" : "Apply"}</button>`);
+      : `<button type="button" class="qbtn${kept ? "" : " load"}" data-af-apply="${esc(id)}">${kept ? "Apply anyway" : "Apply"}</button>`)) + share;
   const how = kept ? [cur.ctx && `${Math.floor(cur.ctx / 1024)}k`, SPEC[cur.spec] ?? (cur.spec && "a drafter")].filter(Boolean).join(", ") : "";
   const slower = kept
     ? `<div class="af-q warn">Your current setup is faster${how ? ` (${esc(how)})` : ""}. Keep it unless you need ${esc(Math.floor((w.ctx || res.ctx_asked) / 1024))}k.</div>` : "";
@@ -174,10 +182,40 @@ export async function act(path, id, okMsg) {
   await refresh(id);
 }
 
+const fileSafe = s => String(s || "model").replace(/[^\w.-]+/g, "_").slice(0, 60);
+
+async function openShare(id) {
+  const d = await api(`/api/forge/share?model=${encodeURIComponent(id)}`).catch(e => ({error: String(e.message || e)}));
+  if (!d || d.error) { toast((d && d.error) || "nothing to share", "err"); return; }
+  if (!modal) return;
+  modal("Share this result", `<canvas class="af-card" width="1200" height="630" aria-label="Auto-Forge result card"></canvas>
+    <p class="af-q">Holds the numbers, your GPU models and the flags Auto-Forge chose. No paths, keys or hosts.</p>
+    <div class="af-act"><button type="button" class="qbtn load" data-share-png>Download image</button>
+      <button type="button" class="qbtn" data-share-copyimg>Copy image</button>
+      <button type="button" class="qbtn" data-share-md>Copy markdown</button></div>
+    <details class="af-miss"><summary>markdown</summary><pre class="af-md">${esc(d.markdown)}</pre></details>`);
+  const dlg = document.querySelector("#modal-root dialog");
+  const canvas = dlg && dlg.querySelector("canvas.af-card");
+  if (!canvas) return;
+  await drawCard(canvas, d);
+  const blob = () => new Promise(r => canvas.toBlob(r, "image/png"));
+  dlg.querySelector("[data-share-png]").onclick = async () => {
+    const url = URL.createObjectURL(await blob());
+    const a = Object.assign(document.createElement("a"), {href: url, download: `autoforge-${fileSafe(d.model)}.png`});
+    a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+  dlg.querySelector("[data-share-copyimg]").onclick = async () => {
+    try { await navigator.clipboard.write([new ClipboardItem({"image/png": blob()})]); toast("Image copied", "ok"); }
+    catch { toast("This browser can't copy images; use Download", "err"); }
+  };
+  dlg.querySelector("[data-share-md]").onclick = () =>
+    navigator.clipboard.writeText(d.markdown).then(() => toast("Markdown copied", "ok"), () => toast("Couldn't copy", "err"));
+}
+
 /** Click handling for the region; models.js calls this from its delegated listener.
  *  True when the click was ours. */
 export function handleClick(e) {
-  const t = e.target.closest("[data-af-start],[data-af-cancel],[data-af-apply],[data-af-undo]");
+  const t = e.target.closest("[data-af-start],[data-af-cancel],[data-af-apply],[data-af-undo],[data-af-share]");
   if (!t) return false;
   e.stopPropagation();
   const row = t.closest(".row");
@@ -185,5 +223,6 @@ export function handleClick(e) {
   else if (t.dataset.afCancel) act("/api/forge/cancel", t.dataset.afCancel, "Cancelling after this candidate");
   else if (t.dataset.afApply) act("/api/forge/apply", t.dataset.afApply, "Applied; the model reloads with it");
   else if (t.dataset.afUndo) act("/api/forge/undo", t.dataset.afUndo, "Restored your previous settings");
+  else if (t.dataset.afShare) openShare(t.dataset.afShare);
   return true;
 }
