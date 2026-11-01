@@ -4,6 +4,8 @@
 
 <h1 align="center">LlamaForge</h1>
 
+<p align="center"><b>English</b> · <a href="README.zh-CN.md">简体中文</a></p>
+
 <p align="center"><b>The real llama.cpp server, run from a browser tab.</b><br>
 Pick a model, see if it fits your GPU, load it, chat. Every llama-server flag is still there when you want it.</p>
 
