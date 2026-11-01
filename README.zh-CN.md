@@ -73,7 +73,7 @@ LlamaForge 直接运行 **llama.cpp 官方发布版本**（也可以是你自己
 - **Chat**：llama.cpp 自带的聊天界面（Markdown、推理过程、图片），嵌在面板里，运行在独立端口，API 密钥已自动带上。
 - **Voice**：通过 llama.cpp 自带的 `llama-tts` 在显卡上做文字转语音：支持 10 种语言的 Qwen3-TTS，或小巧的英文 Pocket TTS（即使在 CPU 上也快于实时），可以用你录制或上传的声音（只克隆你有权使用的声音）。
 - **Embers**：小型本地智能体，盯住一个话题，维护自己的 wiki，并定时给你写简报。wiki 条目必须逐字引用来源才算数。**Forge** 通过向你提问来创建一个 Ember；**Model Scout** 无需配置。Ember 没有浏览器也没有工具，除非你打开推送通知，否则没有任何数据离开本机。
-- **Discover**：Hugging Face GGUF 搜索，打开就是本周新增。每个量化版本在下载前都会按你的显存给出粗略评级（FITS / TIGHT / CPU OFFLOAD）。下载可断点续传，完成后自动注册，最后一步是 **Load & Chat**。
+- **Discover**：Hugging Face GGUF 搜索，打开就是本周新增。每个量化版本在下载前都会按你的显存给出粗略评级（FITS / TIGHT / CPU OFFLOAD）。下载可断点续传，完成后自动注册，最后一步是 **Load & Chat**。形如 `http://127.0.0.1:8090/#discover?repo=owner/name&file=x.gguf` 的链接会直接打开某个量化版本。
 - **Will it run?**：选一个仓库和量化版本，得到适配情况和粗略的速度估计。
 - **Build / Update**：一键安装官方 llama.cpp 构建并可回滚，或按检测到的显卡参数从源码编译。也能驱动 [ik_llama.cpp](https://github.com/ikawrakow/ik_llama.cpp)，以及 Windows 上 WSL2 里的 [vLLM](https://github.com/vllm-project/vllm)。
 - **Stats**：来自路由器自身指标的每个模型的 token 数、速度和运行次数，以及实时显存和系统内存。无法按客户端统计，因为客户端直接和路由器通信。

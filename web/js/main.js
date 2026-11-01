@@ -10,7 +10,8 @@ import { S } from "./state.js";
 import * as ui from "./ui.js";
 import * as models from "./models.js";
 import * as stats from "./stats.js";
-import { loadDiscover } from "./discover.js";
+import { loadDiscover, openDeepLink } from "./discover.js";
+import { parseHash } from "./deeplink.js";
 import { loadWillRun } from "./willrun.js";
 import { loadBuild } from "./build.js";
 import { leaveSetup, loadSetup } from "./setup.js";
@@ -60,11 +61,15 @@ stats.initStats();
 
 // deep-linkable tabs: #<tab> in the URL activates that tab (docs deep-links +
 // tools/shoot.py). Runs after initTabs() has wired the click handlers.
-window.addEventListener("hashchange", () => {
-  const h = location.hash.slice(1);
-  if (h) ui.switchTab(h);
-});
-if (location.hash) ui.switchTab(location.hash.slice(1));
+// #discover?repo=owner/name&file=x.gguf opens Discover on that quant.
+function route() {
+  const {tab, repo, file} = parseHash(location.hash);
+  if (!tab) return;
+  if (tab === "discover" && repo) openDeepLink(repo, file);
+  ui.switchTab(tab);
+}
+window.addEventListener("hashchange", route);
+if (location.hash) route();
 
 // The engine badge sits beside the clock but changes about once a session,
 // so it gets its own element: the clock stays a textContent write, and the

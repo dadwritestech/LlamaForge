@@ -6,6 +6,7 @@ import { emit } from "./bus.js";
 import { loadFeed } from "./feed.js";
 
 let dlPoll = null, discoverLoaded = false;
+let pendingLink = null;   // {repo, file} from a #discover?repo=&file= link
 let dlPrev = null;   // {t, bytes} from the previous progress poll -> speed/ETA
 
 const PLAT_LABEL = {windows:"WIN", linux:"LINUX", macos:"MAC"};
@@ -39,8 +40,8 @@ function hubRow(m, installed, clickClass) {
       </span>
       ${m.isNew&&m.created?`<span class="ctxpill" style="color:var(--amber)"><span class="k">new</span> ${esc(m.created)}</span>`
         :m.updated?`<span class="ctxpill"><span class="k">upd</span> ${esc(m.updated)}</span>`:""}
-      <span class="ctxpill">${esc((m.downloads||0).toLocaleString())} dl</span>
-      <span class="ctxpill" style="color:var(--cyan)">${esc(m.likes)} &hearts;</span>
+      ${m.downloads!=null?`<span class="ctxpill">${esc(m.downloads.toLocaleString())} dl</span>`:""}
+      ${m.likes!=null?`<span class="ctxpill" style="color:var(--cyan)">${esc(m.likes)} &hearts;</span>`:""}
       <span class="chev">&#9654;</span>
     </div>
     <div class="edit"></div>
@@ -143,8 +144,38 @@ export function loadDiscover() {
   $("#hub-go").onclick = hubSearch;
   $("#hub-mode").onchange = () => hubSearch();
   $("#hub-q").addEventListener("keydown", e => { if (e.key === "Enter") hubSearch(); });
-  hubSearch();
+  if (pendingLink) showLinked(); else hubSearch();
   loadFeed();
+}
+
+/** Open Discover on one repo (and quant) from a link, e.g. a "Use this model"
+ *  button on huggingface.co. Only shows it: downloading still takes a click. */
+export function openDeepLink(repo, file) {
+  pendingLink = {repo, file};
+  if (discoverLoaded) showLinked();
+}
+
+async function showLinked() {
+  const {repo, file} = pendingLink; pendingLink = null;
+  if ($("#hub-mode").value !== "gguf") $("#hub-mode").value = "gguf";
+  $("#hub-q").value = repo;
+  const msg = $("#hub-msg"); msg.className = "msg work"; msg.textContent = "opening " + repo + "...";
+  const r = await api("/api/hub/search", {query: repo, sort: "downloads"});
+  if (!r.error) showVram(r);
+  const m = ((r.results) || []).find(x => x.repo.toLowerCase() === repo.toLowerCase()) || {repo};
+  setHTML($("#hub-results"), `<div class="list">${hubRow(m, new Set(r.installed || []), "hub-repo")}</div>`);
+  const row = $("#hub-results .row");
+  $(".hub-repo", row).onclick = () => hubFiles(row);
+  msg.className = "msg ok"; msg.textContent = "opened from a link";
+  await hubFiles(row);
+  if (!file) return;
+  const btn = $$("[data-dl]", row).find(b => b.dataset.dl === file);
+  if (!btn) { toast("That file isn't in " + repo + " (any more?)", "err"); return; }
+  const fr = btn.closest(".row");
+  fr.classList.add("linked");
+  fr.scrollIntoView({block: "center"});
+  btn.classList.add("primary");
+  btn.focus({preventScroll: true});
 }
 
 async function hubSearch() {

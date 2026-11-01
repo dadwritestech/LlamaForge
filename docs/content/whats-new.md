@@ -8,6 +8,11 @@ order: 1
 
 This page summarizes the most recent additions to LlamaForge. Each entry links to the full reference for that capability. For the longer-term direction, see the project's `ROADMAP.md`.
 
+## v0.18.9: Link straight to a quant
+
+- **`#discover?repo=owner/name&file=x.gguf`.** Opening the panel with that on the end of its URL (`http://127.0.0.1:8090/#discover?repo=...&file=...`) goes to Discover, opens that Hugging Face repo with its fit ratings, and highlights the quant with its Download button focused. Leave out `file` to just open the repo; a pasted `huggingface.co/owner/name` URL works as the repo too.
+- **It only shows, it never downloads.** The download still takes your click, so a web page that links to the panel can't start a multi-gigabyte download. Anything that isn't a plain `owner/name` repo or a `.gguf` path is ignored.
+
 ## v0.18.8: Embedding and reranker models, set up for RAG
 
 - **Recognized by what they are, not their name.** A model scan reads the GGUF header: a rank pooling type, or an encoder with a classifier head (how llama.cpp itself tells them apart), means a reranker; a mean, cls or last pooling type, or an encoder architecture such as BERT or nomic-bert, means an embedding model. Before, only a filename containing "embed" counted, and rerankers weren't detected at all.
