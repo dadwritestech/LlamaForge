@@ -220,10 +220,22 @@ def build_entries(paths):
         entries.append(e)
     return entries
 
+def merge(found, extra):
+    """found + extra (Ollama's models), prefixing an extra id that clashes."""
+    ids = {e["id"] for e in found}
+    out = list(found)
+    for e in extra:
+        if e["id"] in ids:
+            e = dict(e, id="ollama--" + e["id"])
+        ids.add(e["id"])
+        out.append(e)
+    return out
+
 def scan(roots=None, min_mb=50):
+    import ollama
     roots = roots or list_drives()
     paths = find_ggufs(roots, min_mb)
-    return build_entries(paths)
+    return merge(build_entries(paths), ollama.entries())
 
 if __name__ == "__main__":
     import json, sys

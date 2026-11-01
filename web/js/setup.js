@@ -720,7 +720,7 @@ export async function loadSetup() {
       <div class="fld"><label>Folders to scan (one per line; blank = all fixed drives)</label>
         <textarea id="scan-roots" rows="3" style="width:100%;resize:vertical" placeholder="D:/Models&#10;/mnt/models">${esc(scanDirs.join("\n"))}</textarea></div>
       <div class="actions"><button class="ghost" id="btn-scan-save">Save folders</button><span class="msg" id="scan-save-msg"></span></div>
-      <div class="actions"><button id="btn-scan">Scan for GGUF models</button><button class="ghost" id="btn-missing">Check for deleted models</button><span class="msg" id="scan-msg"></span></div>
+      <div class="actions"><button id="btn-scan" title="Also lists the models Ollama has downloaded, so llama.cpp can run the same files">Scan for GGUF models (and Ollama's)</button><button class="ghost" id="btn-missing">Check for deleted models</button><span class="msg" id="scan-msg"></span></div>
       <div id="scan-out"></div>
       <div id="missing-out"></div>
     </div>
@@ -1116,7 +1116,7 @@ async function scanDrives() {
   msg.className = "msg ok"; msg.textContent = `${r.entries.length} found, ${fresh.length} new`;
   setHTML($("#scan-out"), `<div class="note">${esc(fresh.length)} new models not yet in your config:</div>
     <div class="list" style="margin-top:10px">${fresh.map(e=>`<div class="row"><div class="rhead" style="cursor:default;grid-template-columns:1fr auto">
-      <span class="mid">${esc(e.id)}${e.mmproj?'<span class="tag vis">vision</span>':''}${e.embeddings?'<span class="tag">embed</span>':''}</span>
+      <span class="mid">${esc(e.id)}${e.ollama?`<span class="tag" title="Ollama's own copy (${esc(e.ollama)}), used in place: nothing is copied">from Ollama</span>`:''}${e.mmproj?'<span class="tag vis">vision</span>':''}${e.embeddings?'<span class="tag">embed</span>':''}</span>
       <span class="ctxpill">${esc(e.gib)} GiB</span></div></div>`).join("")||'<div class="note">nothing new</div>'}</div>
     ${fresh.length?`<div class="actions"><button class="primary" id="btn-apply">Add ${fresh.length} models to config</button><span class="msg" id="apply-msg"></span></div>`:""}`);
   if (fresh.length) $("#btn-apply").onclick = async () => {

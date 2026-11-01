@@ -39,9 +39,17 @@ The tab also surfaces `hardware.recommend()`'s detected CPU/GPU (shared with the
 1. Open the **Setup** tab. **Prerequisites** lists Git, CMake, Ninja, Python, your C++ compiler, and CUDA (if applicable), each marked present/missing with its detected version.
 2. Click **Install** next to a missing tool to install it with your OS's package manager (Windows: winget, falling back to choco; macOS: Homebrew). On Linux, copy the shown command into a terminal yourself — the dashboard never runs `sudo`.
 3. Review **Detected Hardware** — your CPU and any GPUs found, shared with the Build tab's flag recommendations.
-4. Under **Scan Drives for Models**, enter one folder per line and optionally click **Save folders**, then click **Scan for GGUF models**. Leave the list blank to scan all fixed drives (or `$HOME` plus mounted volumes); review the results and click **Add N models to config** to register them.
+4. Under **Scan Drives for Models**, enter one folder per line and optionally click **Save folders**, then click **Scan for GGUF models (and Ollama's)**. Leave the list blank to scan all fixed drives (or `$HOME` plus mounted volumes); review the results and click **Add N models to config** to register them. Models Ollama downloaded are listed too, marked **from Ollama** (see [below](#models-you-already-have-in-ollama)).
 5. Click **Check for deleted models** to find registry entries whose backing file no longer exists on disk, then click **Remove N missing** to prune them.
 6. Optionally pick a model under **Startup** to auto-load when LlamaForge launches.
+
+## Models you already have in Ollama
+
+Ollama keeps each model as a plain GGUF file with no `.gguf` suffix (`~/.ollama/models/blobs/sha256-...`, or wherever `OLLAMA_MODELS` points), named by a manifest. A drive scan can't recognize those files by name, so the scan reads Ollama's manifests instead and lists every model it has downloaded, marked **from Ollama**, with its vision projector attached when the manifest has one.
+
+**Add** points `models.ini` at Ollama's own file. Nothing is copied or moved, so there's no second copy on disk and Ollama keeps working. If you `ollama rm` the model later, **Check for deleted models** finds the entry.
+
+Most models load as is. A model Ollama converted for its own engine can hold tensors upstream llama.cpp doesn't know; that one fails to load with llama.cpp's own error, and the same model from Hugging Face (**Discover**) is the fix.
 
 ## Game mode
 

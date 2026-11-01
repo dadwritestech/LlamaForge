@@ -61,7 +61,7 @@ every server flag instead of a curated subset.
 
 ## What's in it
 
-- **Models**: every model on your machine in one list, with live VRAM/util/temp per GPU. Load, unload, or open Chat from the row.
+- **Models**: every model on your machine in one list, with live VRAM/util/temp per GPU. Load, unload, or open Chat from the row. **Already have Ollama?** The scan finds the models it downloaded and runs those same files on llama.cpp: nothing is copied.
   - Expand a model to edit every llama-server flag, grouped and searchable, next to a GGUF metadata card (architecture, quant, trained context, layers).
   - Save reloads the model in place. A failed load shows the last error from the router log with a best-guess hint.
   - A loading model shows real progress (weights, draft, vision), straight from llama.cpp's load callback. One-click switches for **Thinking** (Auto / On / Off plus a token budget, with a note on whether the model's chat template can really turn it off) and **Vision** (off frees the projector's VRAM; the file stays on disk).
