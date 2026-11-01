@@ -18,6 +18,9 @@ import { bayPlans, bayInputs } from "./bays.js";
 
 const LITE_KNOBS = new Set(["n-gpu-layers","ctx-size","cache-type-k","cache-type-v",
   "flash-attn","batch-size","ubatch-size","threads","tensor-split","temp","top-p"]);
+// a knob is keyed by its first long flag, which differs across builds
+// (--gpu-layers vs --n-gpu-layers), so match on any of its names
+const isLite = k => LITE_KNOBS.has(k.key) || (k.aliases || []).some(a => LITE_KNOBS.has(a));
 
 /* ---------- view-local state ---------- */
 let openId = localStorage.getItem("lf_openid") || null;   // expanded row, persisted
@@ -98,7 +101,7 @@ function knobField(m, k) {
   } else {
     ctrl = `<input id="${id}" data-k="${esc(k.key)}" value="${esc(v)}" placeholder="${esc(ph)}" ${(k.type==="int"||k.type==="float")?'inputmode="numeric"':''}>`;
   }
-  return `<div class="fld ${isSet?"set":""}${LITE_KNOBS.has(k.key)?"":" advanced-only"}" data-desc="${esc((k.key+' '+k.desc).toLowerCase())}">
+  return `<div class="fld ${isSet?"set":""}${isLite(k)?"":" advanced-only"}" data-desc="${esc((k.key+' '+k.desc).toLowerCase())}">
     <label for="${id}" title="${esc(k.desc)}">${esc(k.key)}</label>${ctrl}
     ${k.desc?`<div class="hint" title="${esc(k.desc)}">${esc(k.desc)}</div>`:""}</div>`;
 }
