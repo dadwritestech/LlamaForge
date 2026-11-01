@@ -8,6 +8,10 @@ order: 1
 
 This page summarizes the most recent additions to LlamaForge. Each entry links to the full reference for that capability. For the longer-term direction, see the project's `ROADMAP.md`.
 
+## v0.18.0: Bring your Ollama models
+
+- **Your Ollama models, on llama.cpp.** Ollama stores models as GGUF files without a `.gguf` name, so a scan never saw them. **Setup > Scan** now reads Ollama's manifests (`~/.ollama/models`, `OLLAMA_MODELS`, or the Linux service's folder) and lists every model it downloaded, marked **from Ollama**, with the vision projector attached. Adding one points `models.ini` at Ollama's own file: nothing is copied, and Ollama keeps working. A model Ollama converted for its own engine may not load in upstream llama.cpp; the load error says so. See [Setup](setup.md#models-you-already-have-in-ollama).
+
 ## v0.17.3: A star, once, when it's earned
 
 - **One ask for a GitHub star.** The one-line installer clones the repo, so most people who use LlamaForge never see its GitHub page. LlamaForge now asks once, in a small card at the bottom right, right after it has done something for you: an Auto-Forge run that made a model at least 1.1x faster, or the 5th model you load. Pick **Not now** and it never asks again. It makes no network request; the button is a plain link. The sidebar also has a small **star** link next to the version.
