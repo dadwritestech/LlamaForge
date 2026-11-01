@@ -562,7 +562,8 @@ async function openClientConfig(id, backend) {
       [], pending.returnTo);
     return;
   }
-  const values = [r.curl, r.environment, r.payload];
+  const apps = Array.isArray(r.apps) ? r.apps : [];
+  const values = [r.curl, r.environment, r.payload, ...apps.map(a => a.text)];
   const snip = (label, text, index) =>
     `<div class="slabel">${esc(label)}</div><div class="snip">
       <button type="button" class="qbtn scopy"
@@ -577,7 +578,9 @@ async function openClientConfig(id, backend) {
     }</div>` +
     snip("curl", r.curl, 0) +
     snip("OpenAI client (environment)", r.environment, 1) +
-    snip("Test JSON payload", r.payload, 2),
+    snip("Test JSON payload", r.payload, 2) +
+    (apps.length ? `<div class="slabel" style="margin-top:14px">Apps</div>` +
+      apps.map((a, i) => snip(a.name, a.text, 3 + i)).join("") : ""),
     values, pending.returnTo);
 }
 

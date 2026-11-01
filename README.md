@@ -92,7 +92,8 @@ A first-run wizard and a **Lite / Advanced** toggle keep the deep knobs out of t
 
 Anything that speaks the OpenAI API (Open WebUI, SillyTavern, Continue, Cline, Aider, the OpenAI SDKs) works against
 `http://127.0.0.1:8080/v1`. The router always runs with an API key, and **Client Config** on any model gives you the
-base URL, key and model id ready to paste.
+base URL, key and model id ready to paste, plus filled-in settings for Open WebUI (Docker address included),
+Continue's `config.yaml`, Cline and an `aider` command.
 
 - **Anthropic-compatible** `POST /v1/messages` on the panel, with streaming and tool use.
 - **OpenAI speech-compatible** `POST /v1/audio/speech` on the panel (WAV or PCM), backed by `llama-tts`.

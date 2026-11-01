@@ -46,6 +46,37 @@ class ClientSetupGeneratorTest(unittest.TestCase):
         self.assertIn("OPENAI_API_KEY=" + SECRET, out["environment"])
         self.assertEqual(json.loads(out["payload"])["model"], "qwen")
 
+    def test_app_snippets_for_open_webui_continue_cline_aider(self):
+        out = clientsetup.generate(
+            "http://127.0.0.1:8080", SECRET, "qwen", "llamacpp", "posix")
+        apps = {a["name"]: a["text"] for a in out["apps"]}
+        self.assertEqual(list(apps), ["Open WebUI", "Continue (config.yaml)", "Cline", "aider"])
+        self.assertIn("http://127.0.0.1:8080/v1", apps["Open WebUI"])
+        self.assertIn("host.docker.internal:8080/v1", apps["Open WebUI"])   # Docker can't see 127.0.0.1
+        self.assertIn('apiBase: "http://127.0.0.1:8080/v1"', apps["Continue (config.yaml)"])
+        self.assertIn('model: "qwen"', apps["Continue (config.yaml)"])
+        self.assertIn("OpenAI Compatible", apps["Cline"])
+        self.assertIn(SECRET, apps["Cline"])
+        argv = shlex.split(apps["aider"].replace("\\\n", ""))
+        self.assertEqual(argv[:3], ["aider", "--model", "openai/qwen"])
+        self.assertIn("http://127.0.0.1:8080/v1", argv)
+
+    def test_a_lan_endpoint_needs_no_docker_rewrite(self):
+        out = clientsetup.generate("http://192.168.1.5:8080", "", "q", "llamacpp", "posix")
+        webui = out["apps"][0]["text"]
+        self.assertNotIn("host.docker.internal", webui)
+        self.assertNotIn("container itself", webui)
+        self.assertIn("-e OPENAI_API_BASE_URL=http://192.168.1.5:8080/v1", webui)
+
+    def test_app_snippets_keep_a_hostile_model_id_literal(self):
+        model = "m\"\n'; touch x"
+        out = clientsetup.generate("http://127.0.0.1:8080", "", model, "llamacpp", "posix")
+        apps = {a["name"]: a["text"] for a in out["apps"]}
+        argv = shlex.split(apps["aider"].replace("\\\n", ""))
+        self.assertEqual(argv[2], "openai/" + model)
+        line = [l for l in apps["Continue (config.yaml)"].splitlines() if "model:" in l][0]
+        self.assertEqual(json.loads(line.split("model: ", 1)[1]), model)   # one escaped scalar
+
     def test_unauthenticated_target_uses_not_required_marker(self):
         out = clientsetup.generate(
             "http://127.0.0.1:8081/", "", "v", "vllm", "posix")
