@@ -23,7 +23,7 @@ import json, os, re, subprocess, sys, threading, time, urllib.request, urllib.er
 import config, argspec, hardware, osplat, prereqs, scanner, hub, router_ctl, stats, telemetry
 import autotune, anthropic_shim, agentsetup, clientsetup, network_policy, wiki, docs
 import feed, selfupdate, appinstall, profiles, recipes, gallery, starters
-import vram_predict
+import vram_predict, gpuprobe
 import wsl, vllm_ctl, vllm_registry, vllm_setup, vllm_job, vllm_hub, vllm_download
 import gguf, diag, backends, prebuilt, version, slots, slotctl, slotproc, builds, compat
 import mcp_server, ollama, piinstall, tts, logfiles, loadprog, gamemode, footprint, elastic, slotkeep
@@ -267,7 +267,7 @@ def _gpu_telemetry():
              "--format=csv,noheader,nounits"], text=True, timeout=8,
             creationflags=router_ctl.CREATE_NO_WINDOW if osplat.IS_WIN else 0)
     except Exception as e:
-        return [{"error": str(e)}]
+        return _OTHER_GPUS.get() or [{"error": str(e)}]
     def num(v):
         try:
             return int(v)
@@ -282,7 +282,12 @@ def _gpu_telemetry():
                 continue              # a GPU without memory figures tells us nothing
             res.append({"index": index, "name": f[1], "used": used,
                         "total": total, "util": num(f[4]), "temp": num(f[5])})
-    return res
+    return res or _OTHER_GPUS.get()
+
+
+# No NVIDIA answer: AMD / Intel memory from the engine's own --list-devices (or
+# amdgpu sysfs). Starting llama-server costs ~1 s, so look at most every 30 s.
+_OTHER_GPUS = telemetry.TimedCache(lambda: gpuprobe.other_gpus(cfg().get("server_bin")), ttl=30)
 
 
 # nvidia-smi startup is most of /api/state's response time (and is slower under
@@ -3027,7 +3032,8 @@ def _el_gpus():
     if osplat.IS_MAC:                 # unified memory: nothing to move layers to
         return {}
     return {g["index"]: {"used": g["used"], "total": g["total"]}
-            for g in _gpu_telemetry() if "index" in g and "used" in g and "total" in g}
+            for g in _gpu_telemetry()
+            if "index" in g and "used" in g and "total" in g and "via" not in g}
 
 
 def _el_snapshot():

@@ -156,7 +156,9 @@ Want it running whenever you log in (say, an always-on box behind Open WebUI)?
 **Requirements:** Windows 10/11, Linux, or macOS on Apple Silicon. Python 3.10+ (stdlib only;
 the Windows installer brings its own). NVIDIA (CUDA), AMD/Intel (Vulkan) or Apple (Metal) GPUs
 run models when present; CPU-only works. The VRAM preview, fit ratings and GPU stats read
-NVIDIA and Apple memory today; AMD/Intel cards don't show VRAM in the panel yet. Building from source also needs Git, CMake, Ninja and
+NVIDIA and Apple memory; AMD/Intel cards show their total and used memory as llama.cpp's own
+device list reports them (a Vulkan, ROCm or SYCL build; on Linux, AMD sysfs before one is
+installed), without utilization or temperature. Not yet tested on real AMD/Intel hardware. Building from source also needs Git, CMake, Ninja and
 a C++ compiler, which the Setup tab can install where a package manager allows.
 
 ## How it works

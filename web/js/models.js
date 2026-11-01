@@ -15,7 +15,7 @@ import { activeTab } from "./ui.js";
 import * as slots from "./slots.js";
 import * as elastic from "./elastic.js";
 import * as autoforge from "./autoforge.js";
-import { bayPlans, bayInputs } from "./bays.js";
+import { bayPlans, bayInputs, gpuTele } from "./bays.js";
 
 const LITE_KNOBS = new Set(["n-gpu-layers","ctx-size","cache-type-k","cache-type-v",
   "flash-attn","batch-size","ubatch-size","threads","tensor-split","temp","top-p"]);
@@ -78,9 +78,9 @@ document.addEventListener("lf-skin", drawGpus);
 
 function gpuTiles(g) {
   if (!g.length || g[0].error) return `<div class="gpu"><div class="stats">GPU telemetry unavailable</div></div>`;
-  return g.map(x => `<div class="gpu"><div class="top"><span class="name">${esc(x.name)}</span><span class="idx">CUDA${esc(x.index)}</span></div>
+  return g.map(x => `<div class="gpu"><div class="top"><span class="name">${esc(x.name)}</span><span class="idx">${esc(x.via || "CUDA")}${esc(x.index)}</span></div>
     <div class="meter">${meter(x.used,x.total)}</div>
-    <div class="stats"><span><b>${esc((x.used/1024).toFixed(1))}</b>/${esc((x.total/1024).toFixed(1))} GB</span><span>FREE <b>${esc(((x.total-x.used)/1024).toFixed(1))}</b> GB</span><span>UTIL <b>${esc(x.util)}%</b></span><span>TEMP <b>${esc(x.temp)}&deg;C</b></span></div></div>`).join("");
+    <div class="stats"><span><b>${esc((x.used/1024).toFixed(1))}</b>/${esc((x.total/1024).toFixed(1))} GB</span><span>FREE <b>${esc(((x.total-x.used)/1024).toFixed(1))}</b> GB</span>${gpuTele(x)}</div></div>`).join("");
 }
 
 /* ---------- knob fields ---------- */

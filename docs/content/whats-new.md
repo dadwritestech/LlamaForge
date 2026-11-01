@@ -8,6 +8,12 @@ order: 1
 
 This page summarizes the most recent additions to LlamaForge. Each entry links to the full reference for that capability. For the longer-term direction, see the project's `ROADMAP.md`.
 
+## v0.18.7: AMD and Intel GPUs show up
+
+- **VRAM for cards nvidia-smi can't see.** When `nvidia-smi` has nothing to report, LlamaForge asks your llama.cpp build for its device list (`llama-server --list-devices`). A Vulkan, ROCm or SYCL build lists each GPU with its total and free memory, so AMD and Intel cards now get the GPU tiles, the VRAM preview and fit ratings. If a card appears under two backends it's counted once. On Linux, an AMD card shows up from sysfs even before a GPU build is installed.
+- **Integrated GPUs don't inflate the total.** An iGPU reports shared system RAM as its memory (a Ryzen iGPU here claimed 16 GB), so it's left out when a real card is present. If it's the only GPU, as on a laptop, it's kept.
+- **What's missing.** These cards show memory but not utilization or temperature; the tile says which backend the numbers came from. Elastic VRAM and Auto-Forge stay NVIDIA-only. This was checked against real Vulkan and CUDA builds on an NVIDIA machine, not on real AMD or Intel hardware yet, so reports are welcome.
+
 ## v0.18.6: Start at login, if you want it
 
 - **`llamaforge service on`.** On Linux it writes a systemd user unit, on macOS a launch agent. Either one starts the router and dashboard when you log in, without opening a browser, for an always-on box behind Open WebUI or Continue. `llamaforge service off` removes it, and `llamaforge uninstall` turns it off too. It's off unless you turn it on, and the dashboard still listens on 127.0.0.1 only. See [Start at login](install.md).

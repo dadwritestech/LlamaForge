@@ -73,3 +73,11 @@ test("cargoHue matches the bay plan: main orange, workers alternate by name, unm
   assert.match(html, /class="box w1[^"]*"[^>]*title="alpha/);
   assert.match(html, /class="box w2[^"]*"[^>]*title="zeta/);
 });
+
+test("an AMD/Intel card read through llama.cpp shows its source, not null util/temp", () => {
+  const amd = {index: 0, name: "AMD Radeon RX 7900 XTX", used: 2 * GiB, total: 24 * GiB, util: null, temp: null, via: "Vulkan"};
+  const html = bays.bayPlans([amd]);
+  assert.match(html, /VIA <b>Vulkan<\/b>/);
+  assert.doesNotMatch(html, /null/);
+  assert.match(bays.gpuTele(gpu(0, 1, 16)), /UTIL <b>40%<\/b>/);
+});

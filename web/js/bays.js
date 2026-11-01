@@ -35,8 +35,15 @@ export function cargoHue(fps = {}, main = "") {
   return id => !fps[id] ? "" : id === main ? "main" : (workers.indexOf(id) % 2 ? "w2" : "w1");
 }
 
+// util/temp come from nvidia-smi; an AMD/Intel card read through the engine's
+// --list-devices (or amdgpu sysfs) has neither, so say where its memory came from.
+export function gpuTele(x) {
+  if (x.via) return `<span>VIA <b>${esc(x.via)}</b></span>`;
+  return `<span>UTIL <b>${esc(x.util)}%</b></span><span>TEMP <b>${esc(x.temp)}&deg;C</b></span>`;
+}
+
 export function bayPlans(g, {fps = {}, main = "", up = [], book = null, bookId = "", seen = new Map()} = {}) {
-  if (!g.length || g[0].error) return `<div class="bay"><div class="bay-off">GPU telemetry unavailable: nvidia-smi did not answer.</div></div>`;
+  if (!g.length || g[0].error) return `<div class="bay"><div class="bay-off">GPU telemetry unavailable: neither nvidia-smi nor llama.cpp reported a GPU.</div></div>`;
   const unknown = up.filter(id => !fps[id]);           // loaded, but no footprint we can stow
   const workers = Object.keys(fps).filter(id => id !== main).sort();
   const hue = cargoHue(fps, main);
@@ -104,7 +111,7 @@ export function bayPlans(g, {fps = {}, main = "", up = [], book = null, bookId =
     const keyHTML = boxes.map(b => `<span class="k ${esc(b.cls)}"><i></i>${esc(b.label)} <b>${esc(gb(b.g))}</b>${b.cls.split(" ").includes("out") ? " <em>unload</em>" : ""}</span>`).join("");
     return `<section class="bay" aria-label="${esc(x.name)}, GPU ${esc(key)}">
       <div class="bay-head"><span class="bay-name">${esc(x.name)}</span><span class="bay-idx">GPU ${esc(key)}</span>
-        <span class="bay-tele"><span>UTIL <b>${esc(x.util)}%</b></span><span>TEMP <b>${esc(x.temp)}&deg;C</b></span></span></div>
+        <span class="bay-tele">${gpuTele(x)}</span></div>
       <div class="bay-body">
         <div class="hold-col" style="--span:${(total / maxTotal).toFixed(4)}">
           <div class="hold" role="img" aria-label="${esc(aria)}" style="--cells:${cells.toFixed(3)}">${boxHTML}${deck}</div>
