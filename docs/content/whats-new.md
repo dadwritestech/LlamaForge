@@ -8,6 +8,14 @@ order: 1
 
 This page summarizes the most recent additions to LlamaForge. Each entry links to the full reference for that capability. For the longer-term direction, see the project's `ROADMAP.md`.
 
+## v0.18.14: Template doctor
+
+A model's editor has a **Template** row. **Check** compares the chat template inside your GGUF with the repo you downloaded it from and the base model's, and says when yours is stale. A stale template is the usual cause of broken tool calls and thinking that won't switch off. One click uses the newer template through llama.cpp's `--chat-template-file`; the GGUF isn't touched. See [Models](models.md).
+
+- It reads only the repo file's header, never the weights. A check took about 1.5 s per model here.
+- On this machine it found a Gemma 4 31B whose repo had since been re-uploaded with a template that handles `null` tool arguments.
+- A difference from the base model is only a hint: GGUF makers often change templates on purpose.
+
 ## v0.18.13: Free disk space
 
 Setup has a **Free Disk Space** card. One click lists the models nobody has used in 90 days (from Stats), largest first, and any GGUF that's a byte-identical copy of another, like the same quant in two apps' folders. Each row has a Delete button that asks first, then unloads the model, deletes the file (every part of a split one) and removes it from your config. See [Setup](setup.md#free-disk-space).

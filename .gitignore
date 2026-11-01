@@ -45,3 +45,6 @@ docs/x-header.*
 engines/
 # speech model + recorded voice clips (tts.py)
 /tts/
+
+# template doctor overrides (tmpldoctor.py)
+chat-templates/

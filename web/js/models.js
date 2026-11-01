@@ -18,6 +18,7 @@ import { renderWatchdog } from "./watchdog.js";
 import * as elastic from "./elastic.js";
 import * as autoforge from "./autoforge.js";
 import { bayPlans, bayInputs, gpuTele } from "./bays.js";
+import * as tmpl from "./tmpldoctor.js";
 
 const LITE_KNOBS = new Set(["n-gpu-layers","ctx-size","cache-type-k","cache-type-v",
   "flash-attn","batch-size","ubatch-size","threads","tensor-split","temp","top-p"]);
@@ -135,7 +136,7 @@ function knobGroups(m, schema) {
 function editorLive(m) {
   return m.backend === "vllm"
     ? `${diagBlock(m)}${modelMeta(m)}`
-    : `${diagBlock(m)}${metaBlock(m)}${modelMeta(m)}${buildBar(m)}${thinkBar(m)}${visionBar(m)}${presetBar(m)}${autoTuneBar(m)}`;
+    : `${diagBlock(m)}${metaBlock(m)}${modelMeta(m)}${buildBar(m)}${thinkBar(m)}${visionBar(m)}${tmpl.templateBar(m)}${presetBar(m)}${autoTuneBar(m)}`;
 }
 function editorButtons(m) {
   if (m.backend === "vllm") {
@@ -811,6 +812,18 @@ const saveThinking = (row, id, settings) =>
 const saveVision = (row, id, on) =>
   applyToggle(row, id, "Vision", () => api("/api/model/vision", {model: id, on}));
 
+async function checkTemplate(row, id) {
+  const out = row && $("[data-tmpl-out]", row);
+  tmpl.results[id] = {checking: true};
+  setHTML(out, tmpl.templateMarkup(id, tmpl.results[id]));
+  let r;
+  try { r = await api("/api/template/check?model=" + encodeURIComponent(id)); } catch (e) { r = {verdict: "unknown", embedded: true, error: String(e)}; }
+  tmpl.results[id] = r && r.verdict ? r : {verdict: "unknown", embedded: true, error: (r && r.error) || "check failed"};
+  // the poll may have re-rendered the row meanwhile: write into the live one
+  const live = $(`.row[data-id="${CSS.escape(id)}"]`) || row;
+  setHTML(live && $("[data-tmpl-out]", live), tmpl.templateMarkup(id, tmpl.results[id]));
+}
+
 /* ---------- autotune bar ---------- */
 function autoTuneBar(m) {
   return `<div class="tunebar">
@@ -1108,6 +1121,18 @@ export function initModels() {
       e.stopPropagation();
       if (vis.getAttribute("aria-pressed") !== "true")
         await saveVision(vis.closest(".row"), vis.dataset.vision, vis.dataset.visionOn === "true");
+      return;
+    }
+    // template doctor
+    const tCheck = e.target.closest("#view-models [data-tmpl-check]");
+    if (tCheck) { e.stopPropagation(); await checkTemplate(tCheck.closest(".row"), tCheck.dataset.tmplCheck); return; }
+    const tApply = e.target.closest("#view-models [data-tmpl-apply]");
+    if (tApply) {
+      e.stopPropagation();
+      const id = tApply.dataset.tmplApply;
+      delete tmpl.results[id];
+      await applyToggle(tApply.closest(".row"), id, "Chat template",
+        () => api("/api/template/apply", {model: id, source: tApply.dataset.tmplSource}));
       return;
     }
     if (autoforge.handleClick(e)) return;

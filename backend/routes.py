@@ -26,7 +26,7 @@ import feed, selfupdate, appinstall, profiles, recipes, gallery, starters
 import vram_predict, gpuprobe
 import wsl, vllm_ctl, vllm_registry, vllm_setup, vllm_job, vllm_hub, vllm_download
 import gguf, diag, backends, prebuilt, version, slots, slotctl, slotproc, builds, compat
-import idle, reclaim, mcp_server, ollama, piinstall, tts, logfiles, loadprog, gamemode, footprint, elastic, slotkeep
+import idle, reclaim, tmpldoctor, mcp_server, ollama, piinstall, tts, logfiles, loadprog, gamemode, footprint, elastic, slotkeep
 import claudelaunch, rigcard, watchdog
 from builder import BuildManager
 from embers import panel as embers_panel
@@ -1018,6 +1018,35 @@ def _last_used():
     with stats.TRACKER.lock:
         return ({mid: m.get("last_used") or 0 for mid, m in stats.TRACKER.data["models"].items()},
                 stats.TRACKER.data.get("first_seen") or time.time())
+
+
+def get_template_check(req):
+    """Template doctor: the model's embedded chat template against its repo's
+    current file and its base model (network, a few seconds)."""
+    mid = req.q("model")
+    sect = config.read_sections().get(mid) if mid and mid != "*" else None
+    if not sect or not sect.get("model"):
+        raise ApiError(404, "unknown model")
+    out = tmpldoctor.check(sect["model"])
+    out["override"] = sect.get("chat-template-file") or None
+    return 200, out
+
+
+def post_template_apply(req):
+    """source 'repo' or 'base': save that template (from the last check) and
+    point --chat-template-file at it. '' removes the override."""
+    mid, source = req.body.get("model"), req.body.get("source") or ""
+    sect = config.read_sections().get(mid) if isinstance(mid, str) and mid != "*" else None
+    if not sect or not sect.get("model"):
+        return 200, {"ok": False, "error": "unknown model"}
+    if source not in ("", "repo", "base"):
+        return 200, {"ok": False, "error": "source must be repo or base"}
+    try:
+        dest = tmpldoctor.save(mid, sect["model"], source) if source else None
+    except (ValueError, OSError) as e:
+        return 200, {"ok": False, "error": str(e)}
+    config.set_keys(mid, {"chat-template-file": dest})
+    return 200, {"ok": True, "file": dest, "was_running": _reload_preset(mid)}
 
 
 def get_reclaim(req):
@@ -2845,6 +2874,7 @@ GET_ROUTES = {
     "/api/rig":               get_rig,
     "/api/idle":              get_idle,
     "/api/reclaim":           get_reclaim,
+    "/api/template/check":    get_template_check,
     "/api/scan/missing":      get_scan_missing,
     "/api/network":           get_network,
     "/api/vllm/log":          get_vllm_log,
@@ -2919,6 +2949,7 @@ POST_ROUTES = {
     "/api/scan/apply":          post_scan_apply,
     "/api/scan/prune":          post_scan_prune,
     "/api/reclaim/delete":      post_reclaim_delete,
+    "/api/template/apply":      post_template_apply,
     "/api/hub/search":          post_hub_search,
     "/api/app/update":          post_app_update,
     "/api/app/restart":         post_app_restart,

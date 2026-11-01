@@ -187,6 +187,29 @@ def _read_header_kv(f, n_kv, arrays=(), strings=()):
     return kv
 
 
+def chat_template_of(f):
+    """tokenizer.chat_template from a GGUF read front to back: a file or an
+    HTTP stream (only forward seeks). None when absent or unreadable."""
+    try:
+        if _rd(f, 4) != b"GGUF" or _u32(f) < 2:
+            return None
+        _u64(f)
+        n_kv = _u64(f)
+        if n_kv > 1_000_000:
+            return None
+        return _read_header_kv(f, n_kv, strings=("tokenizer.chat_template",)).get("tokenizer.chat_template")
+    except Exception:
+        return None
+
+
+def chat_template(path):
+    try:
+        with open(path, "rb") as f:
+            return chat_template_of(f)
+    except OSError:
+        return None
+
+
 def metadata(path):
     """Human-facing GGUF header facts for the model card, or None if unreadable.
     Only keys actually present are returned (missing fields are omitted)."""
