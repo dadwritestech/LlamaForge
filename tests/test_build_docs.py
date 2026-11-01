@@ -46,6 +46,35 @@ class TestBuildDocs(unittest.TestCase):
             self.assertEqual(f.read(), want)
 
 
+    def test_can_i_run_pages_sitemap_and_robots(self):
+        import canirun
+        lay = {"arch": "llama", "kv": {"block_count": 2, "head_count": 8, "head_count_kv": 8,
+                                        "embedding_length": 1024, "context_length": 8192},
+               "tensors": [["token_embd.weight", 12, 2**28], ["blk.0.attn_q.weight", 12, 2**29],
+                           ["blk.1.attn_q.weight", 12, 2**29]]}
+        data = {"fetched": "2026-11-01", "models": [
+            {"slug": "tiny-2b", "name": "Tiny 2B", "repo": "a/Tiny-GGUF", "moe": False,
+             "arch": "llama", "kv": lay["kv"],
+             "quants": [{"quant": "Q4_K_M", "file": "Tiny-Q4_K_M.gguf", "bytes": 2**30,
+                         "tensors": canirun.compact(lay)["tensors"]}]}]}
+        build_docs.build(self.out, canirun_data=data)
+        page = open(os.path.join(self.out, "can-i-run-tiny-2b-on-rtx-5080.html"), encoding="utf-8").read()
+        self.assertIn('<meta name="description"', page)
+        self.assertIn("Can I run Tiny 2B on an RTX 5080", page)
+        self.assertIn('href="can-i-run.html"', open(os.path.join(self.out, "intro.html"), encoding="utf-8").read())
+        sm = open(os.path.join(self.out, "sitemap.xml"), encoding="utf-8").read()
+        self.assertIn(build_docs.SITE + "can-i-run-tiny-2b-on-rtx-4090.html", sm)
+        self.assertIn(build_docs.SITE + "intro.html", sm)
+        robots = open(os.path.join(self.out, "robots.txt"), encoding="utf-8").read()
+        self.assertIn("Sitemap: " + build_docs.SITE + "sitemap.xml", robots)
+
+    def test_no_can_i_run_data_builds_the_docs_alone(self):
+        build_docs.build(self.out, canirun_data=None)
+        self.assertFalse(os.path.exists(os.path.join(self.out, "can-i-run.html")))
+        self.assertNotIn("can-i-run.html", open(os.path.join(self.out, "intro.html"), encoding="utf-8").read())
+        self.assertTrue(os.path.exists(os.path.join(self.out, "sitemap.xml")))
+
+
 class TestLlmsTxt(unittest.TestCase):
     """llms.txt lists every docs page, and every link in it resolves."""
     SITE = "https://dadwritestech.github.io/LlamaForge/"

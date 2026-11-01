@@ -93,6 +93,26 @@ class Layout(unittest.TestCase):
         self.assertIsNone(gguf.layout(self.path()))
         self.assertIsNone(gguf.layout(self.path("missing.gguf")))
 
+    def test_header_prefix_plus_true_size_matches_the_file(self):
+        """A remote quant is read from its first bytes (an HTTP Range) and the
+        size the server reports; tensor sizes must match the whole file's."""
+        import io
+        write_gguf(self.path(), [kv_str("general.architecture", "llama"),
+                                 kv_u32("llama.block_count", 2)],
+                   [("token_embd.weight", 12, 1000), ("blk.0.attn_q.weight", 14, 64),
+                    ("blk.1.ffn_up_exps.weight", 139, 4096)])
+        raw = open(self.path(), "rb").read()
+        head = raw[:600]                      # header only, no tensor data
+        lay = gguf.layout_streams([(io.BytesIO(head), len(raw))])
+        self.assertEqual(lay, gguf.layout(self.path()))
+
+    def test_truncated_header_is_none(self):
+        import io
+        write_gguf(self.path(), [kv_str("general.architecture", "llama")],
+                   [("blk.0.attn_q.weight", 14, 64)])
+        raw = open(self.path(), "rb").read()
+        self.assertIsNone(gguf.layout_streams([(io.BytesIO(raw[:20]), len(raw))]))
+
 
 if __name__ == "__main__":
     unittest.main()

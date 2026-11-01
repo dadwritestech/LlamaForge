@@ -354,23 +354,29 @@ def _layout_one(path):
     file), so no per-type block-size table is needed and quant types this module
     has never heard of (ik_llama's IQ*_K) size correctly."""
     with open(path, "rb") as f:
-        if _rd(f, 4) != b"GGUF" or _u32(f) < 2:
+        return _layout_file(f, os.fstat(f.fileno()).st_size)
+
+
+def _layout_file(f, size):
+    """_layout_one over an open stream holding at least the header, with the
+    whole file's size given (a remote quant read through an HTTP Range)."""
+    if _rd(f, 4) != b"GGUF" or _u32(f) < 2:
+        return None
+    n_t, n_kv = _u64(f), _u64(f)
+    if n_kv > 1_000_000 or n_t > 1_000_000:
+        return None
+    kv = _read_header_kv(f, n_kv, _LAYOUT_ARRAYS)
+    infos = []
+    for _ in range(n_t):
+        name = _read_str(f)
+        n_dims = _u32(f)
+        if n_dims > 8:
             return None
-        n_t, n_kv = _u64(f), _u64(f)
-        if n_kv > 1_000_000 or n_t > 1_000_000:
-            return None
-        kv = _read_header_kv(f, n_kv, _LAYOUT_ARRAYS)
-        infos = []
-        for _ in range(n_t):
-            name = _read_str(f)
-            n_dims = _u32(f)
-            if n_dims > 8:
-                return None
-            f.seek(8 * n_dims, 1)
-            infos.append((name, _u32(f), _u64(f)))
-        align = kv.get("general.alignment") or 32
-        data = f.tell() + (-f.tell()) % align
-        end = os.fstat(f.fileno()).st_size - data
+        f.seek(8 * n_dims, 1)
+        infos.append((name, _u32(f), _u64(f)))
+    align = kv.get("general.alignment") or 32
+    data = f.tell() + (-f.tell()) % align
+    end = size - data
     order = sorted(range(len(infos)), key=lambda i: infos[i][2])
     size = {}
     for j, i in enumerate(order):
@@ -392,16 +398,28 @@ def layout(path):
             d = os.path.dirname(path)
             paths = [os.path.join(d, f"{stem}-{i:05d}-of-{n:05d}.gguf")
                      for i in range(1, n + 1)]
-        arch, kv, tensors = None, {}, []
-        for p in paths:
-            got = _layout_one(p)
-            if got is None:
-                return None
-            arch = arch or got[0]
-            kv = kv or got[1]
-            tensors += got[2]
+        return _merge([_layout_one(p) for p in paths])
     except Exception:
         return None
+
+
+def layout_streams(parts):
+    """layout() over [(stream, file size)], one per shard in order: the headers
+    of a quant that isn't on this disk (tools/canirun_fetch.py)."""
+    try:
+        return _merge([_layout_file(f, size) for f, size in parts])
+    except Exception:
+        return None
+
+
+def _merge(got_all):
+    if not got_all or any(g is None for g in got_all):
+        return None
+    arch, kv, tensors = None, {}, []
+    for got in got_all:
+        arch = arch or got[0]
+        kv = kv or got[1]
+        tensors += got[2]
     facts = {}
     for k in _LAYOUT_KEYS:
         v = kv.get(f"{arch}.{k}") if arch else None

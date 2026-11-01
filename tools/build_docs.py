@@ -9,6 +9,10 @@ import html, os, re, shutil, sys
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(_ROOT, "backend"))
 import docs  # noqa: E402
+import canirun  # noqa: E402
+
+SITE = "https://dadwritestech.github.io/LlamaForge/"
+_NO_DATA = object()
 
 # The shared renderer emits sibling crosslinks as `slug.md` (the canonical
 # reference the in-app viewer resolves by slug). On the static site those must
@@ -24,6 +28,7 @@ def _md_links_to_html(body):
 _TEMPLATE = """<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{title} — LlamaForge Docs</title>
+<meta name="description" content="{desc}">
 <style>
 :root{{--bg:#080a0b;--panel:#0f1315;--hair:#1e262a;--ink:#c8d2d4;--dim:#6b7a7e;
 --amber:#ffb000;--cyan:#3fd7e6;--green:#39d98a;--red:#ff5c57;--code-bg:#060809;--code-ink:#9fb0b2;--ink-strong:#fff}}
@@ -42,12 +47,14 @@ table{{border-collapse:collapse}}th,td{{border:1px solid var(--hair);padding:4px
 img{{max-width:100%;border:1px solid var(--hair)}}a{{color:var(--cyan)}}
 .admon{{border-left:3px solid var(--amber);background:var(--panel);padding:8px 12px;margin:10px 0}}
 .admon-warning{{border-left-color:var(--red)}}.admon-tip{{border-left-color:var(--green)}}
+td.fit-fits a{{color:var(--green)}}td.fit-experts a{{color:var(--amber)}}
+td.fit-partial a{{color:var(--dim)}}td.fit-no a{{color:var(--red)}}
 </style></head><body>
 <nav class="side"><div class="brand">LlamaForge</div>{nav}</nav>
 <main>{body}</main></body></html>"""
 
 
-def _nav(pages, current):
+def _nav(pages, current, extra=False):
     from collections import OrderedDict
     secs = OrderedDict()
     for p in pages:
@@ -58,26 +65,59 @@ def _nav(pages, current):
         for p in items:
             cls = ' class="active"' if p["slug"] == current else ""
             parts.append('<a href="%s.html"%s>%s</a>' % (p["slug"], cls, html.escape(p["title"])))
+    if extra:
+        cls = ' class="active"' if current.startswith("can-i-run") else ""
+        parts.append('<div class="sec">Hardware</div><a href="can-i-run.html"%s>Can I run it?</a>' % cls)
     return "".join(parts)
 
 
-def build(out_dir, content=None):
+def _desc(md):
+    """The first prose paragraph of a page, for search snippets."""
+    for para in re.split(r"\n\s*\n", md):
+        t = para.strip()
+        if t and not t.startswith(("#", "!", "|", "```", "<", ">", "-", "*")):
+            t = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", re.sub(r"[`*_]", "", " ".join(t.split())))
+            return t[:157] + "..." if len(t) > 160 else t
+    return "LlamaForge docs: a browser control panel for llama.cpp."
+
+
+def _sitemap(out_dir, names):
+    urls = "".join("<url><loc>%s</loc></url>" % html.escape(SITE + n) for n in names)
+    with open(os.path.join(out_dir, "sitemap.xml"), "w", encoding="utf-8") as f:
+        f.write('<?xml version="1.0" encoding="UTF-8"?>\n'
+                '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">%s</urlset>\n' % urls)
+    with open(os.path.join(out_dir, "robots.txt"), "w", encoding="utf-8") as f:
+        f.write("User-agent: *\nAllow: /\nSitemap: %ssitemap.xml\n" % SITE)
+
+
+def build(out_dir, content=None, canirun_data=_NO_DATA):
     pages = docs.list_pages()
+    if canirun_data is _NO_DATA:
+        canirun_data = canirun.load()
+    extra = canirun.build_pages(canirun_data) if canirun_data else []
     os.makedirs(out_dir, exist_ok=True)
     written = []
     for p in pages:
         pg = docs.page(p["slug"])
         body = _md_links_to_html(pg["html"])
-        htmlpage = _TEMPLATE.format(title=html.escape(pg["title"]), nav=_nav(pages, p["slug"]), body=body)
+        _, md = docs.parse_frontmatter(docs._read(os.path.join(docs.content_dir(), p["slug"] + ".md")))
+        htmlpage = _TEMPLATE.format(title=html.escape(pg["title"]), desc=html.escape(_desc(md)),
+                                    nav=_nav(pages, p["slug"], bool(extra)), body=body)
         dest = os.path.join(out_dir, p["slug"] + ".html")
         with open(dest, "w", encoding="utf-8") as f:
             f.write(htmlpage)
         written.append(dest)
         # the page's markdown too, for llms.txt readers; its sibling links
         # (slug.md) and image paths (docs/img/...) resolve as they are
-        _, md = docs.parse_frontmatter(docs._read(os.path.join(docs.content_dir(), p["slug"] + ".md")))
         with open(os.path.join(out_dir, p["slug"] + ".md"), "w", encoding="utf-8") as f:
             f.write(md.lstrip("\n"))
+    # "Can I run X on Y?" pages, generated from docs/canirun/models.json
+    for e in extra:
+        dest = os.path.join(out_dir, e["slug"] + ".html")
+        with open(dest, "w", encoding="utf-8") as f:
+            f.write(_TEMPLATE.format(title=html.escape(e["title"]), desc=html.escape(e["desc"]),
+                                     nav=_nav(pages, e["slug"], True), body=e["html"]))
+        written.append(dest)
     # landing page: if no page is named "index", copy the first page as index.html
     index = os.path.join(out_dir, "index.html")
     if pages and not any(p["slug"] == "index" for p in pages):
@@ -95,6 +135,7 @@ def build(out_dir, content=None):
             if fn == ".gitkeep":
                 continue
             shutil.copyfile(os.path.join(img_src, fn), os.path.join(img_dst, fn))
+    _sitemap(out_dir, [os.path.basename(w) for w in written])
     return written
 
 
