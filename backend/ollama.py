@@ -12,6 +12,8 @@ doesn't know; those fail at load with the router's own error, like any GGUF.
 """
 import json, os, re
 
+import gguf
+
 MODEL = "application/vnd.ollama.image.model"
 PROJECTOR = "application/vnd.ollama.image.projector"
 DEFAULT_HOST, DEFAULT_NS = "registry.ollama.ai", "library"
@@ -94,7 +96,10 @@ def entries(root=None):
             proj = _blob(r, digest.get(PROJECTOR))
             if proj:
                 e["mmproj"] = proj.replace("\\", "/")
-            if "embed" in mid:
+            kind = gguf.retrieval(model)
+            if kind == "rerank":
+                e["reranking"] = True
+            elif kind == "embed" or "embed" in mid:
                 e["embeddings"] = True
             out.append(e)
     return out

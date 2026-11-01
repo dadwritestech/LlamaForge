@@ -35,16 +35,43 @@ def _apps(v1, key, model, shell):
             {"name": "aider", "text": aider}]
 
 
-def generate(endpoint, api_key, model, backend, shell):
+def _retrieval_apps(v1, key, model, kind):
+    """Embedding and rerank models feed RAG, not chat: point Open WebUI's
+    Documents settings (and Continue's embed role) at them."""
+    j = lambda s: json.dumps(s, ensure_ascii=True)
+    if kind == "embed":
+        webui = ("Admin Panel > Settings > Documents > Embedding\n"
+                 f"  Engine: OpenAI\n  URL: {v1}\n  Key: {key}\n  Model: {model}")
+        cont = ("name: LlamaForge\nversion: 0.0.1\nschema: v1\nmodels:\n"
+                f"  - name: {j(model)}\n    provider: openai\n    model: {j(model)}\n"
+                f"    apiBase: {j(v1)}\n    apiKey: {j(key)}\n    roles: [embed]")
+        return [{"name": "Open WebUI (Documents)", "text": webui},
+                {"name": "Continue (config.yaml)", "text": cont}]
+    webui = ("Admin Panel > Settings > Documents > Reranking (turn on Hybrid Search)\n"
+             f"  Engine: External\n  URL: {v1}/rerank\n  Key: {key}\n  Model: {model}")
+    return [{"name": "Open WebUI (Documents)", "text": webui}]
+
+
+_CALLS = {
+    "chat": ("/v1/chat/completions",
+             lambda m: {"model": m, "messages": [{"role": "user", "content": "Hello"}],
+                        "stream": False}),
+    "embed": ("/v1/embeddings", lambda m: {"model": m, "input": "Hello"}),
+    "rerank": ("/v1/rerank",
+               lambda m: {"model": m, "query": "What is a llama?",
+                          "documents": ["A llama is a South American camelid.",
+                                        "llama.cpp runs language models locally."]}),
+}
+
+
+def generate(endpoint, api_key, model, backend, shell, kind="chat"):
+    kind = kind if kind in _CALLS else "chat"
     base = endpoint.rstrip("/")
-    payload_obj = {
-        "model": model,
-        "messages": [{"role": "user", "content": "Hello"}],
-        "stream": False,
-    }
+    path, make = _CALLS[kind]
+    payload_obj = make(model)
     compact = json.dumps(payload_obj, separators=(",", ":"), ensure_ascii=False)
     args = [
-        "curl", _quote(base + "/v1/chat/completions", shell),
+        "curl", _quote(base + path, shell),
         "-H", _quote("Content-Type: application/json", shell),
     ]
     if api_key:
@@ -64,7 +91,9 @@ def generate(endpoint, api_key, model, backend, shell):
     environment += "# model id: " + json.dumps(model, ensure_ascii=True)
     v1 = base + "/v1"
     return {
-        "apps": _apps(v1, shown_key, model, shell),
+        "apps": (_apps(v1, shown_key, model, shell) if kind == "chat"
+                 else _retrieval_apps(v1, shown_key, model, kind)),
+        "kind": kind,
         "backend": backend,
         "endpoint": base,
         "auth_required": bool(api_key),

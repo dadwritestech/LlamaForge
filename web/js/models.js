@@ -240,6 +240,19 @@ function backendTagNeeded() {
   return new Set(modelRows().map(m => m.backend || "llamacpp")).size > 1;
 }
 
+/* Embedding / reranker models serve /v1/embeddings or /v1/rerank, not chat. */
+const truthy = v => ["true", "1", "on", "yes"].includes(String(v ?? "").trim().toLowerCase());
+function retrievalKind(m) {
+  const s = m.settings || {};
+  if (truthy(s.reranking) || truthy(s.rerank)) return "rerank";
+  if (truthy(s.embeddings) || truthy(s.embedding)) return "embed";
+  return "";
+}
+function kindTag(m) {
+  const k = retrievalKind(m);
+  return k ? `<span class="tag" title="${k === "rerank" ? "reranker: serves /v1/rerank" : "embedding model: serves /v1/embeddings"}">${k}</span>` : "";
+}
+
 function rowHead(m, showBackend) {
   const vis = m.modalities.includes("image"), loaded = m.status === "loaded", isFav = favs.has(m.id);
   const stuckSecs = loadingSecs(m);
@@ -249,7 +262,7 @@ function rowHead(m, showBackend) {
   return `${compareMode?`<input type="checkbox" class="cmp" data-cmp="${esc(m.id)}" ${cmpSet.has(m.id)?"checked":""} title="pick to compare">`:""}
         <span class="led ${loaded?"loaded":""} ${m.status==="loading"?"loading":""} ${m.failed?"failed":""}"></span>
         <button type="button" class="fav ${isFav?"on":""}" data-fav="${esc(m.id)}" aria-label="${isFav?"unfavorite":"favorite"}" aria-pressed="${isFav}">&starf;</button>
-        <span class="mid" title="${esc(m.id)}">${esc(m.id)}${beTag}${slots.chip(m)}${elastic.chip(S.STATE, m)}${buildTag(m)}${vis?'<span class="tag vis">vision</span>':''}${!m.in_ini?'<span class="tag">auto</span>':''}${m.endpoint?`<span class="tag ep" data-ep="${esc(m.endpoint)}" title="click to copy endpoint">${esc(m.endpoint.replace('http://',''))}</span>`:''}</span>
+        <span class="mid" title="${esc(m.id)}">${esc(m.id)}${beTag}${slots.chip(m)}${elastic.chip(S.STATE, m)}${buildTag(m)}${vis?'<span class="tag vis">vision</span>':''}${kindTag(m)}${!m.in_ini?'<span class="tag">auto</span>':''}${m.endpoint?`<span class="tag ep" data-ep="${esc(m.endpoint)}" title="click to copy endpoint">${esc(m.endpoint.replace('http://',''))}</span>`:''}</span>
         <span class="ctxpill"><span class="k">CTX</span> ${esc(m.eff_ctx)}</span>
         ${statCell(m, loaded, stuckSecs)}
         <span class="qbtns">${quickBtn(m)}</span>
@@ -576,6 +589,7 @@ async function openClientConfig(id, backend) {
       r.model_loaded ? "" :
         ` <b style="color:var(--amber)">Load the model before sending requests.</b>`
     }</div>` +
+    (r.kind === "embed" || r.kind === "rerank" ? `<div class="note">${r.kind === "rerank" ? "A reranker" : "An embedding model"}: it answers <b>${r.kind === "rerank" ? "/v1/rerank" : "/v1/embeddings"}</b>, not chat. Use it for search and RAG.</div>` : "") +
     snip("curl", r.curl, 0) +
     snip("OpenAI client (environment)", r.environment, 1) +
     snip("Test JSON payload", r.payload, 2) +

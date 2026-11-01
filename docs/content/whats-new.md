@@ -8,6 +8,12 @@ order: 1
 
 This page summarizes the most recent additions to LlamaForge. Each entry links to the full reference for that capability. For the longer-term direction, see the project's `ROADMAP.md`.
 
+## v0.18.8: Embedding and reranker models, set up for RAG
+
+- **Recognized by what they are, not their name.** A model scan reads the GGUF header: a rank pooling type, or an encoder with a classifier head (how llama.cpp itself tells them apart), means a reranker; a mean, cls or last pooling type, or an encoder architecture such as BERT or nomic-bert, means an embedding model. Before, only a filename containing "embed" counted, and rerankers weren't detected at all.
+- **Started the right way.** Rerankers get `reranking = true` in `models.ini`, so the router starts them with `--reranking` and they answer `/v1/rerank`; embedding models keep `embeddings = true`. A rescan never clears a flag you set by hand. Models found in Ollama's store get the same check.
+- **Tagged and explained.** The model list shows an **embed** or **rerank** tag. **Client Config** on one of them gives the `/v1/embeddings` or `/v1/rerank` request instead of a chat one, plus Open WebUI's **Documents** settings and, for embeddings, Continue's `embed` role. Checked end to end on llama.cpp b12032 with nomic-embed-text v1.5 and jina-reranker-v1-tiny-en.
+
 ## v0.18.7: AMD and Intel GPUs show up
 
 - **VRAM for cards nvidia-smi can't see.** When `nvidia-smi` has nothing to report, LlamaForge asks your llama.cpp build for its device list (`llama-server --list-devices`). A Vulkan, ROCm or SYCL build lists each GPU with its total and free memory, so AMD and Intel cards now get the GPU tiles, the VRAM preview and fit ratings. If a card appears under two backends it's counted once. On Linux, an AMD card shows up from sysfs even before a GPU build is installed.

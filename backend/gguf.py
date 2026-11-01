@@ -223,8 +223,59 @@ def metadata(path):
         "rope_scaling":     a("rope.scaling.type"),
         "thinking":         thinking_kind(kv.get("tokenizer.chat_template")),
         "effort_levels":    effort_levels(kv.get("tokenizer.chat_template")),
+        "retrieval":        _retrieval_kind(kv),
     }
     return {k: v for k, v in out.items() if v is not None}
+
+
+# Architectures that only ever encode (no generation head): always embedders.
+_ENCODER_ARCHS = {"bert", "nomic-bert", "nomic-bert-moe", "jina-bert-v2", "jina-bert-v3",
+                  "neo-bert", "modern-bert", "eurobert", "t5encoder", "gemma-embedding"}
+
+
+def _retrieval_kind(kv):
+    """'rerank', 'embed' or None from {arch}.pooling_type (llama.h: 1 mean, 2 cls,
+    3 last, 4 rank) and the architecture. Chat models carry no pooling type."""
+    arch = kv.get("general.architecture")
+    pt = kv.get(f"{arch}.pooling_type") if arch else None
+    if pt == 4:
+        return "rerank"
+    if pt in (1, 2, 3) or arch in _ENCODER_ARCHS:
+        return "embed"
+    return None
+
+
+def _has_cls_head(f, n_tensors):
+    """Tensor infos follow the KVs: a classifier head (cls.weight /
+    cls.output.weight) is how llama.cpp tells a reranker from an embedder in
+    conversions that predate pooling_type (gpustack's jina-reranker GGUFs)."""
+    for _ in range(min(n_tensors, 100_000)):
+        name = _read_str(f)
+        n_dims = _u32(f)
+        f.seek(8 * n_dims + 4 + 8, 1)       # dims, type, offset
+        if name in ("cls.weight", "cls.output.weight"):
+            return True
+    return False
+
+
+def retrieval(path):
+    """_retrieval_kind for a file, reading only scalars (no chat template)."""
+    try:
+        with open(path, "rb") as f:
+            if _rd(f, 4) != b"GGUF" or _u32(f) < 2:
+                return None
+            n_tensors = _u64(f)
+            n_kv = _u64(f)
+            if n_kv > 1_000_000:
+                return None
+            kv = _read_header_kv(f, n_kv)
+            kind = _retrieval_kind(kv)
+            if (kind == "embed" and kv.get("general.architecture") in _ENCODER_ARCHS
+                    and _has_cls_head(f, n_tensors)):
+                return "rerank"
+            return kind
+    except Exception:
+        return None
 
 
 # Template variables llama.cpp's --reasoning / --reasoning-effort feed: a template

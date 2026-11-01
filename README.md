@@ -95,6 +95,10 @@ Anything that speaks the OpenAI API (Open WebUI, SillyTavern, Continue, Cline, A
 base URL, key and model id ready to paste, plus filled-in settings for Open WebUI (Docker address included),
 Continue's `config.yaml`, Cline and an `aider` command.
 
+Embedding and reranker GGUFs are recognized from their header, so they're tagged **embed** or **rerank** and
+started with `--embeddings` or `--reranking`. Their Client Config shows the `/v1/embeddings` or `/v1/rerank` call and
+the Open WebUI **Documents** settings for RAG.
+
 - **Anthropic-compatible** `POST /v1/messages` on the panel, with streaming and tool use.
 - **OpenAI speech-compatible** `POST /v1/audio/speech` on the panel (WAV or PCM), backed by `llama-tts`.
 - **Connect an agent** writes the config for **Claude Code**, **Codex** and **pi.dev** (any file it touches is backed up first).

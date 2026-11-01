@@ -215,7 +215,13 @@ def build_entries(paths):
             e["draft_model"] = mt.replace("\\", "/")
             if has_nextn(mt):
                 e["draft_mtp"] = True
-        if _is_embed(p):
+        # The header says what the model is for; the name is the fallback for
+        # files whose header doesn't (old conversions).
+        from gguf import retrieval
+        kind = retrieval(p)
+        if kind == "rerank":
+            e["reranking"] = True
+        elif kind == "embed" or _is_embed(p):
             e["embeddings"] = True
         entries.append(e)
     return entries

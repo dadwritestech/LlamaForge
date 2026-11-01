@@ -813,6 +813,8 @@ def _persist_scanned_entries(entries):
             "mmproj": mmproj,
             "embeddings": "true" if e.get("embeddings") else None,
         }
+        if e.get("reranking"):                # set when found, never cleared by a rescan
+            keys["reranking"] = "true"
         desired_mtp = {
             "spec-draft-model": e.get("draft_model"),
             "spec-type": "draft-mtp" if e.get("draft_mtp") else None,
@@ -1111,6 +1113,20 @@ def get_presets(req):
     return 200, {"presets": config.get_presets()}
 
 
+def _truthy(v):
+    return str(v or "").strip().lower() in ("true", "1", "on", "yes")
+
+
+def _retrieval_kind(row):
+    """'rerank' / 'embed' / 'chat' from the flags a model row runs with."""
+    s = (row or {}).get("settings") or {}
+    if _truthy(s.get("reranking")) or _truthy(s.get("rerank")):
+        return "rerank"
+    if _truthy(s.get("embeddings")) or _truthy(s.get("embedding")):
+        return "embed"
+    return "chat"
+
+
 def _resolve_model_row(mid, hint=""):
     if not isinstance(mid, str) or not mid.strip():
         raise ApiError(400, "model is required")
@@ -1172,7 +1188,8 @@ def post_client_config(req):
         raise ApiError(400, f"unsupported backend: {backend}")
     shell = "powershell" if osplat.IS_WIN else "posix"
     try:
-        out = clientsetup.generate(endpoint, api_key, row["id"], backend, shell)
+        out = clientsetup.generate(endpoint, api_key, row["id"], backend, shell,
+                                   kind=_retrieval_kind(row))
     except Exception:
         raise ApiError(500, "client configuration could not be generated") from None
     out["model_loaded"] = row.get("status") == "loaded"
