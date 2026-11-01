@@ -355,10 +355,19 @@ class HubAddTest(unittest.TestCase):
         self.assertIs(routes.DOWNLOADS.on_done, routes._register_download)
 
     def test_starters_are_sized_to_this_gpu(self):
-        with mock.patch.object(routes, "total_vram_mib", return_value=8192):
+        with mock.patch.object(routes, "total_vram_mib", return_value=8192),              mock.patch.object(routes.ollama, "entries", return_value=[]):
             status, out = routes.get_starters(Req())
         self.assertEqual((status, out["vram_mib"]), (200, 8192))
         self.assertEqual(len(out["starters"]), 3)
+        self.assertEqual(out["ollama"], [])
+
+    def test_starters_offer_ollama_models_not_yet_registered(self):
+        have = {"id": "qwen3", "model": "C:/o/blobs/sha256-aa", "gib": 5, "ollama": "qwen3:latest"}
+        new = {"id": "gemma3-4b", "model": "C:/o/blobs/sha256-bb", "gib": 3, "ollama": "gemma3:4b"}
+        with mock.patch.object(routes, "total_vram_mib", return_value=8192),              mock.patch.object(routes.ollama, "entries", return_value=[have, new]),              mock.patch.object(routes.config, "read_sections",
+                               return_value={"qwen3": {"model": r"C:\o\blobs\sha256-aa"}}):
+            _, out = routes.get_starters(Req())
+        self.assertEqual(out["ollama"], [new])
 
 
 class ModelDiagTest(unittest.TestCase):

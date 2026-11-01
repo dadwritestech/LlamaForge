@@ -75,16 +75,36 @@ async function wizStarters(body) {
     <div class="starter${m.recommended ? " rec" : ""}">
       <div><div class="t">${esc(m.title)} ${m.recommended ? '<span class="tag" style="color:var(--amber);border-color:var(--amber)">best fit</span>' : ""}</div>
         <div class="b">${esc(m.blurb)} &middot; ${esc(gb(m.size))}</div></div>
-      <button ${m.recommended ? 'class="primary"' : ""} data-starter="${i}">Download</button>
+      <button ${m.recommended && !(r.ollama || []).length ? 'class="primary"' : ""} data-starter="${i}">Download</button>
     </div>`).join("");
+  // Already an Ollama user: the models they pulled are GGUFs, so offer those
+  // before any download. models.ini points at Ollama's own files.
+  const ol = r.ollama || [];
+  const olCard = ol.length ? `
+    <div class="starter rec"><div><div class="t">Use the ${esc(ol.length)} model${ol.length > 1 ? "s" : ""} you already have in Ollama</div>
+      <div class="b">${esc(ol.slice(0, 4).map(e => e.ollama).join(", "))}${ol.length > 4 ? ", ..." : ""} &middot; nothing is downloaded or copied</div></div>
+      <button class="primary" id="wiz-ollama">Use them</button></div>` : "";
   setHTML(body, `<div class="wizard-step"><h2>Get your first model</h2>
-    <p>Picked for ${esc(vram)}. One click downloads it and adds it to your models.</p>
+    ${olCard}<p>${ol.length ? "Or download one picked" : "Picked"} for ${esc(vram)}. One click downloads it and adds it to your models.</p>
     ${cards}
     <div id="wiz-dl" hidden><div class="meter" id="wiz-dl-meter"></div><div class="note" id="wiz-dl-msg"></div></div>
     <p class="note">Want something else? <a href="#" id="wiz-discover">Browse Hugging Face in Discover</a>.</p></div>`);
   const d = $("#wiz-discover");
   if (d) d.onclick = e => { e.preventDefault(); wizHide(); switchTab("discover"); };
   body.querySelectorAll("[data-starter]").forEach(b => b.onclick = () => wizDownload(r.starters[+b.dataset.starter]));
+  const ob = $("#wiz-ollama");
+  if (ob) ob.onclick = () => wizUseOllama(ob, ol);
+}
+
+async function wizUseOllama(btn, entries) {
+  btn.disabled = true;
+  const msg = $("#wiz-dl-msg"); $("#wiz-dl").hidden = false;
+  try { await api("/api/scan/apply", {entries}); }
+  catch (e) { msg.textContent = "Could not add them: " + String(e.message || e).slice(0, 100); btn.disabled = false; return; }
+  const chat = entries.find(e => !e.embeddings) || entries[0];
+  WIZ.model = chat.id;
+  msg.textContent = `Added ${entries.length}. ${chat.id} is picked. Press Next.`;
+  emit("refresh", true);
 }
 
 async function wizDownload(m) {

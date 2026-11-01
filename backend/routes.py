@@ -26,7 +26,7 @@ import feed, selfupdate, appinstall, profiles, recipes, gallery, starters
 import vram_predict
 import wsl, vllm_ctl, vllm_registry, vllm_setup, vllm_job, vllm_hub, vllm_download
 import gguf, diag, backends, prebuilt, version, slots, slotctl, slotproc, builds, compat
-import mcp_server, piinstall, tts, logfiles, loadprog, gamemode, footprint, elastic, slotkeep
+import mcp_server, ollama, piinstall, tts, logfiles, loadprog, gamemode, footprint, elastic, slotkeep
 import claudelaunch
 from builder import BuildManager
 from embers import panel as embers_panel
@@ -948,9 +948,17 @@ def get_hub_progress(req):
     return 200, DOWNLOADS.progress()
 
 
+def _path_key(p):
+    return str(p or "").replace("\\", "/").lower()
+
+
 def get_starters(req):
+    """Starter downloads sized to this GPU, plus the Ollama models this machine
+    already has that aren't in models.ini yet (a manifest read, no drive walk)."""
     vram = total_vram_mib()
-    return 200, {"vram_mib": vram, "starters": starters.pick(vram)}
+    have = {_path_key(s.get("model")) for s in config.read_sections().values()}
+    mine = [e for e in ollama.entries() if _path_key(e["model"]) not in have]
+    return 200, {"vram_mib": vram, "starters": starters.pick(vram), "ollama": mine}
 
 
 def get_router_log(req):
