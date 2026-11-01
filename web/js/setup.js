@@ -5,6 +5,7 @@ import { S, models, config as cfgOf } from "./state.js";
 import { emit } from "./bus.js";
 import { applyPool } from "./slots.js";
 import * as elastic from "./elastic.js";
+import { idleMarkup } from "./idle.js";
 
 let vllmSetupPoll = null;
 let setupGeneration = 0;
@@ -642,6 +643,26 @@ function wireElastic(generation) {
   };
 }
 
+async function wireIdle(generation) {
+  const d = await api("/api/idle").catch(() => null);
+  const slot = $("#idle-slot");
+  if (!setupViewActive(generation) || !slot) return;
+  setHTML(slot, idleMarkup(d));
+  const save = $("#idle-save");
+  if (!save) return;
+  const msg = (t, c) => { const m = $("#idle-msg"); if (m) { m.className = "msg " + c; m.textContent = t; } };
+  save.onclick = async () => {
+    const n = Number($("#idle-min").value);
+    if (!Number.isInteger(n) || n < 1 || n > 1440) return msg("1-1440 minutes", "err");
+    const minutes = $("#idle-on").checked ? n : 0;
+    msg("saving...", "work");
+    const r = await api("/api/idle", {minutes}).catch(() => null);
+    if (!setupViewActive(generation)) return;
+    if (!r || !r.ok) return msg((r && r.error) || "save failed", "err");
+    msg(r.warning ? r.warning : r.minutes ? `on · after ${r.minutes} min, from each model's next load` : "off", r.warning ? "warn" : "ok");
+  };
+}
+
 function wireSlots(generation) {
   const sl = slotState(), save = $("#mm-save");
   if (!sl || !save) return;
@@ -735,6 +756,7 @@ export async function loadSetup() {
     ${slotsMarkup()}
     ${gameMarkup()}
     ${elasticMarkup()}
+    <div id="idle-slot"></div>
     ${networkMarkup(net)}
     <div id="agent-connect" class="card"></div>`
     + (vs.supported === false ? "" : `<div class="card"><h3>vLLM Backend (WSL2)</h3>
@@ -767,6 +789,7 @@ export async function loadSetup() {
   wireSlots(generation);
   wireGame(generation);
   wireElastic(generation);
+  wireIdle(generation);
   const autoSel = $("#auto-load");
   if (autoSel) autoSel.onchange = async () => {
     await api("/api/config", {auto_load_model: autoSel.value});

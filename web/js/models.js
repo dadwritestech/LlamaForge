@@ -13,6 +13,7 @@ import { S, models as modelRows, config as cfgOf } from "./state.js";
 import { on, emit } from "./bus.js";
 import { activeTab } from "./ui.js";
 import * as slots from "./slots.js";
+import { isUp } from "./idle.js";
 import { renderWatchdog } from "./watchdog.js";
 import * as elastic from "./elastic.js";
 import * as autoforge from "./autoforge.js";
@@ -145,10 +146,10 @@ function editorButtons(m) {
       <button class="danger" data-act="vdelete" title="remove model + delete its files from WSL">Delete</button>`;
   }
   return `<button class="primary" data-act="save">Save + Reload</button>
-      ${m.status==="loaded"||m.status==="loading"?`<button class="ghost" data-act="unload">${m.status==="loading"?"Cancel / Unload":"Unload"}</button>`:`<button data-act="load"${slots.slotsOn()?' title="load as the main model: it gets the fastest GPU that fits"':""}>Load</button>`}
+      ${isUp(m)||m.status==="loading"?`<button class="ghost" data-act="unload">${m.status==="loading"?"Cancel / Unload":"Unload"}</button>`:`<button data-act="load"${slots.slotsOn()?' title="load as the main model: it gets the fastest GPU that fits"':""}>Load</button>`}
       ${slots.canLoadWorker(m)?`<button class="ghost" data-act="loadw" title="load beside the main model, on the GPUs it doesn't use; never unloads anything">Load as worker</button>`:""}
-      ${m.status==="loaded"?`<button data-act="chat">Chat</button>`:""}
-      ${m.status==="loaded"?`<button class="ghost" data-act="claude" title="open Claude Code on a folder, running on this model">Claude Code</button>`:""}
+      ${isUp(m)?`<button data-act="chat">Chat</button>`:""}
+      ${isUp(m)?`<button class="ghost" data-act="claude" title="open Claude Code on a folder, running on this model">Claude Code</button>`:""}
       <button class="ghost" data-act="client">Client config</button>
       <button class="ghost" data-act="profile" title="save a one-click launch: model + preset + engine build">Save as profile</button>
       <button class="danger" data-act="unregister" title="remove from models.ini; does not delete the GGUF">Unregister</button>`;
@@ -261,7 +262,7 @@ function rowHead(m, showBackend) {
   const beTag = showBackend
     ? `<span class="tag be-${esc(be)}">${esc(BACKEND_LABEL[be] || be)}</span>` : "";
   return `${compareMode?`<input type="checkbox" class="cmp" data-cmp="${esc(m.id)}" ${cmpSet.has(m.id)?"checked":""} title="pick to compare">`:""}
-        <span class="led ${loaded?"loaded":""} ${m.status==="loading"?"loading":""} ${m.failed?"failed":""}"></span>
+        <span class="led ${loaded?"loaded":""} ${m.status==="loading"?"loading":""} ${m.status==="sleeping"?"sleeping":""} ${m.failed?"failed":""}"></span>
         <button type="button" class="fav ${isFav?"on":""}" data-fav="${esc(m.id)}" aria-label="${isFav?"unfavorite":"favorite"}" aria-pressed="${isFav}">&starf;</button>
         <span class="mid" title="${esc(m.id)}">${esc(m.id)}${beTag}${slots.chip(m)}${elastic.chip(S.STATE, m)}${buildTag(m)}${vis?'<span class="tag vis">vision</span>':''}${kindTag(m)}${!m.in_ini?'<span class="tag">auto</span>':''}${m.endpoint?`<span class="tag ep" data-ep="${esc(m.endpoint)}" title="click to copy endpoint">${esc(m.endpoint.replace('http://',''))}</span>`:''}</span>
         <span class="ctxpill"><span class="k">CTX</span> ${esc(m.eff_ctx)}</span>
@@ -403,7 +404,7 @@ function quickBtn(m) {
   const q = loadQ.findIndex(j => j.id === m.id);
   if (q >= 0) return `<span class="qbadge">QUEUED #${q+1}</span>`;
   if (m.status === "loading") return `<button class="qbtn stop" data-quick="stop" data-qid="${esc(m.id)}">Cancel</button>`;
-  if (m.status === "loaded") return `${(m.backend || "llamacpp") === "llamacpp"
+  if (isUp(m)) return `${(m.backend || "llamacpp") === "llamacpp"
     ? `<button class="qbtn load" data-quick="chat" data-qid="${esc(m.id)}">Chat</button>` : ""}<button class="qbtn stop" data-quick="unload" data-qid="${esc(m.id)}">Unload</button>`;
   return `<button class="qbtn load" data-quick="load" data-qid="${esc(m.id)}">Load</button>`;
 }
@@ -435,7 +436,7 @@ async function processQ() {
   await refresh(true);
   if (chatAfterLoad.delete(job.id)) {
     const m = modelRows().find(x => x.id === job.id);
-    if (m && m.status === "loaded") {
+    if (isUp(m)) {
       if ((m.backend || "llamacpp") === "llamacpp") emit("chat", job.id);
       else { toast(`${job.id} is loaded`, "ok"); starask.noteLoad(); }
     } else {
@@ -451,7 +452,7 @@ on("load-chat", async id => {
   await refresh(true);
   chatAfterLoad.add(id);
   const m = modelRows().find(x => x.id === id);
-  if (m && m.status === "loaded") { chatAfterLoad.delete(id); if ((m.backend || "llamacpp") === "llamacpp") emit("chat", id); return; }
+  if (isUp(m)) { chatAfterLoad.delete(id); if ((m.backend || "llamacpp") === "llamacpp") emit("chat", id); return; }
   enqueueLoad(id);
 });
 async function quickAction(act, id) {
@@ -1013,8 +1014,8 @@ export function initModels() {
     if (!selId) return;
     const m = modelRows().find(x => x.id === selId); if (!m) return;
     if (e.key === "Enter") { e.preventDefault(); setOpenId(openId===selId?null:selId); renderModels(); return; }
-    if (e.key === "l" || e.key === "L") { if (m.status !== "loaded") quickAction("load", selId); return; }
-    if (e.key === "u" || e.key === "U") { if (m.status === "loaded" || m.status === "loading") quickAction("unload", selId); return; }
+    if (e.key === "l" || e.key === "L") { if (!isUp(m)) quickAction("load", selId); return; }
+    if (e.key === "u" || e.key === "U") { if (isUp(m) || m.status === "loading") quickAction("unload", selId); return; }
     if (e.key === "s" || e.key === "S") {
       if (openId === selId) {
         const b = $(`.row[data-id="${CSS.escape(selId)}"] button[data-act="save"]`)

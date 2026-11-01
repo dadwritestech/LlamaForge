@@ -10,7 +10,7 @@ Check build prerequisites, install what is missing with your permission, scan yo
 
 ## What it does
 
-The Setup tab is a column of cards. The four described first (prerequisites, installing missing tools, drive scan, registry prune) each have their own backend module; the cards for [Network Access](#network-access), [Connect an Agent](#connect-an-agent), [Game mode](#game-mode), [Elastic VRAM](#elastic-vram), multi-model, speed estimates and vLLM follow below.
+The Setup tab is a column of cards. The four described first (prerequisites, installing missing tools, drive scan, registry prune) each have their own backend module; the cards for [Network Access](#network-access), [Connect an Agent](#connect-an-agent), [Game mode](#game-mode), [Elastic VRAM](#elastic-vram), [Sleep idle models](#sleep-idle-models), multi-model, speed estimates and vLLM follow below.
 
 **Prerequisite detection.** `backend/prereqs.py` checks for four command-line tools — `git`, `cmake`, `ninja`, and `python` (via `shutil.which`, running `--version` to confirm and capture the installed version) — plus the platform C++ compiler and the CUDA toolkit. On Windows, the compiler check (`find_msvc()`) shells out to `vswhere.exe` to locate an MSVC install with the C++ desktop workload, falling back to a glob for `cl.exe` under `Program Files\Microsoft Visual Studio`. On macOS/Linux it looks for `clang++` or `g++` on `PATH`. CUDA detection reads `nvcc --version` (or `$CUDA_PATH`) and is skipped entirely on macOS, where Metal is used instead.
 
@@ -80,6 +80,14 @@ When another app (a game, Blender, ComfyUI, a video editor) needs your GPU, Elas
 - **Where it works:** NVIDIA GPUs only, since it reads free memory from `nvidia-smi`. On a Mac, or without an NVIDIA GPU, the card says so and the setting does nothing. Only llama.cpp router models are resized: not models pinned to a build of their own, ik_llama or vLLM.
 
 The card shows the current state on its **now** line and a log of the last 20 resizes: when, which model, from and to which size, why, how long it took and whether the conversation was kept.
+
+## Sleep idle models
+
+A model you loaded an hour ago and haven't used since still holds its VRAM. Turn on **Sleep idle models**, pick a number of minutes (1 to 1440), and Save: a model that gets no request for that long frees its VRAM and RAM but stays in the list as **sleeping**, with a hollow light. The next request to it, from Chat or any app, wakes it, usually in a second or a few since the file is still in the OS cache.
+
+- It's llama.cpp's own `--sleep-idle-seconds`, written to the `[*]` section of `models.ini`, so it applies to every llama.cpp model **from its next load**. A model that's loaded now keeps running as before until you unload it or it's reloaded.
+- It needs a llama.cpp build that has the flag; on an older one the card says to update it in Build. ik_llama and vLLM models aren't affected.
+- The Stats poller only asks loaded models for numbers, so it doesn't keep a sleeping model awake.
 
 ## Network Access
 

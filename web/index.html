@@ -222,7 +222,7 @@ body.app{display:grid;grid-template-columns:var(--nav-w) 1fr;min-height:100vh;ma
 :where(button.chip,button.pchip,button.fav){font:inherit;color:inherit;background:none;margin:0;-webkit-appearance:none;appearance:none}
 :where(button.fav){border:0;padding:0}
 :where(button.chip,button.pchip,button.fav):focus-visible{outline:2px solid var(--amber);outline-offset:2px}
-.led.loaded{background:var(--green);box-shadow:0 0 8px var(--green)}.led.failed{background:var(--red);box-shadow:0 0 8px var(--red)}
+.led.loaded{background:var(--green);box-shadow:0 0 8px var(--green)}.led.sleeping{background:transparent;box-shadow:inset 0 0 0 1.5px var(--green)}.led.failed{background:var(--red);box-shadow:0 0 8px var(--red)}
 .mid{font-weight:500;color:var(--ink-hi);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .tag{font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim);border:1px solid var(--hair);border-radius:var(--r-pill);padding:1px 8px;margin-left:8px;white-space:nowrap}
 .tag.vis{color:var(--cyan-text);border-color:var(--cyan-border)}

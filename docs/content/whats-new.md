@@ -8,6 +8,13 @@ order: 1
 
 This page summarizes the most recent additions to LlamaForge. Each entry links to the full reference for that capability. For the longer-term direction, see the project's `ROADMAP.md`.
 
+## v0.18.12: Sleep idle models
+
+Setup has a **Sleep idle models** card. Pick a number of minutes and any llama.cpp model that sits idle that long frees its VRAM and RAM, stays in the list as **sleeping** (a hollow light), and wakes on the next request. On a test here a 3B model went from about 3.2 GB of VRAM to under 0.5 GB asleep, and woke for a chat request in 0.65 s. See [Setup](setup.md#sleep-idle-models).
+
+- It's llama.cpp's own `--sleep-idle-seconds`, set for every model; it applies from each model's next load and needs a build that has the flag (the card says when yours doesn't).
+- A sleeping model still gets Chat, Unload and the Claude Code button, and the Stats poller leaves it asleep.
+
 ## v0.18.11: Share your rig
 
 Stats has a **Share my rig** button: a 1200x630 image (and markdown) of your GPUs, RAM and OS, your five most-used models with their speed and token counts, and how many tokens this machine has generated. Download it, copy it, post it. See [Stats](stats.md).

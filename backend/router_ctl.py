@@ -89,6 +89,12 @@ def supports_models_memory_margin(server_bin):
     return "--models-memory-margin" in _help_text(server_bin)
 
 
+def supports_sleep_idle(server_bin):
+    """--sleep-idle-seconds: a model idle that long frees its memory until
+    the next request (idle.py)."""
+    return "--sleep-idle-seconds" in _help_text(server_bin)
+
+
 def supports_slot_save(server_bin):
     """Elastic VRAM keeps conversations through /slots save/restore, which
     needs a save folder; the router hands its own flag to every model."""

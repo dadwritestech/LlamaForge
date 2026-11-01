@@ -26,7 +26,7 @@ import feed, selfupdate, appinstall, profiles, recipes, gallery, starters
 import vram_predict, gpuprobe
 import wsl, vllm_ctl, vllm_registry, vllm_setup, vllm_job, vllm_hub, vllm_download
 import gguf, diag, backends, prebuilt, version, slots, slotctl, slotproc, builds, compat
-import mcp_server, ollama, piinstall, tts, logfiles, loadprog, gamemode, footprint, elastic, slotkeep
+import idle, mcp_server, ollama, piinstall, tts, logfiles, loadprog, gamemode, footprint, elastic, slotkeep
 import claudelaunch, rigcard, watchdog
 from builder import BuildManager
 from embers import panel as embers_panel
@@ -982,6 +982,36 @@ def get_rig(req):
     measured speed. rigcard keeps paths and markup out of it."""
     return 200, rigcard.build(_GPU_TELEMETRY.get(), osplat.ram_usage(), osplat.current(),
                               version.VERSION, stats.TRACKER.summary())
+
+
+def _idle_supported():
+    c = cfg()
+    if c.get("active_engine") == "ikllama":      # no router mode, so no [*] to pass it
+        return False
+    sbin = c.get("server_bin", "")
+    return bool(sbin) and router_ctl.supports_sleep_idle(sbin)
+
+
+def get_idle(req):
+    """Sleep idle models (idle.py): whether this build can, and the minutes set."""
+    return 200, {"supported": _idle_supported(), "minutes": idle.minutes(config.read_sections())}
+
+
+def post_idle(req):
+    """Set [*] sleep-idle-seconds for every model and have the router re-read
+    models.ini; a loaded model picks it up at its next load."""
+    if not _idle_supported():
+        return 200, {"ok": False, "error": "this llama.cpp build has no --sleep-idle-seconds; update it in Build"}
+    try:
+        upd = idle.updates((req.body or {}).get("minutes"))
+    except ValueError as e:
+        return 200, {"ok": False, "error": str(e)}
+    config.set_keys("*", upd)
+    st, out = reload_presets()
+    mins = idle.minutes(config.read_sections())
+    if st != 200:
+        return 200, {"ok": True, "minutes": mins, "warning": (out or {}).get("error") or "saved; the router reads it when it restarts"}
+    return 200, {"ok": True, "minutes": mins}
 
 
 def get_scan_missing(req):
@@ -2770,6 +2800,7 @@ GET_ROUTES = {
     "/api/router/log":        get_router_log,
     "/api/stats":             get_stats,
     "/api/rig":               get_rig,
+    "/api/idle":              get_idle,
     "/api/scan/missing":      get_scan_missing,
     "/api/network":           get_network,
     "/api/vllm/log":          get_vllm_log,
@@ -2806,6 +2837,7 @@ GET_ROUTES = {
 }
 
 POST_ROUTES = {
+    "/api/idle":              post_idle,
     "/v1/audio/speech":         post_audio_speech,
     "/api/tts/speak":           post_tts_speak,
     "/api/tts/get":             post_tts_get,
