@@ -726,7 +726,7 @@ function thinkBar(m) {
   const meta = metaCache[m.id], kind = meta && meta.thinking;
   // a template with no reasoning markers has nothing to switch; still shown if
   // something was set, so it can be put back
-  if (meta && Object.keys(meta).length && !kind && !mode && !budget) return "";
+  if (meta && Object.keys(meta).length && !kind && !mode && !budget && !s["reasoning-effort"]) return "";
   const segs = THINK_MODES.map(([v, label]) =>
     `<button class="qbtn" data-think-mode="${v}" data-think="${esc(m.id)}" aria-pressed="${mode === v}">${label}</button>`).join("");
   let budgetSel = "";
@@ -737,12 +737,21 @@ function thinkBar(m) {
     budgetSel = `<select data-think-budget="${esc(m.id)}" title="most tokens it may think before answering"${mode === "off" ? " disabled" : ""}>`
       + opts.map(([v, label]) => `<option value="${esc(v)}"${v === budget ? " selected" : ""}>${esc(label)}</option>`).join("") + `</select>`;
   }
+  // --reasoning-effort: only the levels its chat template names (read from the GGUF)
+  let effortSel = "";
+  const effort = s["reasoning-effort"] || "", levels = (meta && meta.effort_levels) || [];
+  if (hasKnob("reasoning-effort") && (levels.length || effort)) {
+    const opts = [["", "default"], ...levels.map(v => [v, v])];
+    if (effort && !levels.includes(effort)) opts.push([effort, effort]);
+    effortSel = `<select data-think-effort="${esc(m.id)}" title="how hard it thinks: llama.cpp's --reasoning-effort, the levels its chat template knows"${mode === "off" ? " disabled" : ""}>`
+      + opts.map(([v, label]) => `<option value="${esc(v)}"${v === effort ? " selected" : ""}>effort ${esc(label)}</option>`).join("") + `</select>`;
+  }
   const hint = kind === "switch" ? "Its chat template has a thinking switch, so Off really turns it off."
     : kind === "tags" ? "Its template shows thinking but has no switch: Off may not stop a model trained to always think."
     : "";
   return `<div class="tunebar">
     <span class="tunebar-label" title="llama.cpp's --reasoning and --reasoning-budget. Auto lets the chat template decide.">Thinking</span>
-    <span class="tseg" role="group" aria-label="thinking">${segs}</span>${budgetSel}
+    <span class="tseg" role="group" aria-label="thinking">${segs}</span>${effortSel}${budgetSel}
   </div>${hint ? `<div class="slotnote dim">${esc(hint)}</div>` : ""}`;
 }
 function visionBar(m) {
@@ -947,6 +956,8 @@ export function initModels() {
     if (pick) setBuild(pick);
     const tb = e.target.closest("#view-models [data-think-budget]");
     if (tb) saveThinking(tb.closest(".row"), tb.dataset.thinkBudget, {"reasoning-budget": tb.value});
+    const te = e.target.closest("#view-models [data-think-effort]");
+    if (te) saveThinking(te.closest(".row"), te.dataset.thinkEffort, {"reasoning-effort": te.value});
   });
 
   document.addEventListener("input", e => {

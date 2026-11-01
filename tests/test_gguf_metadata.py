@@ -91,6 +91,27 @@ class TestMetadata(unittest.TestCase):
     def test_reasoning_effort_counts_as_a_switch(self):
         self.assertEqual(self._tmpl("Reasoning: {{ reasoning_effort }}")["thinking"], "switch")
 
+    def test_effort_levels_the_template_names(self):
+        t = ("{%- if reasoning_effort == 'low' %}think briefly{%- elif reasoning_effort in ['high', \"max\"] %}"
+             "think hard{%- endif %}{{ messages[0]['content'] }}")
+        self.assertEqual(self._tmpl(t)["effort_levels"], ["low", "high", "max"])   # lowest to highest
+
+    def test_an_effort_the_template_renames_is_an_alias(self):
+        # Qwen3.8: 'high' is rewritten to 'xhigh', so only xhigh is a level of its own
+        t = ("{%- set e = reasoning_effort|default('xhigh') %}\n{%- if e == 'high' %}\n"
+             "    {%- set e = 'xhigh' %}\n{%- endif %}\n{%- if e not in ('xhigh', 'medium', 'low') %}")
+        self.assertEqual(self._tmpl(t)["effort_levels"], ["low", "medium", "xhigh"])
+
+    def test_an_effort_inserted_as_is_offers_every_level(self):
+        # gpt-oss: "Reasoning: {{ reasoning_effort }}" with one default literal
+        t = "{%- set reasoning_effort = reasoning_effort | default('medium') %}Reasoning: {{ reasoning_effort }}"
+        self.assertEqual(self._tmpl(t)["effort_levels"],
+                         ["minimal", "low", "medium", "high", "xhigh", "max"])
+
+    def test_no_effort_levels_without_reasoning_effort(self):
+        m = self._tmpl("{%- if enable_thinking is false %}'low' 'high'{% endif %}")
+        self.assertNotIn("effort_levels", m)
+
     def test_think_tags_without_a_switch(self):
         self.assertEqual(self._tmpl("{{ '<think>\n' }}{{ content }}")["thinking"], "tags")
         self.assertEqual(self._tmpl("[THINK]{{ m.thinking }}[/THINK]")["thinking"], "tags")   # Mistral

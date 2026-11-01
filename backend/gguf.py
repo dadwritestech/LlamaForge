@@ -222,6 +222,7 @@ def metadata(path):
         "rope_freq_base":   a("rope.freq_base"),
         "rope_scaling":     a("rope.scaling.type"),
         "thinking":         thinking_kind(kv.get("tokenizer.chat_template")),
+        "effort_levels":    effort_levels(kv.get("tokenizer.chat_template")),
     }
     return {k: v for k, v in out.items() if v is not None}
 
@@ -242,6 +243,26 @@ def thinking_kind(template):
     if any(t in template for t in ("<think>", "[THINK]", "reasoning_content")):
         return "tags"
     return None
+
+
+# llama.cpp's --reasoning-effort levels, lowest to highest (its capability probe's order).
+EFFORT_LEVELS = ("minimal", "low", "medium", "high", "xhigh", "max")
+_EFFORT_ALIAS = re.compile(r"""==\s*['"](\w+)['"]\s*-?%\}\s*\{%-?\s*set\s+\w+\s*=\s*['"](\w+)['"]""")
+
+
+def effort_levels(template):
+    """The --reasoning-effort levels a chat template names as quoted literals,
+    lowest to highest; every level when it names fewer than two (the value is
+    inserted as is, like gpt-oss's "Reasoning: {{ reasoning_effort }}"). None
+    when the template never reads reasoning_effort. llama.cpp renders the
+    template to know for sure; this reads the text, so it is advice."""
+    if not isinstance(template, str) or "reasoning_effort" not in template:
+        return None
+    named = [lv for lv in EFFORT_LEVELS if f"'{lv}'" in template or f'"{lv}"' in template]
+    # `== 'high' %}{% set e = 'xhigh'` renames a level: the alias isn't a level of its own
+    aliases = {a for a, b in _EFFORT_ALIAS.findall(template) if a != b and b in EFFORT_LEVELS}
+    named = [lv for lv in named if lv not in aliases]
+    return named if len(named) >= 2 else list(EFFORT_LEVELS)
 
 
 def projector_info(path):
