@@ -70,6 +70,7 @@ order: 1
 | `game_mode` | bool | `False` | Unload models while a game runs (Setup > Game mode). |
 | `game_mode_keep` | list | `[]` | Model ids Game mode leaves loaded. |
 | `game_mode_games` | list | `[]` | Extra executable names that count as games, e.g. `eldenring.exe`. |
+| `router_watchdog` | bool | `True` | Restart the llama.cpp router if it crashes, backing off and giving up after 5 quick deaths with the reason from its log. |
 | `game_mode_restore` | bool | `True` | Load the unloaded models again when the game closes. |
 | `elastic_vram` | bool | `False` | Move a loaded model's layers to the CPU when other apps need VRAM, and back after (Setup > Elastic VRAM). NVIDIA only. |
 | `elastic_grow` | bool | `True` | Grow resized models back automatically once the VRAM is free. Off: only the dashboard chip grows them back. |

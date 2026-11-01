@@ -82,6 +82,7 @@ DEFAULTS = {
     "slot_headroom_mib": 1536,                  # per GPU, kept free beyond every plan
     "slot_autoload":     False,                 # let client requests load models (bypasses the planner)
     "game_mode":         False,                 # unload models while a game runs
+    "router_watchdog":   True,                  # restart the router if it crashes
     "game_mode_keep":    [],                    # model ids game mode leaves loaded
     "game_mode_games":   [],                    # extra executables that count as games
     "game_mode_restore": True,                  # load them again when the game closes

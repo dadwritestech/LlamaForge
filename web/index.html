@@ -359,7 +359,7 @@ button:disabled{opacity:.4;cursor:not-allowed}
 .slotnote.warn{border:1px solid var(--amber-dim);border-left:3px solid var(--amber);border-radius:var(--r-sm);background:var(--amber-tint);padding:8px 12px}
 .slotnote.warn b{color:var(--amber-text)}
 .slotnote .qbtn{margin-left:8px}
-#slots-banner:empty{display:none}
+#slots-banner:empty,#watchdog-banner:empty{display:none}
 /* GGUF metadata card (#11) */
 .metacard{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px 16px;border:1px solid var(--hair);border-radius:var(--r);background:var(--panel2);padding:12px 14px;margin-bottom:12px}
 .metacard .m{font-size:11px}.metacard .m .mk{color:var(--dim);text-transform:uppercase;letter-spacing:.08em;font-size:9px}
@@ -801,6 +801,7 @@ button.danger:hover,.ef-danger:hover{background:var(--red-tint);border-color:var
       <span class="chip" id="cmp-run" style="display:none">Compare (<span id="cmp-n">0</span>)</span>
       <span class="chip" id="unload-all" title="unload every loaded model">Unload all</span>
     </div>
+    <div id="watchdog-banner"></div>
     <div id="slots-banner"></div>
     <div class="list" id="list"><div class="skel">SCANNING REGISTRY...</div></div>
     <details class="kgroup" style="margin-top:16px" id="router-log-details">

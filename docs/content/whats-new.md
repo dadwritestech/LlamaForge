@@ -8,6 +8,15 @@ order: 1
 
 This page summarizes the most recent additions to LlamaForge. Each entry links to the full reference for that capability. For the longer-term direction, see the project's `ROADMAP.md`.
 
+## v0.18.10: The router comes back on its own
+
+If llama.cpp's router crashes, every app pointed at it gets "connection refused" until someone notices. LlamaForge now probes it every 5 seconds and, after 15 seconds without an answer, starts it again with the same settings. Models aren't preloaded; the next request loads its model as usual.
+
+- It only watches a router it has seen running, and it stays out of the way of restarts you or another setting are doing.
+- When the router keeps dying right after it starts, it backs off (4, 8, 16, 32 s) and stops after 5 quick deaths. The Models tab then shows why, read from the router log (out of memory, a bad flag, a missing file), instead of crash-looping in the background.
+- Models shows a short line when it restarted the router, with the count and the time.
+- Off switch: `router_watchdog: false` in `config.json` (see [Configuration](config.md)).
+
 ## v0.18.9: Link straight to a quant
 
 - **`#discover?repo=owner/name&file=x.gguf`.** Opening the panel with that on the end of its URL (`http://127.0.0.1:8090/#discover?repo=...&file=...`) goes to Discover, opens that Hugging Face repo with its fit ratings, and highlights the quant with its Download button focused. Leave out `file` to just open the repo; a pasted `huggingface.co/owner/name` URL works as the repo too.

@@ -27,7 +27,7 @@ import vram_predict, gpuprobe
 import wsl, vllm_ctl, vllm_registry, vllm_setup, vllm_job, vllm_hub, vllm_download
 import gguf, diag, backends, prebuilt, version, slots, slotctl, slotproc, builds, compat
 import mcp_server, ollama, piinstall, tts, logfiles, loadprog, gamemode, footprint, elastic, slotkeep
-import claudelaunch
+import claudelaunch, watchdog
 from builder import BuildManager
 from embers import panel as embers_panel
 import forge_panel
@@ -892,6 +892,7 @@ def get_state(req):
     s["version"] = version.VERSION
     s["slots"] = _slots_state(c)
     s["game_mode"] = GAMEMODE.status()
+    s["router_watchdog"] = WATCHDOG.status()
     s["elastic"] = ELASTIC.status()
     s["onboarding"] = {
         "server_bin_ok": bool(c.get("server_bin")) and os.path.exists(c["server_bin"]),
@@ -2921,6 +2922,37 @@ def _game_load(mid):
 
 # Game mode: server.main() starts its loop; it only looks at processes while on.
 GAMEMODE = gamemode.GameMode(cfg, gamemode.detect, _game_loaded, _game_unload, _game_load)
+
+
+# ---- Router watchdog (watchdog.py): bring a crashed router back ---------------
+def _watchdog_restart():
+    """Start the router again, or None when another lifecycle change holds the
+    lock (it's the one restarting) or the router turns out to be listening."""
+    if not _ROUTER_LIFECYCLE_LOCK.acquire(blocking=False):
+        return None
+    try:
+        c = cfg()
+        if router_ctl.is_running(c["router_port"]):
+            return None
+        sbin = _active_server_bin(c)
+        print("  router is down; restarting it (watchdog)")
+        return router_ctl.start(sbin, config.ini_path(), c["router_port"],
+                                c.get("router_host", "127.0.0.1"),
+                                c.get("router_api_key", ""), LOGDIR,
+                                c.get("router_local_key", ""), _router_pool(c, sbin),
+                                slot_save=_el_slot_save(c))
+    finally:
+        _ROUTER_LIFECYCLE_LOCK.release()
+
+
+def _watchdog_verdict():
+    """Why the router keeps dying, from the end of its own log."""
+    return diag.diagnose("".join(_tail_file(os.path.join(LOGDIR, "router.err.log"), 80)))
+
+
+WATCHDOG = watchdog.Watchdog(lambda: cfg().get("router_watchdog", True),
+                             lambda: watchdog.tcp_probe(cfg()["router_port"]),
+                             _watchdog_restart, _watchdog_verdict)
 
 
 # ---- Elastic VRAM (elastic.py plans, slotkeep.py keeps the conversation) -----

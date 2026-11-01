@@ -461,6 +461,7 @@ def main():
     except Exception as e:
         print(f"  WARNING: embers scheduler did not start ({type(e).__name__}: {e})")
     routes.GAMEMODE.start()  # idle unless game_mode is on in Setup
+    routes.WATCHDOG.start()  # restarts the router if it crashes (router_watchdog)
     slotkeep.sweep(routes.ELASTIC_DIR)  # conversation snapshots a crash left behind
     routes.ELASTIC.start()   # idle unless elastic_vram is on in Setup
     import threading

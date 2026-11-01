@@ -13,6 +13,7 @@ import { S, models as modelRows, config as cfgOf } from "./state.js";
 import { on, emit } from "./bus.js";
 import { activeTab } from "./ui.js";
 import * as slots from "./slots.js";
+import { renderWatchdog } from "./watchdog.js";
 import * as elastic from "./elastic.js";
 import * as autoforge from "./autoforge.js";
 import { bayPlans, bayInputs, gpuTele } from "./bays.js";
@@ -313,6 +314,7 @@ export function renderModels() {
     (ms.length !== all.length ? ` · ${ms.length} shown` : "");
   document.title = nLoaded ? `▸${nLoaded} LLAMAFORGE` : "LLAMAFORGE";
   slots.renderBanner();
+  renderWatchdog(S.STATE.router_watchdog);
   drawGpus();                       // the bay plan shows the open row's booking
   const cols = compareMode ? "16px 14px 18px 1fr auto auto auto auto"
                            : "14px 18px 1fr auto auto auto auto";
