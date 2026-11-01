@@ -6,9 +6,9 @@
 // paints them.
 
 export const W = 1200, H = 630;
-const C = {bg: "#0f1d33", hold: "#0b172a", rule: "#2a4466", ink: "#eaf0f6", dim: "#a4b6c8",
+export const C = {bg: "#0f1d33", hold: "#0b172a", rule: "#2a4466", ink: "#eaf0f6", dim: "#a4b6c8",
   amber: "#ffc21a", onAmber: "#14110a", green: "#5cc595", warn: "#ffcf4d"};
-const COND = "'Barlow Condensed','Arial Narrow',sans-serif", SANS = "'Barlow','Segoe UI',sans-serif";
+export const COND = "'Barlow Condensed','Arial Narrow',sans-serif", SANS = "'Barlow','Segoe UI',sans-serif";
 
 const f1 = v => (v == null || !Number.isFinite(+v)) ? "–" : (+v).toFixed(1);
 
@@ -33,7 +33,7 @@ export function cardText(d) {
   };
 }
 
-function fit(ctx, text, font, max) {
+export function fit(ctx, text, font, max) {
   ctx.font = font;
   if (ctx.measureText(text).width <= max) return text;
   let t = text;

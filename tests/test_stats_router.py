@@ -184,6 +184,27 @@ class TestPool(RouterCase):
         self.assertEqual(live["gen_per_sec"], 65.0)
         self.assertEqual(live["requests_processing"], 2)
 
+    def test_decode_speed_is_llamacpps_own_token_weighted(self):
+        # avg_tps divides by poll windows, so parallel streams and late polls
+        # inflate it; decode_tps weights llama.cpp's own gauge by tokens
+        self._pool({"big": (0, 0, 0.0)})
+        self.tr.poll_once()
+        self._pool({"big": (0, 100, 50.0)})         # 100 tokens at 50 tok/s = 2 s
+        self.tr.poll_once()
+        self._pool({"big": (0, 400, 100.0)})        # 300 tokens at 100 tok/s = 3 s
+        self.tr.poll_once()
+        row = next(r for r in self.tr.summary()["per_model"] if r["id"] == "big")
+        self.assertEqual(row["decode_tps"], 80.0)
+
+    def test_no_gauge_means_no_decode_speed(self):
+        self._pool({"big": (0, 0, 0.0)})
+        self.tr.poll_once()
+        self._pool({"big": (0, 100, 0.0)})
+        self.tr.poll_once()
+        row = next(r for r in self.tr.summary()["per_model"] if r["id"] == "big")
+        self.assertEqual(row["generated"], 100)
+        self.assertEqual(row["decode_tps"], 0)
+
     def test_a_failed_scrape_keeps_the_baseline(self):
         self._pool({"big": (0, 1000, 0.0)})
         self.tr.poll_once()

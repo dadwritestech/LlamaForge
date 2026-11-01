@@ -27,7 +27,7 @@ import vram_predict, gpuprobe
 import wsl, vllm_ctl, vllm_registry, vllm_setup, vllm_job, vllm_hub, vllm_download
 import gguf, diag, backends, prebuilt, version, slots, slotctl, slotproc, builds, compat
 import mcp_server, ollama, piinstall, tts, logfiles, loadprog, gamemode, footprint, elastic, slotkeep
-import claudelaunch, watchdog
+import claudelaunch, rigcard, watchdog
 from builder import BuildManager
 from embers import panel as embers_panel
 import forge_panel
@@ -975,6 +975,13 @@ def get_router_log(req):
 
 def get_stats(req):
     return 200, stats.TRACKER.summary()
+
+
+def get_rig(req):
+    """The rig card: GPUs, RAM, OS, version, the most-used models and their
+    measured speed. rigcard keeps paths and markup out of it."""
+    return 200, rigcard.build(_GPU_TELEMETRY.get(), osplat.ram_usage(), osplat.current(),
+                              version.VERSION, stats.TRACKER.summary())
 
 
 def get_scan_missing(req):
@@ -2762,6 +2769,7 @@ GET_ROUTES = {
     "/api/starters":          get_starters,
     "/api/router/log":        get_router_log,
     "/api/stats":             get_stats,
+    "/api/rig":               get_rig,
     "/api/scan/missing":      get_scan_missing,
     "/api/network":           get_network,
     "/api/vllm/log":          get_vllm_log,

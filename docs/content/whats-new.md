@@ -8,6 +8,13 @@ order: 1
 
 This page summarizes the most recent additions to LlamaForge. Each entry links to the full reference for that capability. For the longer-term direction, see the project's `ROADMAP.md`.
 
+## v0.18.11: Share your rig
+
+Stats has a **Share my rig** button: a 1200x630 image (and markdown) of your GPUs, RAM and OS, your five most-used models with their speed and token counts, and how many tokens this machine has generated. Download it, copy it, post it. See [Stats](stats.md).
+
+- Model names lose any folder part, and nothing on the card can carry a path, key or host.
+- The speed is now llama.cpp's own timing. The old Tok/s column divided tokens by 4-second poll windows, so parallel requests and late polls pushed it far too high. The new figure is the router's per-slot generation speed averaged over every token, and reads "-" until a model has generated under this version. That's also what the Stats tab shows now.
+
 ## v0.18.10: The router comes back on its own
 
 If llama.cpp's router crashes, every app pointed at it gets "connection refused" until someone notices. LlamaForge now probes it every 5 seconds and, after 15 seconds without an answer, starts it again with the same settings. Models aren't preloaded; the next request loads its model as usual.

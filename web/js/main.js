@@ -10,6 +10,7 @@ import { S } from "./state.js";
 import * as ui from "./ui.js";
 import * as models from "./models.js";
 import * as stats from "./stats.js";
+import { openRig } from "./rigshare.js";
 import { loadDiscover, openDeepLink } from "./discover.js";
 import { parseHash } from "./deeplink.js";
 import { loadWillRun } from "./willrun.js";
@@ -57,7 +58,7 @@ initOnboarding();
 models.initModels();
 initProfiles();
 initClaudeCode();
-stats.initStats();
+stats.initStats(openRig);
 
 // deep-linkable tabs: #<tab> in the URL activates that tab (docs deep-links +
 // tools/shoot.py). Runs after initTabs() has wired the click handlers.

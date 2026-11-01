@@ -84,7 +84,7 @@ every server flag instead of a curated subset.
 - **Discover**: Hugging Face GGUF search that opens on what's new this week. Every quant gets a rough fit rating for your VRAM before you download (FITS / TIGHT / CPU OFFLOAD). Downloads resume after interruption, register themselves, and end in **Load & Chat**. A link like `http://127.0.0.1:8090/#discover?repo=owner/name&file=x.gguf` opens it on one quant.
 - **Will it run?**: pick a repo and quant, get the fit and a rough speed estimate.
 - **Build / Update**: one-click official llama.cpp builds with rollback, or build from source with flags detected for your GPU. Also drives [ik_llama.cpp](https://github.com/ikawrakow/ik_llama.cpp) and, on Windows, [vLLM](https://github.com/vllm-project/vllm) in WSL2.
-- **Stats**: per-model tokens, speed and run counts from the router's own metrics, plus live GPU memory and system RAM. Per-client stats aren't possible, because clients talk to the router directly.
+- **Stats**: per-model tokens, speed and run counts from the router's own metrics, plus live GPU memory and system RAM. **Share my rig** turns it into a postable card. Per-client stats aren't possible, because clients talk to the router directly.
 - **Context**: Markdown context docs composed into profiles, injected into requests or written into `CLAUDE.md` / `AGENTS.md`.
 - **Recipes**: share a profile as readable JSON; others import it in one paste and LlamaForge downloads the model if missing. There's a [community gallery](recipes/).
 

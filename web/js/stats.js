@@ -14,7 +14,7 @@ const liveHue = () => {
 };
 const tokenFact = createFactRotator();
 const SORT_COLS = {tokens:"Total", prompt:"Prompt", generated:"Gen",
-                   avg_tps:"Tok/s", runs:"Runs", loaded_secs:"Loaded"};
+                   decode_tps:"Tok/s", runs:"Runs", loaded_secs:"Loaded"};
 
 function setStatsRange(n) { statsRange = n; loadStats(true); }
 function sortStats(c) { statsSort = c; loadStats(true); }
@@ -28,7 +28,7 @@ async function resetStats() {
 
 // The stats view is fully re-rendered on each load, so its controls are wired
 // once by delegation on the container rather than per-render.
-export function initStats() {
+export function initStats(openRig = () => {}) {
   const view = $("#view-stats");
   if (!view) return;
   view.addEventListener("click", e => {
@@ -37,6 +37,7 @@ export function initStats() {
     const sort = e.target.closest("[data-sort]");
     if (sort) { sortStats(sort.dataset.sort); return; }
     if (e.target.closest("[data-statsreset]")) resetStats();
+    if (e.target.closest("[data-rigshare]")) openRig();
   });
   // a skin switch redraws from what we have, unless Stowage needs a fuller payload
   document.addEventListener("lf-skin", () => {
@@ -218,12 +219,13 @@ export async function loadStats(silent) {
           <span class="led ${loaded.includes(m.id)?"loaded":""}"></span>
           <span class="mid">${esc(m.id)}</span>
           <span class="ctxpill" title="prompt ${fmtNum(m.prompt)} + generated ${fmtNum(m.generated)}">${fmtNum(m.tokens)} tok</span>
-          <span class="stat" title="average generation speed while active">${m.avg_tps?m.avg_tps+" tok/s":"-"}</span>
+          <span class="stat" title="generation speed as llama.cpp timed it, averaged over every token">${m.decode_tps?m.decode_tps+" tok/s":"-"}</span>
           <span class="stat">${fmtNum(m.runs)} runs</span>
           <span class="stat">${fmtDur(m.loaded_secs)}</span>
           <span class="stat">${fmtAgo(m.last_used)}</span>
         </div></div>`).join("")}</div>
-      <div style="display:flex;justify-content:flex-end;margin-top:18px">
+      <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:18px">
+        <button data-rigshare title="an image of your GPUs, top models and their measured speed, to post">Share my rig&hellip;</button>
         <button class="danger" data-statsreset title="zero all usage statistics">Reset stats&hellip;</button></div>`
       :`<div class="note">No models have logged usage yet.</div>`}
     </div></div>`);

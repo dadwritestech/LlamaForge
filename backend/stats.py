@@ -273,6 +273,11 @@ class StatsTracker:
                         dp = dg = 0
                     if dp or dg:
                         self._record_tokens(model, dp, dg)
+                    gps = metrics.get(M_GEN_PER_SEC, 0.0)
+                    if dg > 0 and gps > 0:     # llama.cpp's own decode timing for this window
+                        m = self._model(model)
+                        m["dec_tokens"] = m.get("dec_tokens", 0) + int(dg)
+                        m["dec_secs"] = m.get("dec_secs", 0.0) + dg / gps
                     if dg > 0 and idle.get(model, True):   # a fresh generation burst ~= one run
                         self._model(model)["runs"] += 1
                     self._idle[model] = (dg == 0)
@@ -314,6 +319,11 @@ class StatsTracker:
                 # gen_secs is missing in stats.json files written before v2
                 "avg_tps": round(m["generated"] / m["gen_secs"], 1)
                            if m.get("gen_secs") else 0,
+                # llama.cpp's own decode speed, token-weighted. avg_tps above
+                # counts poll windows, so parallel streams and late polls
+                # inflate it; this is the number fit to quote
+                "decode_tps": round(m["dec_tokens"] / m["dec_secs"], 1)
+                              if m.get("dec_secs") else 0,
                 "last_used": m["last_used"],
             } for mid, m in models.items()]
             per_model.sort(key=lambda x: x["tokens"], reverse=True)
