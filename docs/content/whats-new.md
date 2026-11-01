@@ -8,6 +8,10 @@ order: 1
 
 This page summarizes the most recent additions to LlamaForge. Each entry links to the full reference for that capability. For the longer-term direction, see the project's `ROADMAP.md`.
 
+## v0.18.4: Paste-ready settings for your apps
+
+- **Client Config fills in your apps.** Next to curl and the OpenAI environment variables, a model's **Client Config** now has an **Apps** section with that model's settings for **Open WebUI** (where to click, and the `host.docker.internal` address when Open WebUI runs in Docker and the router is on 127.0.0.1), a **Continue** `config.yaml`, **Cline**'s OpenAI Compatible fields and an **aider** command. Each has a Copy button.
+
 ## v0.18.3: Thinking effort, per model
 
 - **Set how hard a model thinks.** Models whose chat template takes a reasoning effort (Qwen3.8, gpt-oss and others) get an **effort** dropdown in the **Thinking** row, next to the budget. It lists only the levels that template knows, read from the GGUF (Qwen3.8 offers low, medium and xhigh), and writes llama.cpp's `--reasoning-effort` for that model, so every app that talks to the router gets it without sending anything. Needs a llama.cpp build from v0.8.0 on. See [Models](models.md).
