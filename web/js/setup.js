@@ -6,6 +6,7 @@ import { emit } from "./bus.js";
 import { applyPool } from "./slots.js";
 import * as elastic from "./elastic.js";
 import { idleMarkup } from "./idle.js";
+import { reclaimMarkup, gb } from "./reclaim.js";
 
 let vllmSetupPoll = null;
 let setupGeneration = 0;
@@ -745,6 +746,11 @@ export async function loadSetup() {
       <div id="scan-out"></div>
       <div id="missing-out"></div>
     </div>
+    <div class="card" id="reclaim-card"><h3>Free Disk Space</h3>
+      <div class="note" style="margin-top:0">Lists the models nobody has used in 90 days (from Stats) and files that are byte-identical copies of each other, like the same quant downloaded twice. Delete removes the GGUF file from disk and the model from your config, after you confirm.</div>
+      <div class="actions"><button id="btn-reclaim">Find unused models and duplicates</button><span class="msg" id="reclaim-msg"></span></div>
+      <div id="reclaim-out"></div>
+    </div>
     <div class="card"><h3>Startup</h3>
       <div class="kv"><label class="k" for="auto-load">auto-load a model on launch</label>
         <span class="v"><select id="auto-load" style="background:var(--inset);border:1px solid var(--hair);color:var(--ink);font-family:var(--mono);font-size:12px;padding:6px">
@@ -786,6 +792,7 @@ export async function loadSetup() {
     msg.textContent = model_dirs.length ? `saved ${model_dirs.length}` : "cleared — all drives";
   };
   $("#btn-missing").onclick = checkMissing;
+  $("#btn-reclaim").onclick = checkReclaim;
   wireSlots(generation);
   wireGame(generation);
   wireElastic(generation);
@@ -1147,6 +1154,26 @@ async function scanDrives() {
     const rr = await api("/api/scan/apply", {entries: fresh});
     am.className = "msg ok"; am.textContent = `added ${rr.added}`;
     toast("Models added", "ok"); emit("refresh", true);
+  };
+}
+
+async function checkReclaim() {
+  const out = $("#reclaim-out");
+  setHTML(out, `<div class="note">reading model sizes...</div>`);
+  const r = await api("/api/reclaim").catch(() => null);
+  if (!r || !Array.isArray(r.stale)) {
+    setHTML(out, `<div class="note" style="color:var(--red)">${esc((r && r.error) || "backend unreachable")}</div>`); return;
+  }
+  setHTML(out, reclaimMarkup(r));
+  for (const b of $$("[data-del]", out)) b.onclick = async () => {
+    const id = b.dataset.del;
+    if (!await askYes(`Delete ${id} from disk? This removes ${b.dataset.path} (and its other parts, if it's split) and can't be undone.`,
+                      {title: "Delete model file", ok: "Delete", danger: true})) return;
+    const m = $("#reclaim-msg"); m.className = "msg work"; m.textContent = `deleting ${id}...`;
+    const rr = await api("/api/reclaim/delete", {id}).catch(() => null);
+    if (!rr || !rr.ok) { m.className = "msg err"; m.textContent = (rr && rr.error) || "delete failed"; return; }
+    m.className = "msg ok"; m.textContent = `deleted ${id}, freed ${gb(rr.freed)}`;
+    toast(`Freed ${gb(rr.freed)}`, "ok"); emit("refresh", true); checkReclaim();
   };
 }
 

@@ -8,6 +8,13 @@ order: 1
 
 This page summarizes the most recent additions to LlamaForge. Each entry links to the full reference for that capability. For the longer-term direction, see the project's `ROADMAP.md`.
 
+## v0.18.13: Free disk space
+
+Setup has a **Free Disk Space** card. One click lists the models nobody has used in 90 days (from Stats), largest first, and any GGUF that's a byte-identical copy of another, like the same quant in two apps' folders. Each row has a Delete button that asks first, then unloads the model, deletes the file (every part of a split one) and removes it from your config. See [Setup](setup.md#free-disk-space).
+
+- It won't delete a file another model points at, a link into another app's cache, or anything but a `.gguf`. Shared `mmproj` files stay.
+- If Stats is younger than 90 days, the card says so instead of calling everything unused.
+
 ## v0.18.12: Sleep idle models
 
 Setup has a **Sleep idle models** card. Pick a number of minutes and any llama.cpp model that sits idle that long frees its VRAM and RAM, stays in the list as **sleeping** (a hollow light), and wakes on the next request. On a test here a 3B model went from about 3.2 GB of VRAM to under 0.5 GB asleep, and woke for a chat request in 0.65 s. See [Setup](setup.md#sleep-idle-models).

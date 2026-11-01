@@ -10,7 +10,7 @@ Check build prerequisites, install what is missing with your permission, scan yo
 
 ## What it does
 
-The Setup tab is a column of cards. The four described first (prerequisites, installing missing tools, drive scan, registry prune) each have their own backend module; the cards for [Network Access](#network-access), [Connect an Agent](#connect-an-agent), [Game mode](#game-mode), [Elastic VRAM](#elastic-vram), [Sleep idle models](#sleep-idle-models), multi-model, speed estimates and vLLM follow below.
+The Setup tab is a column of cards. The four described first (prerequisites, installing missing tools, drive scan, registry prune) each have their own backend module; the cards for [Network Access](#network-access), [Connect an Agent](#connect-an-agent), [Game mode](#game-mode), [Elastic VRAM](#elastic-vram), [Sleep idle models](#sleep-idle-models), [Free disk space](#free-disk-space), multi-model, speed estimates and vLLM follow below.
 
 **Prerequisite detection.** `backend/prereqs.py` checks for four command-line tools — `git`, `cmake`, `ninja`, and `python` (via `shutil.which`, running `--version` to confirm and capture the installed version) — plus the platform C++ compiler and the CUDA toolkit. On Windows, the compiler check (`find_msvc()`) shells out to `vswhere.exe` to locate an MSVC install with the C++ desktop workload, falling back to a glob for `cl.exe` under `Program Files\Microsoft Visual Studio`. On macOS/Linux it looks for `clang++` or `g++` on `PATH`. CUDA detection reads `nvcc --version` (or `$CUDA_PATH`) and is skipped entirely on macOS, where Metal is used instead.
 
@@ -80,6 +80,15 @@ When another app (a game, Blender, ComfyUI, a video editor) needs your GPU, Elas
 - **Where it works:** NVIDIA GPUs only, since it reads free memory from `nvidia-smi`. On a Mac, or without an NVIDIA GPU, the card says so and the setting does nothing. Only llama.cpp router models are resized: not models pinned to a build of their own, ik_llama or vLLM.
 
 The card shows the current state on its **now** line and a log of the last 20 resizes: when, which model, from and to which size, why, how long it took and whether the conversation was kept.
+
+## Free disk space
+
+GGUFs are big, and they pile up. **Find unused models and duplicates** lists two things:
+
+- **Models nobody has used in 90 days**, largest first, with when each was last used. "Used" comes from [Stats](stats.md): the last time the model generated anything. If Stats has been tracking for less than 90 days, the card says "not used since usage tracking began" with the date, so a model you used last month on an older install isn't mistaken for dead weight.
+- **Byte-identical copies**: the same file in two places, like a quant downloaded once into LlamaForge's folder and again by LM Studio. Files are matched by size, then by a hash of their header and samples of their weights, so it's quick even on a drive full of models and a fine-tune with the same layout isn't taken for a copy.
+
+Each row has a **Delete** button. It asks first, naming the file, then unloads the model if it's running, deletes the GGUF (all its parts, if it's split) and removes the model from `models.ini`. It never deletes a file another model still points at, a link into another app's cache, or anything that isn't a `.gguf`. A vision model's `mmproj` file is left alone, since other quants of the same model may use it.
 
 ## Sleep idle models
 

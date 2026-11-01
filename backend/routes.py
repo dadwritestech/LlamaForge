@@ -26,7 +26,7 @@ import feed, selfupdate, appinstall, profiles, recipes, gallery, starters
 import vram_predict, gpuprobe
 import wsl, vllm_ctl, vllm_registry, vllm_setup, vllm_job, vllm_hub, vllm_download
 import gguf, diag, backends, prebuilt, version, slots, slotctl, slotproc, builds, compat
-import idle, mcp_server, ollama, piinstall, tts, logfiles, loadprog, gamemode, footprint, elastic, slotkeep
+import idle, reclaim, mcp_server, ollama, piinstall, tts, logfiles, loadprog, gamemode, footprint, elastic, slotkeep
 import claudelaunch, rigcard, watchdog
 from builder import BuildManager
 from embers import panel as embers_panel
@@ -1012,6 +1012,49 @@ def post_idle(req):
     if st != 200:
         return 200, {"ok": True, "minutes": mins, "warning": (out or {}).get("error") or "saved; the router reads it when it restarts"}
     return 200, {"ok": True, "minutes": mins}
+
+
+def _last_used():
+    with stats.TRACKER.lock:
+        return ({mid: m.get("last_used") or 0 for mid, m in stats.TRACKER.data["models"].items()},
+                stats.TRACKER.data.get("first_seen") or time.time())
+
+
+def get_reclaim(req):
+    """Disk reclaim (reclaim.py): models unused for ?days= (90) and duplicate files."""
+    try:
+        days = max(1, min(3650, int(req.q("days", "90") or 90)))
+    except (TypeError, ValueError):
+        days = 90
+    used, since = _last_used()
+    return 200, reclaim.report(config.read_sections(), used, since, time.time(), days)
+
+
+def post_reclaim_delete(req):
+    """Delete one registered model's GGUF file(s) and its models.ini section.
+    The UI asks first; this refuses anything that isn't a plain registered .gguf."""
+    mid = (req.body or {}).get("id") or ""
+    sections = config.read_sections()
+    try:
+        reclaim.check(mid, sections)        # refuse before unloading anything
+    except ValueError as e:
+        return 200, {"ok": False, "error": str(e)}
+    st, data = router("/models")
+    loaded = any(m.get("id") == mid and (m.get("status") or {}).get("value") in ("loaded", "sleeping", "loading")
+                 for m in data.get("data", [])) if st == 200 else False
+    if loaded:
+        router("/models/unload", "POST", {"model": mid})
+    try:
+        freed = reclaim.delete_model(mid, sections)
+    except (ValueError, OSError) as e:
+        return 200, {"ok": False, "error": str(e)}
+    engine = cfg().get("active_engine", "llamacpp")
+    config.remove_section(mid)
+    _reconcile_preset_binding(mid, {}, engine)
+    config.prune_binding(mid, engine)
+    config.prune_vision(mid, engine)
+    reload_presets()
+    return 200, {"ok": True, "freed": freed}
 
 
 def get_scan_missing(req):
@@ -2801,6 +2844,7 @@ GET_ROUTES = {
     "/api/stats":             get_stats,
     "/api/rig":               get_rig,
     "/api/idle":              get_idle,
+    "/api/reclaim":           get_reclaim,
     "/api/scan/missing":      get_scan_missing,
     "/api/network":           get_network,
     "/api/vllm/log":          get_vllm_log,
@@ -2874,6 +2918,7 @@ POST_ROUTES = {
     "/api/scan":                post_scan,
     "/api/scan/apply":          post_scan_apply,
     "/api/scan/prune":          post_scan_prune,
+    "/api/reclaim/delete":      post_reclaim_delete,
     "/api/hub/search":          post_hub_search,
     "/api/app/update":          post_app_update,
     "/api/app/restart":         post_app_restart,
