@@ -8,6 +8,12 @@ order: 1
 
 This page summarizes the most recent additions to LlamaForge. Each entry links to the full reference for that capability. For the longer-term direction, see the project's `ROADMAP.md`.
 
+## v0.17.2: Share your Auto-Forge result
+
+- **Share.** When Auto-Forge finds a setup faster than yours, a **Share** button makes it a 1200x630 image card (before and after tokens a second, the speedup, your GPUs, the context, whether answers stay the same) and a markdown table with the flags it chose. Neither holds a file path, key or host. See [Auto-Forge](autoforge.md#share). API: `/api/forge/share`.
+- **Auto-Forge survives more out-of-memory cases.** An out-of-memory line that llama.cpp retries past no longer fails the candidate, the window steps down when the asked context doesn't fit, and when your current setup is faster than every candidate (say it uses a drafter Forge can't rebuild) the result says so and offers **Apply anyway** instead of pushing Apply.
+- **Fix.** Lite mode shows GPU layers again on llama.cpp builds whose first spelling of the flag is `--gpu-layers`.
+
 ## v0.17.1: Claude Code launch fixes
 
 - **Claude Code on a folder works from the Launch button on Windows.** The terminal window no longer closes the moment it opens, and Claude Code no longer gets `401 invalid x-api-key` when LlamaForge itself was started from a Claude session (it used that session's login instead of the panel key).
