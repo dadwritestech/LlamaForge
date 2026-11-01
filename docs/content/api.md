@@ -137,6 +137,7 @@ See [Setup > Elastic VRAM](setup.md#elastic-vram). The settings themselves go th
 | POST | `/api/forge/cancel` | Stop the current run; the GPUs are given back and a run with the same request resumes later. |
 | POST | `/api/forge/apply` | Write the winner into the model's `models.ini` section (`{model}`): only what Forge changed from the setup it started with, vision through the vision switch. Returns `{ok, updates}`. `409` while a run is going. |
 | POST | `/api/forge/undo` | Put back what the last Apply replaced (`{model}`). `400` if there's nothing to undo. |
+| GET | `/api/forge/share?model=` | The last result as postable data: `{model, file, gpus, ctx, before, after, x, settings, lossless, markdown}`, with no paths, keys or hosts. `404` with no result. |
 | GET | `/api/claude/check` | Can Claude Code run on `?model=`: `cli` (`path`, `version`), `small` (the model for background requests), `checks` (each `{level, text}`), `ready`, `recent` (recent folders), `install_hint`. Reading the context size never loads the model. |
 | POST | `/api/claude/pick-folder` | Open the OS folder picker; returns `{path}` (empty if cancelled) or `{unsupported: true}`. |
 | POST | `/api/claude/launch` | Open a new terminal in `{folder}` running `claude` against the panel's `/v1/messages`, on `{model}`. The endpoint and key are set on that process only. Returns `{launched, command}` (`launched: false` = no terminal found, run `command` yourself). `409` with the failing checks if not ready. |

@@ -46,6 +46,10 @@ Press **Forge**. While it runs, LlamaForge has the GPUs to itself: every loaded 
 
 **Apply** writes only what Forge changed from the setup it started with into the model's `models.ini` section, and reloads the model. Keys you didn't ask it about, and keys in `[*]`, are left alone. It remembers what it replaced, so **Undo** puts your old values back. The model editor shows the new values right away.
 
+## Share
+
+When the winner beats your current setup, **Share** opens a card you can post: before and after tokens a second, the speedup, your GPU models, the context size and whether the answers stay the same. **Download image** saves it as a 1200x630 PNG (the size Reddit, X and GitHub previews use); **Copy markdown** gives a table plus the flags Forge chose, ready for a forum post or an issue. Neither holds a file path, API key or host: only the flags Forge decides, with each model file cut to its name.
+
 ## Good to know
 
 - Needs at least one NVIDIA GPU (VRAM is read with `nvidia-smi`).
@@ -53,4 +57,4 @@ Press **Forge**. While it runs, LlamaForge has the GPUs to itself: every loaded 
 - Everything is measured on this machine. Nothing is uploaded.
 - It's new. It has been run end-to-end on one two-GPU Windows machine so far; reports from other setups are very welcome.
 
-API: `GET /api/forge/status?model=`, `POST /api/forge/start`, `/api/forge/cancel`, `/api/forge/apply`, `/api/forge/undo`. See [API](api.md).
+API: `GET /api/forge/status?model=`, `POST /api/forge/start`, `/api/forge/cancel`, `/api/forge/apply`, `/api/forge/undo`, `GET /api/forge/share?model=`. See [API](api.md).
