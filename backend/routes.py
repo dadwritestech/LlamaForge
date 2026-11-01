@@ -26,7 +26,7 @@ import feed, selfupdate, appinstall, profiles, recipes, gallery, starters
 import vram_predict, gpuprobe
 import wsl, vllm_ctl, vllm_registry, vllm_setup, vllm_job, vllm_hub, vllm_download
 import gguf, diag, backends, prebuilt, version, slots, slotctl, slotproc, builds, compat
-import idle, reclaim, tmpldoctor, mcp_server, ollama, piinstall, tts, logfiles, loadprog, gamemode, footprint, elastic, slotkeep
+import idle, reclaim, tmpldoctor, samplers, mcp_server, ollama, piinstall, tts, logfiles, loadprog, gamemode, footprint, elastic, slotkeep
 import claudelaunch, rigcard, watchdog
 from builder import BuildManager
 from embers import panel as embers_panel
@@ -1047,6 +1047,21 @@ def post_template_apply(req):
         return 200, {"ok": False, "error": str(e)}
     config.set_keys(mid, {"chat-template-file": dest})
     return 200, {"ok": True, "file": dest, "was_running": _reload_preset(mid)}
+
+
+def get_samplers(req):
+    """The samplers the model's makers publish (generation_config.json), next
+    to what models.ini sets now. `inherited` = knobs only [*] sets."""
+    mid = req.q("model")
+    secs = config.read_sections()
+    sect = secs.get(mid) if mid and mid != "*" else None
+    if not sect or not sect.get("model"):
+        raise ApiError(404, "unknown model")
+    out = samplers.recommend(sect["model"])
+    glob = secs.get("*", {})
+    out["current"] = {k: sect.get(k, glob.get(k)) for k in samplers.KNOBS if k in sect or k in glob}
+    out["inherited"] = [k for k in samplers.KNOBS if k not in sect and k in glob]
+    return 200, out
 
 
 def get_reclaim(req):
@@ -2875,6 +2890,7 @@ GET_ROUTES = {
     "/api/idle":              get_idle,
     "/api/reclaim":           get_reclaim,
     "/api/template/check":    get_template_check,
+    "/api/samplers":          get_samplers,
     "/api/scan/missing":      get_scan_missing,
     "/api/network":           get_network,
     "/api/vllm/log":          get_vllm_log,

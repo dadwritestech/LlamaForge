@@ -8,6 +8,14 @@ order: 1
 
 This page summarizes the most recent additions to LlamaForge. Each entry links to the full reference for that capability. For the longer-term direction, see the project's `ROADMAP.md`.
 
+## v0.18.15: Recommended samplers
+
+A model's editor has a **Samplers** row. **Recommended** reads the temperature, top-p, top-k and other sampler values the model's makers publish in `generation_config.json`, from the GGUF repo or the base model on its card, and shows them next to yours. **Use these** writes only the values that differ. See [Models](models.md).
+
+- The source is linked, so you can check where a number came from.
+- Here, Qwen3.8-27B's base repo recommends temp 1, top-k 20, top-p 0.95; the GGUF repo has no `generation_config.json`, which is why the base model is the fallback.
+- Prose recommendations in a model card aren't parsed: too fuzzy to apply with one click.
+
 ## v0.18.14: Template doctor
 
 A model's editor has a **Template** row. **Check** compares the chat template inside your GGUF with the repo you downloaded it from and the base model's, and says when yours is stale. A stale template is the usual cause of broken tool calls and thinking that won't switch off. One click uses the newer template through llama.cpp's `--chat-template-file`; the GGUF isn't touched. See [Models](models.md).

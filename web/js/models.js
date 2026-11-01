@@ -19,6 +19,7 @@ import * as elastic from "./elastic.js";
 import * as autoforge from "./autoforge.js";
 import { bayPlans, bayInputs, gpuTele } from "./bays.js";
 import * as tmpl from "./tmpldoctor.js";
+import * as smp from "./samplers.js";
 
 const LITE_KNOBS = new Set(["n-gpu-layers","ctx-size","cache-type-k","cache-type-v",
   "flash-attn","batch-size","ubatch-size","threads","tensor-split","temp","top-p"]);
@@ -136,7 +137,7 @@ function knobGroups(m, schema) {
 function editorLive(m) {
   return m.backend === "vllm"
     ? `${diagBlock(m)}${modelMeta(m)}`
-    : `${diagBlock(m)}${metaBlock(m)}${modelMeta(m)}${buildBar(m)}${thinkBar(m)}${visionBar(m)}${tmpl.templateBar(m)}${presetBar(m)}${autoTuneBar(m)}`;
+    : `${diagBlock(m)}${metaBlock(m)}${modelMeta(m)}${buildBar(m)}${thinkBar(m)}${visionBar(m)}${tmpl.templateBar(m)}${smp.samplerBar(m)}${presetBar(m)}${autoTuneBar(m)}`;
 }
 function editorButtons(m) {
   if (m.backend === "vllm") {
@@ -824,6 +825,16 @@ async function checkTemplate(row, id) {
   setHTML(live && $("[data-tmpl-out]", live), tmpl.templateMarkup(id, tmpl.results[id]));
 }
 
+async function checkSamplers(row, id) {
+  smp.results[id] = {checking: true};
+  setHTML(row && $("[data-smp-out]", row), smp.samplerMarkup(id, smp.results[id]));
+  let r;
+  try { r = await api("/api/samplers?model=" + encodeURIComponent(id)); } catch (e) { r = {error: String(e)}; }
+  smp.results[id] = r && r.values ? r : {values: {}, error: (r && r.error) || "check failed"};
+  const live = $(`.row[data-id="${CSS.escape(id)}"]`) || row;
+  setHTML(live && $("[data-smp-out]", live), smp.samplerMarkup(id, smp.results[id]));
+}
+
 /* ---------- autotune bar ---------- */
 function autoTuneBar(m) {
   return `<div class="tunebar">
@@ -1133,6 +1144,18 @@ export function initModels() {
       delete tmpl.results[id];
       await applyToggle(tApply.closest(".row"), id, "Chat template",
         () => api("/api/template/apply", {model: id, source: tApply.dataset.tmplSource}));
+      return;
+    }
+    // recommended samplers
+    const sCheck = e.target.closest("#view-models [data-smp-check]");
+    if (sCheck) { e.stopPropagation(); await checkSamplers(sCheck.closest(".row"), sCheck.dataset.smpCheck); return; }
+    const sApply = e.target.closest("#view-models [data-smp-apply]");
+    if (sApply) {
+      e.stopPropagation();
+      const id = sApply.dataset.smpApply, r = smp.results[id];
+      const settings = Object.fromEntries(smp.changed(r).map(k => [k, r.values[k]]));
+      delete smp.results[id];
+      await applyToggle(sApply.closest(".row"), id, "Samplers", () => api("/api/save", {model: id, settings}));
       return;
     }
     if (autoforge.handleClick(e)) return;

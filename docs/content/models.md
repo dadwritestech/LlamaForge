@@ -46,6 +46,10 @@ Because the flag count is entirely a function of your `llama-server` build, Llam
    - **Differs from the base model**: only a hint. GGUF makers often change templates on purpose (unsloth adds fixes), so **Try the base template** only if tool calls or thinking misbehave.
    - While an override is set, the row says which file is in use, and **Use the file's own** removes it. Like the other switches, applying unloads a loaded model after you confirm.
    - It works for models downloaded through LlamaForge or sitting in the Hugging Face cache; other files have no repo to compare against, and the row says so.
+14. To see the sampler settings a model's makers recommend, click **Recommended** on the **Samplers** row. LlamaForge reads `generation_config.json` from the repo you downloaded the GGUF from, else from the base model on its card (GGUF repos rarely carry it), and maps `temperature`, `top_p`, `top_k`, `min_p`, `repetition_penalty` and `presence_penalty` onto `temp`, `top-p`, `top-k`, `min-p`, `repeat-penalty` and `presence-penalty`.
+   - Values that already match yours are dimmed (as numbers, so `1.0` matches `1`); hover a value to see yours, including whether it comes from `[*]`. The source repo is linked.
+   - **Use these** writes only the values that differ into the model's own section. Like the other switches, it unloads a loaded model after you confirm.
+   - A config with `do_sample: false` means greedy decoding, shown as `temp 0`. Recommendations written only in a model card's prose aren't read.
 
 ## Screenshot
 
@@ -69,6 +73,7 @@ Because the flag count is entirely a function of your `llama-server` build, Llam
 | Load progress | `backend/loadprog.py`, `load_progress` on `/api/state` rows | Folds the router's `/models/sse` `status_change` events into `{pct, stage}` per loading model; never goes backwards within a load; a 404 from an older router stops it asking for 10 minutes. |
 | Thinking | `POST /api/save` with `reasoning` / `reasoning-effort` / `reasoning-budget` | Template hint from `gguf.thinking_kind()` (`thinking` in `/api/model/metadata`: `switch`, `tags` or absent) and `gguf.effort_levels()` (`effort_levels`, lowest to highest). The template itself is never returned. |
 | Template doctor | `GET /api/template/check`, `POST /api/template/apply` (`backend/tmpldoctor.py`) | Streams the repo file's GGUF header over an HTTP Range request (64 MB cap), reads the base model's template, diffs both against `gguf.chat_template()`. Apply writes `chat-templates/<model>.<source>.jinja` and sets `chat-template-file`. |
+| Recommended samplers | `GET /api/samplers` (`backend/samplers.py`) | Reads `generation_config.json` (GGUF repo, then base model) and maps the HF keys to llama-server knob names. Apply goes through `POST /api/save` with only the differing knobs. |
 | Vision on/off | `POST /api/model/vision` | `config.set_vision()` parks or restores the `mmproj` line; parked paths live in `vision_off`. |
 | Unregister | `POST /api/models/unregister` | Removes a llama-family `models.ini` section after unloading it; never deletes its GGUF file. |
 
