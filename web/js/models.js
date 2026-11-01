@@ -20,6 +20,7 @@ import * as autoforge from "./autoforge.js";
 import { bayPlans, bayInputs, gpuTele } from "./bays.js";
 import * as tmpl from "./tmpldoctor.js";
 import * as smp from "./samplers.js";
+import * as reup from "./reupload.js";
 
 const LITE_KNOBS = new Set(["n-gpu-layers","ctx-size","cache-type-k","cache-type-v",
   "flash-attn","batch-size","ubatch-size","threads","tensor-split","temp","top-p"]);
@@ -137,7 +138,7 @@ function knobGroups(m, schema) {
 function editorLive(m) {
   return m.backend === "vllm"
     ? `${diagBlock(m)}${modelMeta(m)}`
-    : `${diagBlock(m)}${metaBlock(m)}${modelMeta(m)}${buildBar(m)}${thinkBar(m)}${visionBar(m)}${tmpl.templateBar(m)}${smp.samplerBar(m)}${presetBar(m)}${autoTuneBar(m)}`;
+    : `${diagBlock(m)}${metaBlock(m)}${modelMeta(m)}${reup.noteMarkup(m)}${buildBar(m)}${thinkBar(m)}${visionBar(m)}${tmpl.templateBar(m)}${smp.samplerBar(m)}${presetBar(m)}${autoTuneBar(m)}`;
 }
 function editorButtons(m) {
   if (m.backend === "vllm") {
@@ -266,7 +267,7 @@ function rowHead(m, showBackend) {
   return `${compareMode?`<input type="checkbox" class="cmp" data-cmp="${esc(m.id)}" ${cmpSet.has(m.id)?"checked":""} title="pick to compare">`:""}
         <span class="led ${loaded?"loaded":""} ${m.status==="loading"?"loading":""} ${m.status==="sleeping"?"sleeping":""} ${m.failed?"failed":""}"></span>
         <button type="button" class="fav ${isFav?"on":""}" data-fav="${esc(m.id)}" aria-label="${isFav?"unfavorite":"favorite"}" aria-pressed="${isFav}">&starf;</button>
-        <span class="mid" title="${esc(m.id)}">${esc(m.id)}${beTag}${slots.chip(m)}${elastic.chip(S.STATE, m)}${buildTag(m)}${vis?'<span class="tag vis">vision</span>':''}${kindTag(m)}${!m.in_ini?'<span class="tag">auto</span>':''}${m.endpoint?`<span class="tag ep" data-ep="${esc(m.endpoint)}" title="click to copy endpoint">${esc(m.endpoint.replace('http://',''))}</span>`:''}</span>
+        <span class="mid" title="${esc(m.id)}">${esc(m.id)}${beTag}${slots.chip(m)}${elastic.chip(S.STATE, m)}${buildTag(m)}${reup.chip(m)}${vis?'<span class="tag vis">vision</span>':''}${kindTag(m)}${!m.in_ini?'<span class="tag">auto</span>':''}${m.endpoint?`<span class="tag ep" data-ep="${esc(m.endpoint)}" title="click to copy endpoint">${esc(m.endpoint.replace('http://',''))}</span>`:''}</span>
         <span class="ctxpill"><span class="k">CTX</span> ${esc(m.eff_ctx)}</span>
         ${statCell(m, loaded, stuckSecs)}
         <span class="qbtns">${quickBtn(m)}</span>
@@ -294,7 +295,7 @@ function headSig(m, cols, showBackend) {
   return JSON.stringify([m.id, m.status, m.failed, m.backend, m.endpoint, m.build, m.eff_ctx,
     m.modalities, m.in_ini, favs.has(m.id), compareMode, cmpSet.has(m.id),
     loadQ.findIndex(j => j.id === m.id), loadingSecs(m) >= 20, loadPct(m), cols, showBackend,
-    slots.chipSig(m), elastic.chipSig(S.STATE, m)]);
+    slots.chipSig(m), elastic.chipSig(S.STATE, m), reup.chipSig(m)]);
 }
 // Keyed so only a different model, backend or schema rebuilds the knob grid.
 function knobSig(m) {
@@ -307,8 +308,26 @@ function rowIdentity(backend, id) {
   return JSON.stringify([backend || "llamacpp", id]);
 }
 
+// Re-upload watch: the cached answer on the first render, a fresh check when
+// it's over a day old (one HF call per model, in the background).
+let reupStarted = false;
+async function loadReupload(force) {
+  if (reup.S.busy) return;
+  try {
+    if (!force) reup.S.data = await api("/api/reupload");
+    if (force || (reup.S.data && reup.S.data.stale)) {
+      reup.S.busy = true; renderModels();
+      const r = await api("/api/reupload?refresh=1");
+      if (r && r.models) reup.S.data = r;
+    }
+  } catch (e) { /* offline: no badges */ }
+  reup.S.busy = false;
+  if (reup.S.data) renderModels();
+}
+
 export function renderModels() {
   if (!S.STATE) return;
+  if (!reupStarted) { reupStarted = true; loadReupload(false); }
   const all = modelRows();
   const ms = shownModels();
   const nLoaded = all.filter(m => m.status === "loaded").length;
@@ -1156,6 +1175,20 @@ export function initModels() {
       const settings = Object.fromEntries(smp.changed(r).map(k => [k, r.values[k]]));
       delete smp.results[id];
       await applyToggle(sApply.closest(".row"), id, "Samplers", () => api("/api/save", {model: id, settings}));
+      return;
+    }
+    // re-upload watch
+    if (e.target.closest("#view-models [data-reup-check]")) { e.stopPropagation(); await loadReupload(true); return; }
+    const rFetch = e.target.closest("#view-models [data-reup-fetch]");
+    if (rFetch) {
+      e.stopPropagation();
+      const id = rFetch.dataset.reupFetch, m = modelRows().find(x => x.id === id);
+      const up = m && (m.status === "loaded" || m.status === "loading" || m.status === "sleeping");
+      if (!(await askYes(`Download ${id} again from Hugging Face and replace the file on disk?${up ? " It's unloaded first." : ""} The old copy is kept until the new one is complete.`,
+                         {title: "Re-download", ok: "Re-download"}))) return;
+      const r = await api("/api/reupload/fetch", {model: id}).catch(e => ({error: String(e)}));
+      toast(r && r.ok ? "Re-downloading: progress shows in Discover" : (r && r.error) || "could not start", r && r.ok ? "ok" : "err");
+      if (r && r.ok) { emit("hub-download"); await refresh(true); }
       return;
     }
     if (autoforge.handleClick(e)) return;

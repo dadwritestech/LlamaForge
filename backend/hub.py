@@ -139,6 +139,8 @@ class DownloadManager:
     def __init__(self):
         self.lock = threading.Lock()
         self._job = None       # (repo, paths, dest_dir) - kept so resume() can rerun
+        self._overwrite = False  # re-fetch files already on disk (a repo re-upload)
+        self._fresh = set()      # files this job already replaced, so resume skips them
         self.state = self._idle_state()
         # Called with the finished file before phase turns "done"; returns the
         # model ids it registered. A download that needs a separate "Add to my
@@ -238,10 +240,11 @@ class DownloadManager:
                 self.state.update(file=os.path.basename(p), done_files=i)
                 url = f"{HF}/{repo}/resolve/main/{urllib.parse.quote(p)}"
                 dest = os.path.join(dest_dir, os.path.basename(p))
-                if os.path.exists(dest):   # already downloaded; skip
+                if os.path.exists(dest) and (not self._overwrite or dest in self._fresh):
                     if not final: final = dest
                     continue
                 self._fetch(url, dest)
+                self._fresh.add(dest)
                 if not final: final = dest
             added, reg_err = [], ""
             if self.on_done and final:
@@ -261,11 +264,14 @@ class DownloadManager:
         finally:
             self.state["running"] = False
 
-    def start(self, repo, paths, dest_dir):
+    def start(self, repo, paths, dest_dir, overwrite=False):
+        """overwrite: replace files already in dest_dir (each is fetched to
+        .part and swapped in only when complete)."""
         with self.lock:
             if self.state["running"]:
                 return False
             self._job = (repo, paths, dest_dir)
+            self._overwrite, self._fresh = overwrite, set()
             self.state = self._idle_state()
             self.state.update(running=True, repo=repo, total_files=len(paths),
                               phase="starting")

@@ -2,7 +2,7 @@
 // (vLLM) repos, rate each against real VRAM, and drive the download.
 import { $, $$, esc, setHTML, api, toast, meter, fmtDur } from "./core.js";
 import { S } from "./state.js";
-import { emit } from "./bus.js";
+import { emit, on } from "./bus.js";
 import { loadFeed } from "./feed.js";
 
 let dlPoll = null, discoverLoaded = false;
@@ -251,6 +251,9 @@ function dlFinished(added, regErr, retry) {
     emit("load-chat", ids[0]);
   };
 }
+
+// A download started elsewhere (Models > Re-download) shows its progress here too.
+on("hub-download", () => { loadDiscover(); ggufDlPoll(); });
 
 // GGUF download progress loop, shared by a fresh download and by Resume.
 function ggufDlPoll() {

@@ -48,3 +48,4 @@ engines/
 
 # template doctor overrides (tmpldoctor.py)
 chat-templates/
+reupload.json

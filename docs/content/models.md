@@ -50,6 +50,10 @@ Because the flag count is entirely a function of your `llama-server` build, Llam
    - Values that already match yours are dimmed (as numbers, so `1.0` matches `1`); hover a value to see yours, including whether it comes from `[*]`. The source repo is linked.
    - **Use these** writes only the values that differ into the model's own section. Like the other switches, it unloads a loaded model after you confirm.
    - A config with `do_sample: false` means greedy decoding, shown as `temp 0`. Recommendations written only in a model card's prose aren't read.
+15. LlamaForge watches for **re-uploads**. GGUF makers often replace a file in a release's first weeks (template fixes, broken quants), and nothing tells you. Once a day, when you open the Models tab, it asks Hugging Face for the current sha256, size and last commit of each model's file (one small request per model, no downloads).
+   - **re-uploaded** on a row: the repo's file differs from yours. Open the model to see when it changed and the commit message, then **Re-download**. The new copy downloads next to the old one and replaces it only when complete; a loaded model is unloaded first.
+   - Files in the Hugging Face cache are compared by sha256, exactly. LlamaForge's own downloads have no hash on record, so a different size counts as re-uploaded. A newer commit at the same size shows a softer note (often metadata only); the Template row's **Check** shows whether the chat template changed.
+   - For a file in the Hugging Face cache, the note gives the `hf download` command instead of a button, so the cache stays consistent.
 
 ## Screenshot
 
@@ -74,6 +78,7 @@ Because the flag count is entirely a function of your `llama-server` build, Llam
 | Thinking | `POST /api/save` with `reasoning` / `reasoning-effort` / `reasoning-budget` | Template hint from `gguf.thinking_kind()` (`thinking` in `/api/model/metadata`: `switch`, `tags` or absent) and `gguf.effort_levels()` (`effort_levels`, lowest to highest). The template itself is never returned. |
 | Template doctor | `GET /api/template/check`, `POST /api/template/apply` (`backend/tmpldoctor.py`) | Streams the repo file's GGUF header over an HTTP Range request (64 MB cap), reads the base model's template, diffs both against `gguf.chat_template()`. Apply writes `chat-templates/<model>.<source>.jinja` and sets `chat-template-file`. |
 | Recommended samplers | `GET /api/samplers` (`backend/samplers.py`) | Reads `generation_config.json` (GGUF repo, then base model) and maps the HF keys to llama-server knob names. Apply goes through `POST /api/save` with only the differing knobs. |
+| Re-upload watch | `GET /api/reupload`, `POST /api/reupload/fetch` (`backend/reupload.py`) | One HF `paths-info` call per model (sha256, size, last commit); cached in `reupload.json`, refreshed when a day old. Fetch re-runs the download with `overwrite`, all shards. |
 | Vision on/off | `POST /api/model/vision` | `config.set_vision()` parks or restores the `mmproj` line; parked paths live in `vision_off`. |
 | Unregister | `POST /api/models/unregister` | Removes a llama-family `models.ini` section after unloading it; never deletes its GGUF file. |
 

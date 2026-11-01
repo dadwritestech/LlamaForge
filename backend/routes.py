@@ -26,7 +26,7 @@ import feed, selfupdate, appinstall, profiles, recipes, gallery, starters
 import vram_predict, gpuprobe
 import wsl, vllm_ctl, vllm_registry, vllm_setup, vllm_job, vllm_hub, vllm_download
 import gguf, diag, backends, prebuilt, version, slots, slotctl, slotproc, builds, compat
-import idle, reclaim, tmpldoctor, samplers, mcp_server, ollama, piinstall, tts, logfiles, loadprog, gamemode, footprint, elastic, slotkeep
+import idle, reclaim, tmpldoctor, samplers, reupload, mcp_server, ollama, piinstall, tts, logfiles, loadprog, gamemode, footprint, elastic, slotkeep
 import claudelaunch, rigcard, watchdog
 from builder import BuildManager
 from embers import panel as embers_panel
@@ -1062,6 +1062,38 @@ def get_samplers(req):
     out["current"] = {k: sect.get(k, glob.get(k)) for k in samplers.KNOBS if k in sect or k in glob}
     out["inherited"] = [k for k in samplers.KNOBS if k not in sect and k in glob]
     return 200, out
+
+
+def _model_files():
+    return {m: s["model"] for m, s in config.read_sections().items() if m != "*" and s.get("model")}
+
+
+def get_reupload(req):
+    """Re-upload watch: ?refresh=1 checks every model's HF repo now; otherwise
+    the cached answer (`stale` says it's over a day old)."""
+    files = _model_files()
+    out = reupload.scan(files) if req.q("refresh") else reupload.cached(files)
+    out["stale"] = reupload.stale(out)
+    return 200, out
+
+
+def post_reupload_fetch(req):
+    """Re-download a re-uploaded model over the old file (all its shards).
+    Unloads it first: Windows can't replace a mapped file."""
+    mid = req.body.get("model")
+    files = _model_files()
+    r = reupload.cached(files)["models"].get(mid) if isinstance(mid, str) else None
+    if not r or r.get("verdict") not in ("reuploaded", "changed"):
+        return 200, {"ok": False, "error": "check for re-uploads first"}
+    if r.get("hf_cache"):
+        return 200, {"ok": False, "error": "this file is in the Hugging Face cache: update it with `hf download " + r["repo"] + "`"}
+    path = r["path"]
+    m = re.search(r"-(\d{5})-of-(\d{5})\.gguf$", path)
+    paths = hub.shard_paths(path, int(m.group(2))) if m else [path]
+    was = _reload_preset(mid)
+    if not DOWNLOADS.start(r["repo"], paths, os.path.dirname(files[mid]), overwrite=True):
+        return 200, {"ok": False, "error": "another download is running"}
+    return 200, {"ok": True, "was_running": was}
 
 
 def get_reclaim(req):
@@ -2891,6 +2923,7 @@ GET_ROUTES = {
     "/api/reclaim":           get_reclaim,
     "/api/template/check":    get_template_check,
     "/api/samplers":          get_samplers,
+    "/api/reupload":          get_reupload,
     "/api/scan/missing":      get_scan_missing,
     "/api/network":           get_network,
     "/api/vllm/log":          get_vllm_log,
@@ -2966,6 +2999,7 @@ POST_ROUTES = {
     "/api/scan/prune":          post_scan_prune,
     "/api/reclaim/delete":      post_reclaim_delete,
     "/api/template/apply":      post_template_apply,
+    "/api/reupload/fetch":      post_reupload_fetch,
     "/api/hub/search":          post_hub_search,
     "/api/app/update":          post_app_update,
     "/api/app/restart":         post_app_restart,

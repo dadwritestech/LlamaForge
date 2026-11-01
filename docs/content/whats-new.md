@@ -8,6 +8,14 @@ order: 1
 
 This page summarizes the most recent additions to LlamaForge. Each entry links to the full reference for that capability. For the longer-term direction, see the project's `ROADMAP.md`.
 
+## v0.18.16: Re-upload watch
+
+GGUF makers often replace a file in a release's first weeks to fix a template or a broken quant, and until now nothing told you. Once a day LlamaForge asks Hugging Face whether each model's file still matches yours. A changed one gets a **re-uploaded** badge, the date and commit message, and a **Re-download** button. See [Models](models.md).
+
+- One small request per model, no downloads: 11 models checked in 0.7 s here.
+- On this machine it caught a Gemma 4 31B whose repo had replaced the file with "Added Gemma official chat template update".
+- The old file is replaced only when the new one has fully downloaded.
+
 ## v0.18.15: Recommended samplers
 
 A model's editor has a **Samplers** row. **Recommended** reads the temperature, top-p, top-k and other sampler values the model's makers publish in `generation_config.json`, from the GGUF repo or the base model on its card, and shows them next to yours. **Use these** writes only the values that differ. See [Models](models.md).
