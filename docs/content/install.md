@@ -48,6 +48,10 @@ Open **LlamaForge** from the Start menu or app menu, or run `llamaforge`. It sta
 
 To shut down the dashboard, the router and the models it spawned, run `llamaforge stop` (Linux/macOS) or `stop.ps1` in the install directory (Windows). Only processes LlamaForge started are stopped; any other `llama-server` you run is left alone. On Windows it also stops a `vllm serve` it started inside WSL.
 
+### Start at login (Linux, macOS)
+
+Nothing starts on its own unless you ask. `llamaforge service on` (in a git checkout: `python3 backend/service.py on "$PWD"`) writes `~/.config/systemd/user/llamaforge.service` on Linux or `~/Library/LaunchAgents/io.github.dadwritestech.llamaforge.plist` on macOS. Either one runs `run.sh` with `LLAMAFORGE_NO_BROWSER=1` when you log in, so it starts the same router and dashboard the launcher does, and the dashboard still listens on `127.0.0.1` only. On Linux, `systemctl --user start llamaforge` starts it right away, and `loginctl enable-linger $USER` makes it start at boot before anyone logs in. `llamaforge service status` shows whether it's set up. `llamaforge service off` removes the file but leaves a running copy alone (stop that with `llamaforge stop`). `llamaforge uninstall` turns it off as well. Windows isn't covered yet.
+
 ## Uninstall
 
 Windows: **Settings → Apps → Installed apps → LlamaForge → Uninstall**. Linux/macOS: `llamaforge uninstall`. Both ask before removing your settings or models, and only remove files the installer put there.

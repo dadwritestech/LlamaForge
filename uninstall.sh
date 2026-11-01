@@ -16,6 +16,8 @@ fi
 py="$(cat "$here/.lf-python" 2>/dev/null || echo python3)"
 
 echo "Uninstalling LlamaForge from $here"
+# Start at login (llamaforge service on) would point at a folder about to go.
+"$py" "$here/backend/service.py" off "$here" >/dev/null 2>&1 || true
 if [ -f "$here/config.json" ] && [ -z "${LLAMAFORGE_NO_STOP:-}" ]; then
   bash "$here/stop.sh" >/dev/null 2>&1 || true
 fi

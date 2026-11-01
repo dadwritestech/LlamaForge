@@ -8,6 +8,10 @@ order: 1
 
 This page summarizes the most recent additions to LlamaForge. Each entry links to the full reference for that capability. For the longer-term direction, see the project's `ROADMAP.md`.
 
+## v0.18.6: Start at login, if you want it
+
+- **`llamaforge service on`.** On Linux it writes a systemd user unit, on macOS a launch agent. Either one starts the router and dashboard when you log in, without opening a browser, for an always-on box behind Open WebUI or Continue. `llamaforge service off` removes it, and `llamaforge uninstall` turns it off too. It's off unless you turn it on, and the dashboard still listens on 127.0.0.1 only. See [Start at login](install.md).
+
 ## v0.18.5: A GPU box with no screen
 
 - **`run.sh` over SSH prints the tunnel.** When you start LlamaForge in an SSH session (or on Linux with no display, or with `LLAMAFORGE_HEADLESS=1`), `run.sh` no longer tries to open a browser. It prints the `ssh -N -L 8090:127.0.0.1:8090 ...` line to run on your own computer, using the address and port of your current SSH session. The dashboard still listens on 127.0.0.1 only. See [Headless machines](index.md).

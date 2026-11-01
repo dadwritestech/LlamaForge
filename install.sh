@@ -122,8 +122,9 @@ case "\${1:-}" in
   stop)      exec bash "$DEST/stop.sh" ;;
   update)    curl -fsSL https://raw.githubusercontent.com/$REPO/master/install.sh | sh ;;
   uninstall) exec sh "$DEST/uninstall.sh" ;;
+  service)   exec "$PY" "$DEST/backend/service.py" "\${2:-status}" "$DEST" ;;
   ""|start)  exec bash "$DEST/run.sh" ;;
-  *)         echo "usage: llamaforge [start|stop|update|uninstall]"; exit 2 ;;
+  *)         echo "usage: llamaforge [start|stop|update|uninstall|service on|off]"; exit 2 ;;
 esac
 EOF
   chmod +x "$BIN_DIR/llamaforge"

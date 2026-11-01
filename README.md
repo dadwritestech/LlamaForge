@@ -149,6 +149,10 @@ It starts the router and the dashboard and opens your browser.
 the models it spawned. It stops only processes LlamaForge started; any other
 llama-server you run is left alone.
 
+Want it running whenever you log in (say, an always-on box behind Open WebUI)?
+`llamaforge service on` on Linux (a systemd user unit) or macOS (a launch agent);
+`llamaforge service off` removes it. It's off unless you turn it on.
+
 **Requirements:** Windows 10/11, Linux, or macOS on Apple Silicon. Python 3.10+ (stdlib only;
 the Windows installer brings its own). NVIDIA (CUDA), AMD/Intel (Vulkan) or Apple (Metal) GPUs
 run models when present; CPU-only works. The VRAM preview, fit ratings and GPU stats read
