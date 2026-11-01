@@ -8,6 +8,10 @@ order: 1
 
 This page summarizes the most recent additions to LlamaForge. Each entry links to the full reference for that capability. For the longer-term direction, see the project's `ROADMAP.md`.
 
+## v0.18.2: Multi-model that keeps VRAM free on its own
+
+- **Client loading no longer means guessing.** With **Multi-model** on and **let client requests load models** ticked, any app can ask the router for a model the planner never checked. On llama.cpp v0.8.0 and newer, LlamaForge now hands the router your **VRAM kept free per GPU** as its `--models-memory-margin`, so the router unloads its least recently used model until the new one fits instead of running out of memory. Older builds keep working as before.
+
 ## v0.18.1: Ollama users skip the download
 
 - **First run knows about Ollama.** If you already use Ollama, the setup wizard's model step now leads with **Use the N models you already have in Ollama**. One click adds them in place (nothing is downloaded or copied) and picks the first chat model, so you go straight to tuning and loading. The starter downloads are still there below it. See [Setup](setup.md#models-you-already-have-in-ollama).
