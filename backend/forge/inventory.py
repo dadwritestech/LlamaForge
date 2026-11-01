@@ -52,4 +52,6 @@ def _mib(p, size_of):
 def build(gpus, items, settings, drafter_list, mtp=False):
     return {"gpus": gpus, "caps": space.caps_from_items(items), "base": dict(settings),
             "drafters": [d for d in drafter_list if d["kind"] != "mtp"],
-            "mtp": mtp or any(d["kind"] == "mtp" for d in drafter_list)}
+            # an MTP GGUF drafts from its own head: spec-type alone, no draft file
+            "mtp": mtp or settings.get("spec-type") == "draft-mtp"
+            or any(d["kind"] == "mtp" for d in drafter_list)}

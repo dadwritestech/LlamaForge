@@ -34,6 +34,10 @@ class FailureReason(unittest.TestCase):
         self.assertIn("out of memory", r)
         self.assertIn("2720 MiB", r)
 
+    def test_compute_oom_that_llama_cpp_retries_is_not_a_failure(self):
+        # "retrying without pipeline parallelism", then "model loaded"
+        self.assertIsNone(probe.failure_reason(fixture("oom-compute-retry.txt")))
+
     def test_bad_flag(self):
         log = "0.00.01 E error: invalid argument: --spec-type\n"
         self.assertEqual(probe.failure_reason(log), "this build rejects --spec-type")
@@ -126,6 +130,19 @@ class ProberLoad(unittest.TestCase):
         r = prober(p).load({}, timeout=60)
         self.assertIn("kv cache", r["reason"])
         self.assertEqual(p.stopped, 1)
+
+    def test_recovered_oom_while_loading_still_loads(self):
+        p = FakeProc(ready_after=4, log=fixture("oom-compute-retry.txt"))
+        r = prober(p).load({}, timeout=60)
+        self.assertTrue(r["ok"], r["reason"])
+        self.assertEqual(p.stopped, 0)
+
+    def test_exit_after_an_oom_without_a_fatal_line_names_the_oom(self):
+        log = ("0.10.25 E ggml_backend_cuda_buffer_type_alloc_buffer: "
+               "allocating 1149.14 MiB on device 0: cudaMalloc failed: out of memory\n")
+        p = FakeProc(ready_after=None, fail_after=3, log=log)
+        r = prober(p).load({}, timeout=60)
+        self.assertIn("out of memory on GPU0 allocating 1149 MiB", r["reason"])
 
     def test_timeout(self):
         p = FakeProc(ready_after=None)

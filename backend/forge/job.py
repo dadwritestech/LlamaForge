@@ -6,7 +6,9 @@ Stages
            all while it's loaded, so nothing is loaded twice in this stage.
            The search is staged so it stays an hour, not a night: plain
            placements first, then drafters on the best few of them, then other
-           draft windows on the best drafters only
+           draft windows on the best drafters only. When no placement loads at
+           the window asked for, the placements are tried again at smaller
+           windows, down to half of it
   B        the finalists (top few, the best plain one, the current setup) get a
            longer round with different prompts; the ranking uses these numbers
   sanity   each drafting finalist vs the same setup without the drafter
@@ -21,7 +23,7 @@ import json
 import os
 import threading
 
-from . import sanity, space
+from . import inventory, sanity, space
 
 CURRENT = "current"
 ROUND_A = {"code": 3, "prose": 3, "summary": 2}
@@ -29,7 +31,7 @@ ROUND_B = {"code": 8, "prose": 8, "summary": 3}
 FINALISTS = {"quick": 3, "thorough": 5}
 TOP_PLACEMENTS = {"quick": 2, "thorough": 3}   # plain placements that get drafters
 TOP_DRAFTED = {"quick": 1, "thorough": 2}      # drafters that get other windows
-SEARCH = 2                                     # bump when the plan changes shape
+SEARCH = 3                                     # bump when the plan changes shape
 LOAD_TIMEOUT = 300
 
 _RUNNING = threading.Lock()
@@ -49,8 +51,14 @@ class _BenchFailed(Exception):
 
 def _fingerprint(inv, req):
     key = {"search": SEARCH, "req": req, "base": inv.get("base"), "gpus": inv.get("gpus"),
-           "drafters": inv.get("drafters"), "caps": inv.get("caps")}
+           "drafters": inv.get("drafters"), "mtp": inv.get("mtp"), "caps": inv.get("caps")}
     return hashlib.sha1(json.dumps(key, sort_keys=True, default=str).encode()).hexdigest()[:16]
+
+
+def _drafts_with(s):
+    """The drafter kind a settings dict speculates with, or None."""
+    kind = inventory._DRAFT_KIND.get(s.get("spec-type") or "")
+    return kind or ("draft" if s.get("spec-draft-model") or s.get("model-draft") else None)
 
 
 def _plain_twin(settings):
@@ -182,7 +190,7 @@ class Job:
             return
         base = dict(self.inv.get("base") or {})
         st["cands"] = [{"id": CURRENT, "label": "your current setup", "settings": base,
-                        "lossy": False, "parts": 1, "spec": None,
+                        "lossy": False, "parts": 1, "spec": _drafts_with(base),
                         "ctx": int(base.get("ctx-size") or 0) or None}]
         self._add(space.candidates(self.inv, self.req, drafters=False))
         self.save()
@@ -198,6 +206,12 @@ class Job:
         t = self.req.get("time", "quick")
         phase = st.get("phase", "plain")
         if phase == "plain":
+            ctx = None if self._leaders(False, 1) else self._smaller_ctx()
+            if ctx:
+                st["ctx"] = ctx
+                self._add(space.candidates(self.inv, dict(self.req, ctx=ctx), drafters=False))
+                self.save()
+                return True
             new = [d for i in self._leaders(False, TOP_PLACEMENTS.get(t, 2))
                    for d in space.with_drafters(by[i], self.inv)]
             st["phase"] = "draft"
@@ -210,6 +224,14 @@ class Job:
         self._add(new)
         self.save()
         return True
+
+    def _smaller_ctx(self):
+        """The next window to try when nothing loaded at the last one; None below half
+        the window asked for (past that it's no longer the run they asked for)."""
+        asked = int(self.req["ctx"])
+        step = max(1024, asked // 8 // 1024 * 1024)
+        nxt = (self.state.get("ctx") or asked) - step
+        return nxt if nxt >= asked // 2 else None
 
     def _fit_pending(self):
         st = self.state
@@ -242,7 +264,7 @@ class Job:
                                if i != CURRENT and i in by and not by[i].get("spec")])
         for fid in st["finalists"]:
             c = by.get(fid)
-            if not c or not c.get("spec") or fid in st["sanity"]:
+            if fid == CURRENT or not c or not c.get("spec") or fid in st["sanity"]:
                 continue
             twin = next((c2["id"] for c2 in st["cands"]
                          if not c2.get("spec") and c2["id"] != CURRENT
@@ -264,9 +286,12 @@ class Job:
             rows = [r for i, r in st["rows"].items()
                     if i != CURRENT and st["sanity"].get(i, {"ok": True})["ok"]]
         ranked = space.rank(rows, self.req.get("intent", "coding"))
+        asked = int(self.req["ctx"])
         if not ranked:
+            why = (f"nothing fit at {asked // 1024}k, even stepped down to {st['ctx'] // 1024}k"
+                   if st.get("ctx") else "no candidate loaded on this machine")
             st["result"] = {"winner": None, "ranked": [], "vs_current": None,
-                            "reason": "no candidate loaded on this machine"}
+                            "ctx_asked": asked, "reason": why}
             return
         by = self._by_id()
         win = dict(ranked[0], settings=by[ranked[0]["id"]]["settings"])
@@ -274,7 +299,11 @@ class Job:
         vs = None
         if cur:
             vs = {m: _pct(win.get(m), cur.get(m)) for m in ("code", "prose", "summary", "prefill")}
+        # the baseline isn't ranked (it may not be the run asked for: a smaller window,
+        # a drafter the search can't reproduce), but say so when it's still faster
+        faster = bool(cur) and space.rank([ranked[0], cur], self.req.get("intent", "coding"))[0]["id"] == CURRENT
         st["result"] = {"winner": win, "ranked": ranked, "current": cur, "vs_current": vs,
+                        "current_faster": faster, "ctx_asked": asked,
                         "unverified_quality": bool(win.get("lossy")),
                         "drops_vision": bool(win.get("novision"))}
 

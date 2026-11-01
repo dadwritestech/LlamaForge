@@ -33,6 +33,12 @@ class Drafters(unittest.TestCase):
         s = {"spec-draft-model": "D:/m/mtp-q.gguf", "spec-type": "draft-mtp"}
         self.assertEqual(inventory.drafters(self.PATHS[0], s, [], size_of=lambda p: 0)[0]["kind"], "mtp")
 
+    def test_mtp_set_up_without_a_draft_file_is_still_searched(self):
+        # an MTP GGUF carries its own head: spec-type alone, no draft model
+        inv = inventory.build([], [], {"model": "/m/q.gguf", "spec-type": "draft-mtp"}, [])
+        self.assertTrue(inv["mtp"])
+        self.assertFalse(inventory.build([], [], {"model": "/m/q.gguf"}, [])["mtp"])
+
     def test_a_drafter_is_never_a_drafter_for_itself(self):
         self.assertEqual(inventory.drafters(self.PATHS[1], {}, self.PATHS, size_of=lambda p: 0), [])
 

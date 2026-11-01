@@ -76,6 +76,8 @@ export function boardMarkup(st) {
   return table + miss;
 }
 
+const SPEC = {mtp: "MTP", dflash: "DFlash", eagle3: "EAGLE-3", draft: "a drafter"};
+
 export function resultMarkup(id, st) {
   const res = st.result;
   if (!res) return "";
@@ -87,13 +89,21 @@ export function resultMarkup(id, st) {
   const quality = res.unverified_quality
     ? `<div class="af-q warn">Uses a lossy KV cache: faster, but answers can differ slightly from your current setup.</div>`
     : `<div class="af-q">Same answers: lossless settings${w.spec ? ", drafter checked token-for-token against the plain model" : ""}.</div>`;
+  // the baseline isn't ranked (smaller window, a drafter the search can't reproduce),
+  // so a winner can still be slower than it: say so and don't make Apply the call to action
+  const kept = res.current_faster && cur;
   const act = st.applied
     ? `<button type="button" class="qbtn" data-af-undo="${esc(id)}">Undo</button><span class="af-note">applied to models.ini</span>`
     : (w.id === "current" ? `<span class="af-note">your current setup is already the best</span>`
-      : `<button type="button" class="qbtn load" data-af-apply="${esc(id)}">Apply</button>`);
+      : `<button type="button" class="qbtn${kept ? "" : " load"}" data-af-apply="${esc(id)}">${kept ? "Apply anyway" : "Apply"}</button>`);
+  const how = kept ? [cur.ctx && `${Math.floor(cur.ctx / 1024)}k`, SPEC[cur.spec] ?? (cur.spec && "a drafter")].filter(Boolean).join(", ") : "";
+  const slower = kept
+    ? `<div class="af-q warn">Your current setup is faster${how ? ` (${esc(how)})` : ""}. Keep it unless you need ${esc(Math.floor((w.ctx || res.ctx_asked) / 1024))}k.</div>` : "";
+  const narrower = w.ctx && res.ctx_asked && w.ctx < res.ctx_asked
+    ? `<div class="af-q warn">${esc(res.ctx_asked / 1024)}k didn't fit on these GPUs; this keeps ${esc(Math.floor(w.ctx / 1024))}k, the largest window that loaded.</div>` : "";
   const vision = res.drops_vision
     ? `<div class="af-q warn">Turns vision off: the model can't read images until you turn it back on (Undo or the vision switch).</div>` : "";
-  return `<div class="af-result"><div class="af-win">${esc(w.label || w.id)}</div>${gain}${quality}${vision}<div class="af-act">${act}</div></div>`;
+  return `<div class="af-result"><div class="af-win">${esc(w.label || w.id)}</div>${gain}${slower}${quality}${narrower}${vision}<div class="af-act">${act}</div></div>`;
 }
 
 export function liveMarkup(id, st) {

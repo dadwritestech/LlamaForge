@@ -56,6 +56,24 @@ test("current setup winning has nothing to apply", () => {
   assert.match(h, /already the best/);
 });
 
+test("a winner at a smaller window than asked says so", () => {
+  const w = {...done.result.winner, ctx: 98304};
+  const h = af.resultMarkup("m", {...done, result: {...done.result, winner: w, ctx_asked: 131072}});
+  assert.match(h, /128k didn't fit/);
+  assert.match(h, /96k/);
+  assert.doesNotMatch(af.resultMarkup("m", {...done, result: {...done.result, ctx_asked: 32768}}), /didn't fit/);
+});
+
+test("a current setup that beats the winner says so and doesn't push Apply", () => {
+  const cur = {...(done.result.current || {}), code: 151, prose: 125, ctx: 81920, spec: "mtp"};
+  const h = af.resultMarkup("m", {...done, result: {...done.result, current: cur, current_faster: true, ctx_asked: 131072}});
+  assert.match(h, /current setup is faster/);
+  assert.match(h, /80k, MTP/);
+  assert.match(h, /Apply anyway/);
+  assert.doesNotMatch(h, /qbtn load/);
+  assert.match(af.resultMarkup("m", done), /class="qbtn load" data-af-apply/);
+});
+
 test("no winner explains why", () => {
   const h = af.resultMarkup("m", {...done, result: {winner: null, reason: "no candidate loaded"}});
   assert.match(h, /No candidate ran/);

@@ -6,7 +6,9 @@ which loads fine and then decodes at a fraction of the speed - so a load that
 leaves a device >98% full is a failure too.
 
 The log is read while the process loads: with --split-mode tensor an OOM ends in
-a GGML_ASSERT and the process can sit in "loading" without ever exiting.
+a GGML_ASSERT and the process can sit in "loading" without ever exiting. An OOM
+line on its own is not a failure, though: a compute buffer that doesn't fit is
+retried without pipeline parallelism and usually loads.
 """
 import re
 
@@ -17,7 +19,8 @@ _OOM = re.compile(r"allocating ([\d.]+) MiB on device (\d+): cudaMalloc failed: 
 _WHAT = re.compile(r"failed to allocate buffer for ([a-z ]+?)\s*$", re.M)
 _BAD_ARG = re.compile(r"(?:invalid|unknown) argument:\s*(\S+)")
 _ERR_LINE = re.compile(r"^\S*\s+E\s+(?:\w+\s+)?(.*)$")
-_FATAL = ("exiting due to", "GGML_ASSERT", "failed to load model", "error loading model")
+_FATAL = ("exiting due to", "GGML_ASSERT", "failed to load model", "error loading model",
+          "failed to initialize the context", "failed to create context")
 
 
 def _ignored(line):
@@ -37,14 +40,19 @@ def this_run(log):
     return log[i + 1:]
 
 
-def failure_reason(log):
-    """None while the log shows nothing fatal, else one short reason."""
+def failure_reason(log, exited=False):
+    """None while the log shows nothing fatal, else one short reason.
+
+    An OOM line alone isn't fatal: when the compute buffer doesn't fit, llama.cpp
+    logs the cudaMalloc failure, retries without pipeline parallelism and loads.
+    It counts once a fatal line follows, or once the process has exited."""
     if not log:
         return None
     lines = [ln for ln in log.splitlines() if not _ignored(ln)]
     text = "\n".join(lines)
+    fatal = any(f in text for f in _FATAL)
     m = _OOM.search(text)
-    if m:
+    if m and (fatal or exited):
         what = _WHAT.search(text)
         size = round(float(m.group(1)))
         return (f"out of memory on GPU{m.group(2)} allocating {size} MiB"
@@ -52,7 +60,7 @@ def failure_reason(log):
     m = _BAD_ARG.search(text)
     if m:
         return f"this build rejects {m.group(1)}"
-    if not any(f in text for f in _FATAL):
+    if not fatal:
         return None
     errs = []
     for ln in lines:
@@ -108,7 +116,8 @@ class Prober:
             if why:
                 return self._fail(t0, why)
             if st in ("failed", None):
-                return self._fail(t0, "the server exited while loading")
+                why = failure_reason(this_run(self._log()), exited=True)
+                return self._fail(t0, why or "the server exited while loading")
             if self._clock() - t0 >= timeout:
                 return self._fail(t0, f"didn't load within {timeout} s")
             self._sleep(POLL_S)

@@ -1,0 +1,17 @@
+0.00.672.771 W model has unused tensor blk.64.ffn_gate.weight (size = 94699520 bytes) -- ignoring
+0.00.672.776 W model has unused tensor blk.64.ffn_down.weight (size = 94699520 bytes) -- ignoring
+0.00.672.781 W model has unused tensor blk.64.ffn_up.weight (size = 94699520 bytes) -- ignoring
+0.00.672.787 W model has unused tensor blk.64.nextn.eh_proj.weight (size = 55705600 bytes) -- ignoring
+0.00.672.792 W model has unused tensor blk.64.nextn.enorm.weight (size = 20480 bytes) -- ignoring
+0.00.672.797 W model has unused tensor blk.64.nextn.hnorm.weight (size = 20480 bytes) -- ignoring
+0.00.672.813 W model has unused tensor blk.64.nextn.shared_head_norm.weight (size = 20480 bytes) -- ignoring
+0.10.259.117 E ggml_backend_cuda_buffer_type_alloc_buffer: allocating 1149.14 MiB on device 0: cudaMalloc failed: out of memory
+0.10.259.122 E ggml_gallocr_reserve_n_impl: failed to allocate CUDA0 buffer of size 1204961792
+0.10.259.122 E graph_reserve: failed to allocate compute buffers
+0.10.259.130 W sched_reserve: compute buffer allocation failed, retrying without pipeline parallelism
+0.10.287.202 I cmn          init: llama threadpool init, n_threads = 16
+0.10.541.766 I srv    load_model: initializing, n_slots = 1, n_ctx_slot = 120064, kv_unified = 'false'
+0.10.548.373 W srv          init: chat template supports preserving reasoning, it is enabled by default (may use more tokens, disable via --no-reasoning-preserve)
+0.10.548.393 I srv  server_run_i: model loaded
+0.10.548.397 I srv  server_on_li: listening on http://127.0.0.1:8160
+0.10.689.530 I slot get_availabl: id  0 | task -1 | selected slot by LRU, n_tokens = 0, t_last = -1

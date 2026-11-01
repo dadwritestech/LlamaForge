@@ -76,7 +76,7 @@ class Rig:
         self.benched.append((space._cid(self.loaded), round_id))
         if self.on_bench:
             self.on_bench(self)
-        v = speed(self.loaded)
+        v = getattr(self, "bench_speed", speed)(self.loaded)
         return {"code": v, "prose": v / 2, "summary": v / 2, "prefill": 1500.0,
                 "detail": {}, "error": None}
 
@@ -133,6 +133,21 @@ class JobRun(unittest.TestCase):
         self.assertTrue(win["novision"])
         self.assertTrue(st["result"]["drops_vision"])
         self.assertTrue(any(r.get("novision") is False for r in st["rows"].values()))
+
+    def test_says_when_the_current_setup_beats_every_candidate(self):
+        # the baseline drafts with MTP; no candidate can, so it stays faster
+        inv = dict(INV, base=dict(INV["base"], **{"spec-type": "draft-mtp"}), drafters=[])
+        rig = Rig()
+        rig.bench_speed = lambda s: 500.0 if s.get("spec-type") == "draft-mtp" else speed(s)
+        res = rig.job(self.path, inv=inv).run()["result"]
+        self.assertNotEqual(res["winner"]["id"], job.CURRENT)
+        self.assertTrue(res["current_faster"])
+        self.assertEqual(res["current"]["spec"], "mtp")
+        self.assertEqual(res["current"]["ctx"], 8192)
+
+    def test_current_faster_is_false_when_a_candidate_wins(self):
+        st = Rig().job(self.path).run()
+        self.assertFalse(st["result"]["current_faster"])
 
     def test_search_is_staged_placements_then_drafters_then_windows(self):
         rig = Rig()
@@ -205,6 +220,24 @@ class JobRun(unittest.TestCase):
         st = rig.job(self.path).run()
         self.assertTrue(any("out of memory" in r for r in st["failed"].values()))
         self.assertNotEqual(st["result"]["winner"]["settings"].get("spec-draft-device"), "CUDA1")
+
+    def test_a_window_that_fits_nowhere_steps_down_until_one_loads(self):
+        oom = lambda s: "out of memory on GPU0" if int(s["ctx-size"]) > 24576 else None
+        st = Rig(fail=oom).job(self.path).run()
+        win = st["result"]["winner"]
+        self.assertEqual(win["ctx"], 24576)          # 32k, then 28k, then 24k
+        self.assertIn("24k", win["label"])
+        self.assertEqual(st["result"]["ctx_asked"], 32768)
+        self.assertTrue(any(r.get("spec") for r in st["rows"].values()))   # the search went on from there
+
+    def test_steps_down_no_further_than_half_the_window_asked_for(self):
+        rig = Rig(fail=lambda s: None if s["ctx-size"] == "8192" else "out of memory on GPU0")
+        st = rig.job(self.path).run()
+        self.assertIsNone(st["result"]["winner"])
+        tried = {int(s["ctx-size"]) for s in rig.loads if s["ctx-size"] != "8192"}   # 8k = theirs
+        self.assertEqual(min(tried), 16384)
+        self.assertIn("32k", st["result"]["reason"])
+        self.assertIn("16k", st["result"]["reason"])
 
     def test_finalists_are_remeasured_in_round_b(self):
         rig = Rig()
