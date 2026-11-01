@@ -11,6 +11,7 @@ import * as ui from "./ui.js";
 import * as models from "./models.js";
 import * as stats from "./stats.js";
 import { openRig } from "./rigshare.js";
+import { openPhone } from "./phone.js";
 import { loadDiscover, openDeepLink } from "./discover.js";
 import { parseHash } from "./deeplink.js";
 import { loadWillRun } from "./willrun.js";
@@ -59,6 +60,7 @@ models.initModels();
 initProfiles();
 initClaudeCode();
 stats.initStats(openRig);
+$("#phone-btn")?.addEventListener("click", openPhone);
 
 // deep-linkable tabs: #<tab> in the URL activates that tab (docs deep-links +
 // tools/shoot.py). Runs after initTabs() has wired the click handlers.

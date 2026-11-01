@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#13243f">
+<meta name="referrer" content="no-referrer">
+<title>LlamaForge</title>
+<!-- The phone remote (backend/phone.py). Self-contained: the listener serves
+     this page and two token-guarded endpoints, nothing else. Every model or
+     server string goes in through textContent. -->
+<style>
+:root{--navy:#13243f;--deep:#0b1628;--ink:#e8eef6;--dim:#8a9bb3;--amber:#ffc21a;--hair:#24385a;--red:#ff6b5e}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--deep);color:var(--ink);
+  font:16px/1.45 Barlow,'Segoe UI',system-ui,-apple-system,sans-serif;-webkit-text-size-adjust:100%}
+body{display:flex;flex-direction:column;height:100dvh}
+header{display:flex;gap:10px;align-items:center;padding:10px 12px calc(10px);padding-top:max(10px,env(safe-area-inset-top));
+  background:var(--navy);border-bottom:1px solid var(--amber)}
+header b{color:var(--amber);letter-spacing:.12em;font-size:13px;white-space:nowrap}
+select{flex:1;min-width:0;background:var(--deep);color:var(--ink);border:1px solid var(--hair);
+  padding:7px 8px;font:inherit;font-size:15px;border-radius:0}
+#gpu{padding:6px 12px;font:12px/1.3 'JetBrains Mono',ui-monospace,monospace;color:var(--dim);
+  background:var(--navy);border-bottom:1px solid var(--hair);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+main{flex:1;overflow-y:auto;padding:14px 12px;display:flex;flex-direction:column;gap:12px}
+.msg{max-width:92%;white-space:pre-wrap;word-wrap:break-word}
+.user{align-self:flex-end;background:var(--navy);border:1px solid var(--hair);padding:8px 11px}
+.bot{align-self:flex-start}
+.think{color:var(--dim);font-size:13px;border-left:2px solid var(--hair);padding-left:8px;margin-bottom:6px}
+.think:empty{display:none}
+.meta{color:var(--dim);font:11px 'JetBrains Mono',ui-monospace,monospace;margin-top:4px}
+.err{color:var(--red)}
+.empty{margin:auto;text-align:center;color:var(--dim);max-width:300px}
+.empty b{display:block;color:var(--amber);letter-spacing:.12em;margin-bottom:6px}
+form{display:flex;gap:8px;padding:10px 12px;padding-bottom:max(10px,env(safe-area-inset-bottom));
+  background:var(--navy);border-top:1px solid var(--hair)}
+textarea{flex:1;resize:none;background:var(--deep);color:var(--ink);border:1px solid var(--hair);
+  padding:9px 10px;font:inherit;font-size:16px;max-height:30vh;border-radius:0}
+button{background:var(--amber);color:var(--navy);border:0;padding:0 16px;font:600 15px 'Barlow Condensed','Arial Narrow',sans-serif;border-radius:0}
+button:disabled{opacity:.45}
+#new{background:none;color:var(--dim);border:1px solid var(--hair);padding:6px 9px;font-size:13px}
+</style></head>
+<body>
+<header><b>LLAMAFORGE</b><select id="model" aria-label="Model"></select><button id="new" type="button">New</button></header>
+<div id="gpu">connecting…</div>
+<main id="log"><div class="empty" id="empty"><b>PHONE REMOTE</b><span id="hint">Chat with the models on your own GPUs.</span></div></main>
+<form id="f"><textarea id="q" rows="1" placeholder="Message" aria-label="Message"></textarea><button id="send">Send</button></form>
+<script>
+(function () {
+  "use strict";
+  var KEY = "lf_phone_token";
+  var m = /[#&]k=([A-Za-z0-9_-]+)/.exec(location.hash);
+  if (m) {                                  // from the QR code: keep it, hide it
+    localStorage.setItem(KEY, m[1]);
+    history.replaceState(null, "", location.pathname);
+  }
+  var token = localStorage.getItem(KEY) || "";
+  var $ = function (id) { return document.getElementById(id); };
+  var log = $("log"), sel = $("model"), q = $("q"), send = $("send");
+  var history_ = [], busy = false, ctl = null;
+
+  function el(tag, cls, text) {
+    var e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text != null) e.textContent = text;
+    return e;
+  }
+  function hint(text) { $("hint").textContent = text; }
+  function api(path, init) {
+    init = init || {};
+    init.headers = Object.assign({"Authorization": "Bearer " + token}, init.headers || {});
+    return fetch(path, init);
+  }
+  function gib(mb) { return (mb / 1024).toFixed(1); }
+
+  function refresh() {
+    if (!token) { hint("Open the Phone dialog in LlamaForge on your PC and scan its QR code."); $("gpu").textContent = "not paired"; return; }
+    api("/api/status").then(function (r) {
+      if (r.status === 401) throw new Error("This link is out of date. Scan the QR code in LlamaForge again.");
+      if (!r.ok) throw new Error("LlamaForge answered " + r.status);
+      return r.json();
+    }).then(function (s) {
+      var keep = sel.value || localStorage.getItem("lf_phone_model") || "";
+      var models = s.models || [];
+      models.sort(function (a, b) { return (b.loaded - a.loaded) || a.id.localeCompare(b.id); });
+      sel.textContent = "";
+      models.forEach(function (x) {
+        var o = el("option", null, (x.loaded ? "● " : "○ ") + x.id);
+        o.value = x.id;
+        sel.appendChild(o);
+      });
+      if (keep && models.some(function (x) { return x.id === keep; })) sel.value = keep;
+      if (!models.length) hint("No models yet. Is the router running on your PC?");
+      var g = (s.gpus || []).map(function (x) {
+        return x.name.replace(/^NVIDIA (GeForce )?/, "") + " " + gib(x.used) + "/" + gib(x.total) + " GB " + x.util + "%";
+      });
+      $("gpu").textContent = g.length ? g.join("  ·  ") : "no GPU telemetry";
+    }).catch(function (e) { $("gpu").textContent = e.message; $("gpu").classList.add("err"); });
+  }
+
+  function bubble(role, text) {
+    var e = $("empty"); if (e) e.remove();
+    var b = el("div", "msg " + (role === "user" ? "user" : "bot"));
+    if (role === "user") b.textContent = text;
+    log.appendChild(b);
+    log.scrollTop = log.scrollHeight;
+    return b;
+  }
+
+  function ask(text) {
+    var model = sel.value;
+    if (!model || busy) return;
+    localStorage.setItem("lf_phone_model", model);
+    history_.push({role: "user", content: text});
+    bubble("user", text);
+    var b = bubble("bot"), think = el("div", "think"), body = el("div"), meta = el("div", "meta");
+    b.appendChild(think); b.appendChild(body); b.appendChild(meta);
+    meta.textContent = "thinking…";
+    busy = true; send.disabled = true;
+    ctl = new AbortController();
+    var t0 = performance.now(), first = 0, n = 0, answer = "";
+    api("/api/chat", {method: "POST", signal: ctl.signal, headers: {"Content-Type": "application/json"},
+                      body: JSON.stringify({model: model, messages: history_})})
+    .then(function (r) {
+      if (!r.ok) return r.json().catch(function () { return {}; }).then(function (j) {
+        var msg = j.error && (j.error.message || j.error);
+        throw new Error(typeof msg === "string" ? msg : "error " + r.status);
+      });
+      var rd = r.body.getReader(), dec = new TextDecoder(), buf = "";
+      function pump() {
+        return rd.read().then(function (x) {
+          if (x.done) return;
+          buf += dec.decode(x.value, {stream: true});
+          var lines = buf.split("\n"); buf = lines.pop();
+          lines.forEach(function (line) {
+            if (line.indexOf("data: ") !== 0 || line === "data: [DONE]") return;
+            var j; try { j = JSON.parse(line.slice(6)); } catch (e) { return; }
+            var d = j.choices && j.choices[0] && j.choices[0].delta || {};
+            if (d.reasoning_content) think.textContent += d.reasoning_content;
+            if (d.content) { if (!first) first = performance.now(); answer += d.content; body.textContent = answer; n++; }
+            if (j.usage && j.usage.completion_tokens) n = j.usage.completion_tokens;
+            if (j.timings && j.timings.predicted_per_second) meta.dataset.tps = j.timings.predicted_per_second.toFixed(1);
+          });
+          if (first) {
+            var tps = meta.dataset.tps || (n / Math.max(0.001, (performance.now() - first) / 1000)).toFixed(1);
+            meta.textContent = model + " · " + tps + " tok/s";
+          }
+          log.scrollTop = log.scrollHeight;
+          return pump();
+        });
+      }
+      return pump();
+    })
+    .then(function () { history_.push({role: "assistant", content: answer}); if (!first) meta.textContent = model; })
+    .catch(function (e) {
+      history_.pop();
+      meta.textContent = "";
+      body.className = "err";
+      body.textContent = e.name === "AbortError" ? "stopped" : e.message;
+    })
+    .then(function () { busy = false; send.disabled = false; ctl = null; refresh(); });
+  }
+
+  $("f").addEventListener("submit", function (ev) {
+    ev.preventDefault();
+    var text = q.value.trim();
+    if (!text) return;
+    q.value = ""; q.style.height = "";
+    ask(text);
+  });
+  q.addEventListener("input", function () { q.style.height = ""; q.style.height = q.scrollHeight + "px"; });
+  q.addEventListener("keydown", function (ev) {
+    if (ev.key === "Enter" && !ev.shiftKey && !("ontouchstart" in window)) { ev.preventDefault(); $("f").requestSubmit(); }
+  });
+  $("new").addEventListener("click", function () {
+    if (ctl) ctl.abort();
+    history_ = [];
+    log.textContent = "";
+    var e = el("div", "empty"); e.id = "empty";
+    e.appendChild(el("b", null, "PHONE REMOTE"));
+    var h = el("span", null, "New chat."); h.id = "hint"; e.appendChild(h);
+    log.appendChild(e);
+  });
+  refresh();
+  setInterval(function () { if (!busy && !document.hidden) refresh(); }, 5000);
+})();
+</script>
+</body></html>

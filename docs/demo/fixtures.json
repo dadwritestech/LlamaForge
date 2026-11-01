@@ -2137,6 +2137,12 @@ null
 "router_running": true,
 "start_allowed": true
 },
+"GET /api/phone": {
+"enabled": false,
+"port": 8092,
+"running": false,
+"urls": []
+},
 "GET /api/pi/status": {
 "active": "path",
 "busy": false,

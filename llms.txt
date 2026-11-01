@@ -28,6 +28,7 @@
 - [MCP Server](https://dadwritestech.github.io/LlamaForge/mcp.md): Let Claude Code, Codex or any MCP client load models, check fit, search Hugging Face and hand tasks to a local model; forge_* tools run Auto-Forge.
 - [Agent Skill](https://dadwritestech.github.io/LlamaForge/skill.md): `npx skills add dadwritestech/LlamaForge` or the Claude Code plugin; teaches a coding agent to size, load, Auto-Forge and use local models through LlamaForge.
 - [Voice](https://dadwritestech.github.io/LlamaForge/voice.md): Text to speech on your GPU through llama.cpp's `llama-tts`, with an OpenAI-style endpoint.
+- [Phone Remote](https://dadwritestech.github.io/LlamaForge/phone.md): Scan a QR code and chat with your PC's models from your phone; an opt-in, token-guarded LAN listener that can only chat.
 - [Auto-Forge](https://dadwritestech.github.io/LlamaForge/autoforge.md): Measures GPU placements, KV cache types and speculative drafters for one model in a sandbox, checks drafters token for token, and applies the fastest setup with Undo (NVIDIA).
 
 ## Reference

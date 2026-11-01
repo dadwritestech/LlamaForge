@@ -27,7 +27,7 @@ import vram_predict, gpuprobe
 import wsl, vllm_ctl, vllm_registry, vllm_setup, vllm_job, vllm_hub, vllm_download
 import gguf, diag, backends, prebuilt, version, slots, slotctl, slotproc, builds, compat
 import idle, reclaim, tmpldoctor, samplers, reupload, mcp_server, ollama, piinstall, tts, logfiles, loadprog, gamemode, footprint, elastic, slotkeep
-import claudelaunch, rigcard, watchdog
+import claudelaunch, rigcard, watchdog, phone
 from builder import BuildManager
 from embers import panel as embers_panel
 import forge_panel
@@ -915,6 +915,42 @@ def get_schema(req):
 
 def get_gpus(req):
     return 200, {"gpus": _GPU_TELEMETRY.get(), "ram": osplat.ram_usage()}
+
+
+def _phone_view(c):
+    on = bool(c.get("phone_enabled")) and bool(c.get("phone_token"))
+    port = c.get("phone_port", 8092)
+    return {"enabled": on, "running": phone.running(), "port": port,
+            "urls": phone.urls(port, c["phone_token"], router_ctl.lan_ip(), phone.tailnet_ips()) if on else []}
+
+
+def get_phone(req):
+    """The phone remote's state and pairing links (token in the fragment)."""
+    return 200, _phone_view(cfg())
+
+
+def post_phone(req):
+    """{enabled: bool} turns the phone listener on or off; {rotate: true} makes
+    a new token, which unpairs every phone that has the old link."""
+    b = req.body
+    enabled, rotate = b.get("enabled"), b.get("rotate")
+    if (enabled is None and rotate is None) or (enabled is not None and not isinstance(enabled, bool))             or (rotate is not None and rotate is not True):
+        raise ApiError(400, "send {enabled: true|false} or {rotate: true}")
+    c = cfg()
+    changes = {}
+    if rotate or (enabled and not c.get("phone_token")):
+        changes["phone_token"] = phone.new_token()
+    if enabled is not None:
+        changes["phone_enabled"] = enabled
+    c = config.update(changes)
+    if enabled:
+        if phone.start(cfg) is None:
+            c = config.update({"phone_enabled": False})
+            raise ApiError(409, "port %s is taken: change phone_port in config.json, or close what uses it"
+                           % c.get("phone_port", 8092))
+    elif enabled is False:
+        phone.stop()
+    return 200, _phone_view(c)
 
 
 def get_setup(req):
@@ -2909,6 +2945,7 @@ GET_ROUTES = {
     "/api/state":             get_state,
     "/api/schema":            get_schema,
     "/api/gpus":              get_gpus,
+    "/api/phone":             get_phone,
     "/api/setup":             get_setup,
     "/api/build/info":        get_build_info,
     "/api/build/log":         get_build_log,
@@ -3012,6 +3049,7 @@ POST_ROUTES = {
     "/api/hub/add":             post_hub_add,
     "/api/stats/reset":         post_stats_reset,
     "/api/config":              post_config,
+    "/api/phone":               post_phone,
     "/api/network":             post_network,
     "/api/engine/switch":       post_engine_switch,
     "/api/engine/prebuilt/install": post_engine_prebuilt_install,

@@ -328,6 +328,7 @@ button:disabled{opacity:.4;cursor:not-allowed}
 .credit a{color:var(--dim)}
 /* quick-load button in the row header (#3) */
 .qbtn{font-family:var(--disp);font-weight:600;letter-spacing:.08em;text-transform:uppercase;font-size:10px;border:1px solid var(--hair);border-radius:var(--r-xs);background:var(--panel2);color:var(--ink);padding:5px 11px;cursor:pointer;white-space:nowrap}
+.phone-qr{display:flex;justify-content:center;margin:6px 0 10px}.phone-qr svg{display:block;max-width:100%;height:auto}
 .qbtn:hover{border-color:var(--amber);color:var(--ink-strong)}
 .qbtn.load{border-color:var(--amber-dim);color:var(--amber-text)}
 .qbtn.load:hover{background:var(--amber);color:var(--on-amber)}
@@ -791,6 +792,7 @@ button.danger:hover,.ef-danger:hover{background:var(--red-tint);border-color:var
     </div>
     <span id="engine-badge"></span>
     <span class="sub" id="clock"></span>
+    <button type="button" class="qbtn" id="phone-btn" title="Chat with your models from your phone">Phone</button>
   </div>
   <div class="views">
   <div class="view active" id="view-models">

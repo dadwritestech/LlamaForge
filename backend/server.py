@@ -447,6 +447,9 @@ def main():
     import logfiles         # rotate router/vLLM/model logs past 50 MB while they run (#26)
     logfiles.start_trimmer(routes.LOGDIR)
     chatproxy.serve(routes.cfg)   # Chat tab: llama.cpp's web UI on its own origin
+    if c.get("phone_enabled") and c.get("phone_token"):
+        import phone      # phone remote: opt-in, token-guarded chat page on the LAN
+        phone.start(routes.cfg)
     try:                    # optional tray icon (no-op unless pystray+pillow present)
         import tray
         if tray.available():

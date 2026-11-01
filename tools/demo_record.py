@@ -64,6 +64,8 @@ STAGED = {
     "GET /api/build/log": {"running": False, "log": "", "ok": True},
     "GET /api/router/log": {"log": ""},
     "GET /api/embers/log": {"log": ""},
+    # the real one carries the pairing link, token included
+    "GET /api/phone": {"enabled": False, "running": False, "port": 8092, "urls": []},
 }
 
 

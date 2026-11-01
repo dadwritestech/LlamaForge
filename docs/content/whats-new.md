@@ -8,6 +8,14 @@ order: 1
 
 This page summarizes the most recent additions to LlamaForge. Each entry links to the full reference for that capability. For the longer-term direction, see the project's `ROADMAP.md`.
 
+## v0.18.19: Chat from your phone
+
+Click **Phone** in the top bar, turn it on and scan the QR code: your phone gets a chat page for the models on your PC, streaming from your own GPUs with live tokens per second and GPU memory. Nothing to install on the phone, no account, no cloud relay. On a [Tailscale](https://tailscale.com/) network it works from anywhere. See [Phone Remote](phone.md).
+
+- It's off until you turn it on. The panel stays loopback-only; the phone gets a separate listener on port 8092 that can list models and chat, and nothing else.
+- The link's token rides in the QR code's `#fragment`, which never crosses the network. **New link** unpairs every phone at once.
+- The QR code is drawn by LlamaForge itself, so the panel still ships no third-party code.
+
 ## v0.18.18: Live demo in your browser
 
 [Try LlamaForge without installing it](https://dadwritestech.github.io/LlamaForge/demo/). The demo is the real panel, served from the docs site, with every screen answered from a recording of a real RTX 5080 + 5060 Ti box: its models, GPU cards, Auto-Forge leaderboard (Qwen3.8-27B at 118 tokens/s on code), stats, Discover, Embers and Help. Click anything; changes are answered with a note that nothing runs there.

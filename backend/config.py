@@ -31,6 +31,9 @@ DEFAULTS = {
     "router_port": 8080,
     "panel_port":  8090,
     "chat_port":   8091,                      # llama.cpp's chat UI, proxied on its own origin
+    "phone_enabled": False,                   # phone remote: a token-guarded chat page on the LAN
+    "phone_port":  8092,
+    "phone_token": "",                        # set when the remote is first turned on; never sent to the panel's JS state
     "router_host": "127.0.0.1",               # 127.0.0.1 = local only, 0.0.0.0 = reachable on the LAN
     "router_api_key": "",                     # required by clients when router_host != 127.0.0.1
     "router_local_key": "",                   # LlamaForge's own router key when the user set none (never shown)
