@@ -7,6 +7,9 @@
 <p align="center"><b>The real llama.cpp server, run from a browser tab.</b><br>
 Pick a model, see if it fits your GPU, load it, chat. Every llama-server flag is still there when you want it.</p>
 
+<p align="center"><a href="docs/content/autoforge.md"><b>Auto-Forge</b></a> measures flags on your own GPUs and keeps the fastest: a Qwen3.8-27B went from <b>26.8 to 126 tokens/s</b> on code here.<br>
+<b>Already on Ollama?</b> Your downloaded models run on upstream llama.cpp in place, nothing re-downloaded.</p>
+
 <p align="center">
   <a href="https://github.com/dadwritestech/LlamaForge/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/dadwritestech/LlamaForge/ci.yml?branch=master&style=flat-square&labelColor=0f1315&color=39d98a&label=CI"></a>
   <a href="LICENSE"><img alt="license" src="https://img.shields.io/badge/license-MIT-c8d2d4?style=flat-square&labelColor=0f1315"></a>
