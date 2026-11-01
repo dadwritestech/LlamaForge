@@ -111,3 +111,45 @@ class TestLlmsTxt(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestDemo(unittest.TestCase):
+    """The live demo: the real web/ UI under site/demo/, fetch() answered from
+    docs/demo/fixtures.json."""
+
+    def setUp(self):
+        self.out = tempfile.mkdtemp()
+        build_docs.build_demo(self.out)
+        self.demo = os.path.join(self.out, "demo")
+
+    def read(self, *p):
+        with open(os.path.join(self.demo, *p), encoding="utf-8") as f:
+            return f.read()
+
+    def test_copies_the_panel_with_relative_paths(self):
+        page = self.read("index.html")
+        self.assertNotIn('"/web/', page)
+        self.assertIn('src="web/js/main.js"', page)
+        self.assertNotIn("url(/web/", self.read("web", "css", "fonts.css"))
+        self.assertTrue(os.path.isfile(os.path.join(self.demo, "web", "js", "core.js")))
+        self.assertTrue(os.path.isfile(os.path.join(self.demo, "fixtures.json")))
+
+    def test_shim_loads_before_the_panel(self):
+        page = self.read("index.html")
+        self.assertLess(page.index('src="shim.js"'), page.index('src="web/js/main.js"'))
+        self.assertLess(page.index('src="shim.js"'), page.index("</head>") if "</head>" in page else len(page))
+        self.assertIn("<title>LlamaForge live demo", page)
+
+    def test_fixtures_hold_no_private_data(self):
+        import demo_record
+        with open(os.path.join(build_docs._ROOT, "docs", "demo", "fixtures.json"), encoding="utf-8") as f:
+            text = f.read()
+        self.assertEqual(demo_record.check(text), [])
+        fx = __import__("json").loads(text)
+        self.assertIn("GET /api/state", fx)
+        import routes
+        for key in fx:
+            method, url = key.split(" ", 1)
+            path = url.split("?", 1)[0]
+            table = routes.GET_ROUTES if method == "GET" else routes.POST_ROUTES
+            self.assertIn(path, table, key)

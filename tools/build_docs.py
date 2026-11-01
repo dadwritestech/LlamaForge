@@ -135,8 +135,41 @@ def build(out_dir, content=None, canirun_data=_NO_DATA):
             if fn == ".gitkeep":
                 continue
             shutil.copyfile(os.path.join(img_src, fn), os.path.join(img_dst, fn))
-    _sitemap(out_dir, [os.path.basename(w) for w in written])
+    _sitemap(out_dir, [os.path.basename(w) for w in written] + ["demo/"] * bool(build_demo(out_dir)))
     return written
+
+
+DEMO_TITLE = "LlamaForge live demo: a control panel for llama.cpp's own router"
+
+
+def build_demo(out_dir):
+    """site/demo/: the real web/ panel with fetch() answered from the recorded
+    docs/demo/fixtures.json by docs/demo/shim.js. The panel links its assets
+    as /web/..., which on Pages would point outside the site, so they become
+    relative, and the shim goes in ahead of the panel's module."""
+    src = os.path.join(_ROOT, "docs", "demo")
+    if not os.path.isfile(os.path.join(src, "fixtures.json")):
+        return []
+    dst = os.path.join(out_dir, "demo")
+    if os.path.isdir(dst):
+        shutil.rmtree(dst)
+    shutil.copytree(os.path.join(_ROOT, "web"), os.path.join(dst, "web"))
+    for fn in ("shim.js", "fixtures.json"):
+        shutil.copyfile(os.path.join(src, fn), os.path.join(dst, fn))
+    fonts = os.path.join(dst, "web", "css", "fonts.css")
+    with open(fonts, encoding="utf-8") as f:
+        css = f.read().replace("url(/web/fonts/", "url(../fonts/")
+    with open(fonts, "w", encoding="utf-8") as f:
+        f.write(css)
+    with open(os.path.join(_ROOT, "web", "index.html"), encoding="utf-8") as f:
+        page = f.read()
+    page = page.replace('"/web/', '"web/')
+    page = page.replace("<title>LlamaForge</title>", "<title>%s</title>" % html.escape(DEMO_TITLE), 1)
+    page = page.replace("<head>", '<head>\n<script src="shim.js"></script>', 1)
+    index = os.path.join(dst, "index.html")
+    with open(index, "w", encoding="utf-8") as f:
+        f.write(page)
+    return [index]
 
 
 def main():

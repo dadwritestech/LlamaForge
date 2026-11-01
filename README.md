@@ -31,6 +31,8 @@ curl -fsSL https://raw.githubusercontent.com/dadwritestech/LlamaForge/master/ins
 Then **Install llama.cpp** (the official build for your GPU, no compiler) → **Discover** → **Chat**.
 Early preview: Windows + NVIDIA is the most-tested path. Linux and macOS pass CI but have had little real-hardware use.
 
+<p align="center"><a href="https://dadwritestech.github.io/LlamaForge/demo/"><b>▶ Try the live demo in your browser</b></a>: the real panel, recorded from a two-GPU box. No install, nothing runs.</p>
+
 <p align="center">
   <img src="docs/demo.gif" alt="Fetch the official llama.cpp build, see every model drawn into your GPUs at its real size, know a model will not fit before loading it, see what is new in llama.cpp, watch live speed per model" width="100%">
 </p>

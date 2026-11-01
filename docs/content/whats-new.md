@@ -8,6 +8,13 @@ order: 1
 
 This page summarizes the most recent additions to LlamaForge. Each entry links to the full reference for that capability. For the longer-term direction, see the project's `ROADMAP.md`.
 
+## v0.18.18: Live demo in your browser
+
+[Try LlamaForge without installing it](https://dadwritestech.github.io/LlamaForge/demo/). The demo is the real panel, served from the docs site, with every screen answered from a recording of a real RTX 5080 + 5060 Ti box: its models, GPU cards, Auto-Forge leaderboard (Qwen3.8-27B at 118 tokens/s on code), stats, Discover, Embers and Help. Click anything; changes are answered with a note that nothing runs there.
+
+- The recording is made by `tools/demo_record.py` from a running panel. It keeps a fixed set of models, replaces paths, host names, LAN addresses and keys with neutral ones, and refuses to write if anything personal is left.
+- The models were idle when it was recorded, so no model shows as loaded.
+
 ## v0.18.17: LlamaForge agent skill
 
 Your coding agent, on your own GPU. `npx skills add dadwritestech/LlamaForge` (or the Claude Code plugin: `/plugin marketplace add dadwritestech/LlamaForge`) installs a skill that teaches Claude Code, Codex and other agents to drive LlamaForge: see what fits your GPUs, download and load a model, speed-tune it, and hand it grunt work. It asks you before anything slow or disruptive. See [Agent Skill](skill.md).
