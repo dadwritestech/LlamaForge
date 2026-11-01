@@ -8,6 +8,10 @@ order: 1
 
 This page summarizes the most recent additions to LlamaForge. Each entry links to the full reference for that capability. For the longer-term direction, see the project's `ROADMAP.md`.
 
+## v0.17.3: A star, once, when it's earned
+
+- **One ask for a GitHub star.** The one-line installer clones the repo, so most people who use LlamaForge never see its GitHub page. LlamaForge now asks once, in a small card at the bottom right, right after it has done something for you: an Auto-Forge run that made a model at least 1.1x faster, or the 5th model you load. Pick **Not now** and it never asks again. It makes no network request; the button is a plain link. The sidebar also has a small **star** link next to the version.
+
 ## v0.17.2: Share your Auto-Forge result
 
 - **Share.** When Auto-Forge finds a setup faster than yours, a **Share** button makes it a 1200x630 image card (before and after tokens a second, the speedup, your GPUs, the context, whether answers stay the same) and a markdown table with the flags it chose. Neither holds a file path, key or host. See [Auto-Forge](autoforge.md#share). API: `/api/forge/share`.
