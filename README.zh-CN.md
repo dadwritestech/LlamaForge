@@ -25,12 +25,17 @@ curl -fsSL https://raw.githubusercontent.com/dadwritestech/LlamaForge/master/ins
 早期预览版：Windows + NVIDIA 是测试最充分的组合。Linux 和 macOS 通过了 CI，但真实硬件上用得还不多。
 
 <p align="center">
-  <img src="docs/demo.gif" alt="获取官方 llama.cpp 构建，按真实大小看到每个模型放进显卡，加载前就知道放不放得下，查看 llama.cpp 的新变化，实时查看每个模型的速度" width="100%">
+  <a href="docs/content/autoforge.md"><img src="docs/autoforge.webp" alt="Auto-Forge 在一台机器上的实测：Qwen3.8-27B IQ4_XS，RTX 5080 加 5060 Ti，写代码从每秒 26.8 个 token 提升到 126 个。试了 53 种配置，带草稿模型的候选都核对过与普通解码输出完全相同，一键应用，一键撤销" width="100%"></a>
+  <br><sub>Auto-Forge 在我这台双显卡机器上的一次真实运行。你的数字会不一样。</sub>
 </p>
 
 LlamaForge 自己不运行任何模型。它负责安装并驱动 llama.cpp 自带的 `llama-server` 路由器（router），
 并替你编辑它的 `models.ini`。与 ggml-org 无隶属关系。如果你更想要打磨好的体验而不是完全的控制权，
 可以用 [LM Studio](https://lmstudio.ai)、[Ollama](https://ollama.com) 或 [Jan](https://jan.ai)。
+
+<p align="center">
+  <img src="docs/demo.gif" alt="获取官方 llama.cpp 构建，按真实大小看到每个模型放进显卡，加载前就知道放不放得下，查看 llama.cpp 的新变化，实时查看每个模型的速度" width="100%">
+</p>
 
 ## 为什么用 LlamaForge
 

@@ -34,12 +34,17 @@ Early preview: Windows + NVIDIA is the most-tested path. Linux and macOS pass CI
 <p align="center"><a href="https://dadwritestech.github.io/LlamaForge/demo/"><b>▶ Try the live demo in your browser</b></a>: the real panel, recorded from a two-GPU box. No install, nothing runs.</p>
 
 <p align="center">
-  <img src="docs/demo.gif" alt="Fetch the official llama.cpp build, see every model drawn into your GPUs at its real size, know a model will not fit before loading it, see what is new in llama.cpp, watch live speed per model" width="100%">
+  <a href="docs/content/autoforge.md"><img src="docs/autoforge.webp" alt="Auto-Forge on one machine: Qwen3.8-27B IQ4_XS on an RTX 5080 plus 5060 Ti went from 26.8 to 126 tokens per second on code. 53 setups tried, the drafter finalists checked to give the same tokens as plain decoding, applied in one click and undone in one click" width="100%"></a>
+  <br><sub>Auto-Forge, one real run on my two-GPU box. Your numbers will differ.</sub>
 </p>
 
 LlamaForge runs no models itself. It installs and drives llama.cpp's own `llama-server` router and
 edits its `models.ini` for you. Not affiliated with ggml-org. If you'd rather have polish than
 control, use [LM Studio](https://lmstudio.ai), [Ollama](https://ollama.com) or [Jan](https://jan.ai).
+
+<p align="center">
+  <img src="docs/demo.gif" alt="Fetch the official llama.cpp build, see every model drawn into your GPUs at its real size, know a model will not fit before loading it, see what is new in llama.cpp, watch live speed per model" width="100%">
+</p>
 
 ## Why LlamaForge
 
