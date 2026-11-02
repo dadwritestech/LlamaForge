@@ -17,6 +17,8 @@
 {
 "headings": [
 "What's New",
+"v0.18.19: Chat from your phone",
+"v0.18.18: Live demo in your browser",
 "v0.18.17: LlamaForge agent skill",
 "v0.18.16: Re-upload watch",
 "v0.18.15: Recommended samplers",
@@ -66,7 +68,7 @@
 "VRAM \"Will-it-run\" panel"
 ],
 "slug": "whats-new",
-"text": "what's new this page summarizes the most recent additions to llamaforge. each entry links to the full reference for that capability. for the longer-term direction, see the project's roadmap.md . v0.18.17: llamaforge agent skill your coding agent, on your own gpu. npx skills add dadwritestech/llamaforge or the claude code plugin: /plugin marketplace add dadwritestech/llamaforge installs a skill that teaches claude code, codex and other agents to drive llamaforge: see what fits your gpus, download and load a model, speed-tune it, and hand it grunt work. it asks you before anything slow or disruptive. see agent skill skill.md . the mcp server mcp.md gained auto-forge: forge_start , forge_status , forge_apply and forge_undo . an agent can start a run, follow it and show you the result; on the test machine forge_status reported a qwen3.8-27b setup at 118 tokens/s on code. it applies the winner only when you say so. v0.18.16: re-upload watch gguf makers often replace a file in a release's first weeks to fix a template or a broken quant, and until now nothing told you. once a day llamaforge asks hugging face whether each model's file still matches yours. a changed one gets a re-uploaded badge, the date and commit message, and a re-download button. see models models.md . - one small request per model, no downloads: 11 models checked in 0.7 s here. - on this machine it caught a gemma 4 31b whose repo had replaced the file with \"added gemma official chat template update\". - the old file is replaced only when the new one has fully downloaded. v0.18.15: recommended samplers a model's editor has a samplers row. recommended reads the temperature, top-p, top-k and other sampler values the model's makers publish in generation_config.json , from the gguf repo or the base model on its card, and shows them next to yours. use these writes only the values that differ. see models models.md . - the source is linked, so you can check where a number came from. - here, qwen3.8-27b's base repo recommends temp 1, top-k 20, top-p 0.95; the gguf repo has no generation_config.json , which is why the base model is the fallback. - prose recommendations in a model card aren't parsed: too fuzzy to apply with one click. v0.18.14: template doctor a model's editor has a template row. check compares the chat template inside your gguf with the repo you downloaded it from and the base model's, and says when yours is stale. a stale template is the usual cause of broken tool calls and thinking that won't switch off. one click uses the newer template through llama.cpp's --chat-template-file ; the gguf isn't touched. see models models.md . - it reads only the repo file's header, never the weights. a check took about 1.5 s per model here. - on this machine it found a gemma 4 31b whose repo had since been re-uploaded with a template that handles null tool arguments. - a difference from the base model is only a hint: gguf makers often change templates on purpose. v0.18.13: free disk space setup has a free disk space card. one click lists the models nobody has used in 90 days from stats , largest first, and any gguf that's a byte-identical copy of another, like the same quant in two apps' folders. each row has a delete button that asks first, then unloads the model, deletes the file every part of a split one and removes it from your config. see setup setup.md free-disk-space . - it won't delete a file another model points at, a link into another app's cache, or anything but a .gguf . shared mmproj files stay. - if stats is younger than 90 days, the card says so instead of calling everything unused. v0.18.12: sleep idle models setup has a sleep idle models card. pick a number of minutes and any llama.cpp model that sits idle that long frees its vram and ram, stays in the list as sleeping a hollow light , and wakes on the next request. on a test here a 3b model went from about 3.2 gb of vram to under 0.5 gb asleep, and woke for a chat request in 0.65 s. see setup setup.md sleep-idle-models . - it's llama.cpp's own --sleep-idle-seconds , set for every model; it applies from each model's next load and needs a build that has the flag the card says when yours doesn't . - a sleeping model still gets chat, unload and the claude code button, and the stats poller leaves it asleep. v0.18.11: share your rig stats has a share my rig button: a 1200x630 image and markdown of your gpus, ram and os, your five most-used models with their speed and token counts, and how many tokens this machine has generated. download it, copy it, post it. see stats stats.md . - model names lose any folder part, and nothing on the card can carry a path, key or host. - the speed is now llama.cpp's own timing. the old tok/s column divided tokens by 4-second poll windows, so parallel requests and late polls pushed it far too high. the new figure is the router's per-slot generation speed averaged over every token, and reads \"-\" until a model has generated under this version. that's also what the stats tab shows now. v0.18.10: the router comes back on its own if llama.cpp's router crashes, every app pointed at it gets \"connection refused\" until someone notices. llamaforge now probes it every 5 seconds and, after 15 seconds without an answer, starts it again with the same settings. models aren't preloaded; the next request loads its model as usual. - it only watches a router it has seen running, and it stays out of the way of restarts you or another setting are doing. - when the router keeps dying right after it starts, it backs off 4, 8, 16, 32 s and stops after 5 quick deaths. the models tab then shows why, read from the router log out of memory, a bad flag, a missing file , instead of crash-looping in the background. - models shows a short line when it restarted the router, with the count and the time. - off switch: router_watchdog: false in config.json see configuration config.md . v0.18.9: link straight to a quant - discover?repo=owner/name&file=x.gguf . opening the panel with that on the end of its url http://127.0.0.1:8090/ discover?repo=...&file=... goes to discover, opens that hugging face repo with its fit ratings, and highlights the quant with its download button focused. leave out file to just open the repo; a pasted huggingface.co/owner/name url works as the repo too. - it only shows, it never downloads. the download still takes your click, so a web page that links to the panel can't start a multi-gigabyte download. anything that isn't a plain owner/name repo or a .gguf path is ignored. v0.18.8: embedding and reranker models, set up for rag - recognized by what they are, not their name. a model scan reads the gguf header: a rank pooling type, or an encoder with a classifier head how llama.cpp itself tells them apart , means a reranker; a mean, cls or last pooling type, or an encoder architecture such as bert or nomic-bert, means an embedding model. before, only a filename containing \"embed\" counted, and rerankers weren't detected at all. - started the right way. rerankers get reranking = true in models.ini , so the router starts them with --reranking and they answer /v1/rerank ; embedding models keep embeddings = true . a rescan never clears a flag you set by hand. models found in ollama's store get the same check. - tagged and explained. the model list shows an embed or rerank tag. client config on one of them gives the /v1/embeddings or /v1/rerank request instead of a chat one, plus open webui's documents settings and, for embeddings, continue's embed role. checked end to end on llama.cpp b12032 with nomic-embed-text v1.5 and jina-reranker-v1-tiny-en. v0.18.7: amd and intel gpus show up - vram for cards nvidia-smi can't see. when nvidia-smi has nothing to report, llamaforge asks your llama.cpp build for its device list llama-server --list-devices . a vulkan, rocm or sycl build lists each gpu with its total and free memory, so amd and intel cards now get the gpu tiles, the vram preview and fit ratings. if a card appears under two backends it's counted once. on linux, an amd card shows up from sysfs even before a gpu build is installed. - integrated gpus don't inflate the total. an igpu reports shared system ram as its memory a ryzen igpu here claimed 16 gb , so it's left out when a real card is present. if it's the only gpu, as on a laptop, it's kept. - what's missing. these cards show memory but not utilization or temperature; the tile says which backend the numbers came from. elastic vram and auto-forge stay nvidia-only. this was checked against real vulkan and cuda builds on an nvidia machine, not on real amd or intel hardware yet, so reports are welcome. v0.18.6: start at login, if you want it - llamaforge service on . on linux it writes a systemd user unit, on macos a launch agent. either one starts the router and dashboard when you log in, without opening a browser, for an always-on box behind open webui or continue. llamaforge service off removes it, and llamaforge uninstall turns it off too. it's off unless you turn it on, and the dashboard still listens on 127.0.0.1 only. see start at login install.md . v0.18.5: a gpu box with no screen - run.sh over ssh prints the tunnel. when you start llamaforge in an ssh session or on linux with no display, or with llamaforge_headless=1 , run.sh no longer tries to open a browser. it prints the ssh -n -l 8090:127.0.0.1:8090 ... line to run on your own computer, using the address and port of your current ssh session. the dashboard still listens on 127.0.0.1 only. see headless machines index.md . v0.18.4: paste-ready settings for your apps - client config fills in your apps. next to curl and the openai environment variables, a model's client config now has an apps section with that model's settings for open webui where to click, and the host.docker.internal address when open webui runs in docker and the router is on 127.0.0.1 , a continue config.yaml , cline 's openai compatible fields and an aider command. each has a copy button. v0.18.3: thinking effort, per model - set how hard a model thinks. models whose chat template takes a reasoning effort qwen3.8, gpt-oss and others get an effort dropdown in the thinking row, next to the budget. it lists only the levels that template knows, read from the gguf qwen3.8 offers low, medium and xhigh , and writes llama.cpp's --reasoning-effort for that model, so every app that talks to the router gets it without sending anything. needs a llama.cpp build from v0.8.0 on. see models models.md . v0.18.2: multi-model that keeps vram free on its own - client loading no longer means guessing. with multi-model on and let client requests load models ticked, any app can ask the router for a model the planner never checked. on llama.cpp v0.8.0 and newer, llamaforge now hands the router your vram kept free per gpu as its --models-memory-margin , so the router unloads its least recently used model until the new one fits instead of running out of memory. older builds keep working as before. v0.18.1: ollama users skip the download - first run knows about ollama. if you already use ollama, the setup wizard's model step now leads with use the n models you already have in ollama . one click adds them in place nothing is downloaded or copied and picks the first chat model, so you go straight to tuning and loading. the starter downloads are still there below it. see setup setup.md models-you-already-have-in-ollama . v0.18.0: bring your ollama models - your ollama models, on llama.cpp. ollama stores models as gguf files without a .gguf name, so a scan never saw them. setup scan now reads ollama's manifests ~/.ollama/models , ollama_models , or the linux service's folder and lists every model it downloaded, marked from ollama , with the vision projector attached. adding one points models.ini at ollama's own file: nothing is copied, and ollama keeps working. a model ollama converted for its own engine may not load in upstream llama.cpp; the load error says so. see setup setup.md models-you-already-have-in-ollama . v0.17.3: a star, once, when it's earned - one ask for a github star. the one-line installer clones the repo, so most people who use llamaforge never see its github page. llamaforge now asks once, in a small card at the bottom right, right after it has done something for you: an auto-forge run that made a model at least 1.1x faster, or the 5th model you load. pick not now and it never asks again. it makes no network request; the button is a plain link. the sidebar also has a small star link next to the version. v0.17.2: share your auto-forge result - share. when auto-forge finds a setup faster than yours, a share button makes it a 1200x630 image card before and after tokens a second, the speedup, your gpus, the context, whether answers stay the same and a markdown table with the flags it chose. neither holds a file path, key or host. see auto-forge autoforge.md share . api: /api/forge/share . - auto-forge survives more out-of-memory cases. an out-of-memory line that llama.cpp retries past no longer fails the candidate, the window steps down when the asked context doesn't fit, and when your current setup is faster than every candidate say it uses a drafter forge can't rebuild the result says so and offers apply anyway instead of pushing apply. - fix. lite mode shows gpu layers again on llama.cpp builds whose first spelling of the flag is --gpu-layers . v0.17.1: claude code launch fixes - claude code on a folder works from the launch button on windows. the terminal window no longer closes the moment it opens, and claude code no longer gets 401 invalid x-api-key when llamaforge itself was started from a claude session it used that session's login instead of the panel key . - no more 500 on the first message. claude code 2.1 sends system messages in the middle of a conversation; qwen's chat template rejects those \"system message must be at the beginning\" . the anthropic endpoint now moves them where every template accepts them. v0.17.0: auto-forge, claude code on a folder - auto-forge. finds the fastest way to run a model on your gpus by measuring it, not guessing. in a private sandbox it tries gpu placements, kv cache types and speculative drafters dflash, mtp at the context you ask for, benchmarks code, prose and prompt speed, and checks token for token that a drafter gives the same answers as the model without it. pick what you use the model for coding, chat, long documents, agents , quick or thorough, and optionally allow lossy kv or try without the vision projector. apply writes only what it changed into models.ini ; undo puts your values back. on a qwen3.8-27b with an rtx 5080 and an rtx 5060 ti it went from 26.8 to 126.0 tokens/s on code and from 26.5 to 71.0 on prose. the old setup sat mostly on the slower card at 70k context, and forge was asked for 32k; the 5080 alone without a drafter did 52.1 one machine, one model . nvidia only, and new. see auto-forge autoforge.md . api: /api/forge/status , /api/forge/start , /api/forge/cancel , /api/forge/apply , /api/forge/undo . - claude code on a folder, one click. a claude code button on a loaded model checks that it's ready cli found, anthropic endpoint on, context size, jinja, a small model for background requests , lets you pick a folder, and opens a terminal there running claude against the local model. the endpoint and key are set on that one process, so your other claude code sessions and ~/.claude/settings.json are untouched, and an inherited cloud api key never reaches the local endpoint. see api api.md . api: /api/claude/check , /api/claude/pick-folder , /api/claude/launch . - fixes. a metrics scrape on stats and a slot read by elastic vram never load a model any more. a router that can't start because its port is taken now says so, with a fix. controls you could only click are keyboard buttons now, and inputs that only had a placeholder have labels. python and javascript lint run in ci. the docs are also served as llms.txt https://dadwritestech.github.io/llamaforge/llms.txt . v0.16.4: elastic vram, live ram - elastic vram. when another app needs your gpu, llamaforge moves a loaded model's layers to the cpu instead of unloading it moe experts first , keeps the conversation through llama.cpp's slot save and restore after one router restart; the router gets a save folder only while elastic is on , and moves the layers back once the memory is free. a resized model is much slower, and the dashboard row says so; click its chip to grow it back. nvidia only, off by default, and new: not yet tested on many machines. see setup elastic vram setup.md elastic-vram . api: /api/elastic , /api/elastic/grow . - live system ram on stats. a system ram meter sits next to the gpu memory in every look, also on machines without a gpu. \"used\" leaves out cache the os can hand back, like task manager's \"in use\". see stats stats.md . - a warning before an unknown architecture fails. if a model's architecture is newer than the llama.cpp checkout that would load it, the model editor says so and to update the build instead of the load failing with unknown model architecture . embedding models such as embeddinggemma now have a section in models.ini models-ini.md embedding-models . - fixes. /v1/audio/speech answers an unsupported response_format say mp3 with a 400 instead of wav under the wrong name. ember quotes copied from pdfs match across line-break and soft hyphens. reloading models.ini works on router builds that serve it on a different route thanks @vergillll , and allowed values: lists that wrap over several lines in --help are read whole thanks @vergillll . v0.16.3: game mode - game mode. start a game and llamaforge unloads your models; quit it and they load again. games are recognised by their steam, epic, gog, xbox, riot, ea or ubisoft folder, by names you add, or windows by exclusive full screen. pick models to keep loaded through it. off by default. see setup setup.md game-mode . - discover shows vram in use next to the fit rating, so you can see what's already taken. v0.16.2: load progress, thinking and vision switches - real load progress. a loading model shows loading n% and a bar through its stages weights, draft model, vision projector instead of a stopwatch. the numbers are llama.cpp's own load callback, which the router streams on get /models/sse ; llamaforge listens only while something is loading. a router build without that stream keeps the elapsed-seconds display. see models & tuning models.md . - thinking: auto / on / off, plus a budget. a one-click row in the model editor over llama.cpp's --reasoning and --reasoning-budget . the model's chat template decides the hint: a template with a thinking switch enable_thinking and the like really turns thinking off; a template that only shows <think or think tags may keep thinking anyway. models with neither don't get the row. - vision on/off. turning a model's vision off removes its mmproj line and remembers the path, so the projector's vram is free and the file stays on disk. a rescan or re-download doesn't turn it back on; on restores the line. v0.16.1 - model scout runs overnight again. an ember with no model of its own now uses the auto-load model from setup when nothing is loaded, instead of skipping its jobs. see embers embers.md . v0.16: embers, several models at once, an mcp server, voice - voice: text to speech on your gpu. a new voice tab speaks through llama.cpp's own llama-tts with qwen3-tts 10 languages or the tiny english pocket tts faster than real time, even on a cpu , optionally in a voice you record or upload only clone voices you may use . the panel also serves an openai-style post /v1/audio/speech , so openai clients get local speech. no vram is held between requests. see voice voice.md . - several models at once. multi-model mode places your main model on the fastest gpu that fits it and keeps worker models off that gpu. fit is checked against footprints measured on this machine, and each verdict says whether it's measured, predicted or a rough estimate. workers are evicted least-recently-used, and only after you agree to it. a model with no context size set is refused, with the reason. the model rows get load as worker , make main and unload x and load , and setup has a multi-model card. api: /api/slots , /api/slots/plan , /api/slots/main , /api/slots/apply . - per-model builds. pin a model to any installed llama.cpp build. an ik_llama build runs as its own llama-server on 127.0.0.1:8100 and up, with arguments translated between the builds. crash exit codes are named instead of shown as raw numbers. - \"runs on\" for ggufs. the file card says whether a gguf runs on any build, mainline only or ik_llama only. the diagnosis explains invalid ggml type n instead of leaving you with the number. - embers. small local agents that keep watch on a topic, keep a wiki and write you a brief on a schedule. a wiki item only counts if it quotes its source verbatim. model scout needs no setup, and forge builds a new ember by interviewing you tested on 8 models from 3b to 27b . see embers embers.md . - mcp server. claude code, codex or any mcp client can check status, load and unload models, check fit, search and download from hugging face, and hand a task to a local model. see mcp server mcp.md . - pi from setup. the pi coding agent card installs, updates and removes pi under <root /agents/pi with --ignore-scripts , and can install node.js through winget, chocolatey or homebrew. see connect an agent agents.md . - stowage, the new default look. each gpu on models and stats is drawn as a cargo hold ruled in 1 gib cells, with every loaded model stowed in it at its measured size. open a model and it shows where it would go: if it won't fit, the part that doesn't fit hangs past the end of the hold and anything that would be unloaded is marked. a ledger adds up used, booked and free to the tenth. light, dark and colorblind-safe. hearth and classic are one click away. motion is subtle, never runs on the views that refresh every few seconds, and is off when your system asks for reduced motion. see theming & accessibility theming.md . - no font cdn. the panel's fonts ship with it, so it renders the same offline and no third party learns you opened it. - stats count every loaded model , including models running as their own process, with live tokens per second for each. see stats stats.md . - vision projectors pair again. a scan only attached an mmproj file to models on a fixed list of architectures, so gemma 4, qwen 3.5 and other current vision models lost theirs discussion 16 https://github.com/dadwritestech/llamaforge/discussions/16 . a projector now pairs when its width matches the model's, the same check llama.cpp makes when it loads one. several quants of one model can share a projector, and with several projectors f16 wins. files named <model -mmproj- .gguf count as projectors, in a scan and in discover. - logs stay small. with verbose = true a router log could grow to gigabytes, and the panel read all of it every time the log view refreshed, using tens of gb of ram 26 https://github.com/dadwritestech/llamaforge/issues/26 . the panel now reads only the end of a log, and once a router, vllm or model log passes 50 mb it moves to .1 7 old copies kept , both when the process starts and every minute while it runs. on windows, a router started by run.ps1 is rotated from its next restart from the panel. - docs search reads the whole page , not only titles and headings, and says so when nothing matches. - fixes. an out-of-memory load on a model with split-mode = tensor now says that tensor split turns llama.cpp's fit off and suggests split-mode = layer . a pi_run that gave no answer and had every tool call fail is reported as a failure. the ik_llama update check reads ik_llama's own default branch main . a busy router port points you at config.json . v0.15: llama.cpp sizes memory, honest diagnosis, safer by default - llama.cpp's --fit decides context, gpu layers and split. llamaforge no longer pins ctx-size , n-gpu-layers or tensor-split . auto-tune clears them, and the old ctx-size = 150000 pin is removed once on upgrade. see first run first-run.md and models.ini format models-ini.md . - load failures quote the attempt that failed. the diagnosis reads only the last load of that model from the router log and quotes llama.cpp's own error line. if a value you pinned turned fit off, the out-of-memory hint names it. see troubleshooting troubleshooting.md . - split ggufs count all their shards in sizes and fit estimates. speed and fit badges are labelled as rough estimates. - a download ends in load & chat , and a first run with no models suggests starters sized to your vram. - security: the router always runs with an api key, and cors is localhost-only unless you opt into lan. recipes import only allowlisted tuning knobs. stop and uninstall touch only processes and files llamaforge owns. vulnerabilities can be reported privately see security.md . - the running version is shown next to the logo and requested in bug reports. community recipe gallery click browse recipes on the profiles strip to see tested setups people have shared: the model, the hardware it ran on, what the key knobs do, and an on this machine badge when you already have the file. import runs the normal recipe import, so a missing model downloads from hugging face and the same knob filter applies. the list comes live from the repo's recipes/ folder, so a merged recipe appears without a release; offline, llamaforge shows the copy that shipped with your version. to add yours, export it with ↗ and open a pull request see recipes/readme.md . see models & tuning models.md and http api api.md . shareable recipes any llama.cpp profile can be shared as a recipe : click ↗ on its chip and copy readable json with the model file, the hugging face repo it came from, its knobs, and the llama.cpp build it was made on. paste a recipe into + import recipe to get the same preset and profile. if you don't have the model, download from <repo & import fetches it. only tuning knobs are imported; paths, hosts, keys and logging flags are always dropped. see models & tuning models.md and http api api.md . one-click launch profiles save a model, a preset, and optionally a specific installed llama.cpp build as a named profile from the model's editor, then launch the whole combination from a ▶ chip above the model list. if the pinned build isn't the active one, llamaforge switches to it, waits for the router, applies the preset, and loads the model. that's useful when a new llama.cpp release regresses one model and you want to keep it on the build that worked. builds a profile pins are kept out of the automatic pruning after an update. see models & tuning models.md and http api api.md . focused scanning and a lighter models tab setup can now persist one or more model folders instead of walking every drive, while an explicit blank list still selects the platform defaults. a llama.cpp model can be unregistered from models.ini without deleting its gguf file. the models view also avoids polling collapsed logs, shares gpu telemetry through a short cache instead of spawning nvidia-smi per browser poll, and keeps the crt scanline look without the expensive full-viewport blend mode. fresh bootstrap runs now accept an existing llama.cpp checkout and derive its build/server paths, removing the hand-edit step reported by wsl2 users. see setup setup.md , models & tuning models.md , and install install.md . fail-closed network and explicit credentials network access now distinguishes the loopback-only dashboard from the router it controls. llamaforge accepts only local 127.0.0.1 or lan 0.0.0.0 router scope, requires a usable key for every newly configured lan router, and refuses llamaforge-owned starts/restarts when that policy is unsafe. existing manual or legacy settings are shown for repair rather than silently rewritten. routine dashboard state is redacted; client config, agent config, and generated keys are deliberate no-store actions. this is tested product behavior in an early preview, not a formal security standard or audit certification. see security https://github.com/dadwritestech/llamaforge/blob/master/security.md , setup setup.md , http api api.md , and connect an agent agents.md . ik_llama as a second llama-family engine the build tab now builds and drives ik_llama.cpp alongside stock llama.cpp, switched with one control post /api/engine/switch . the switch is gated on a capability probe: a binary whose llama-server lacks router mode --models-preset is refused with an explanation rather than taking the router down, and ik_llama keeps its own models.ini registry a -ikllama sibling of the main one . per-model tuning comes along automatically because the knob schema is parsed from whichever binary is active. see build & update build.md and models.ini format models-ini.md . bind a preset as a model's default named presets can now be bound to a model, not just applied once. binding writes the preset's knobs into the model's section and — the point of it — editing a bound preset re-syncs every model using it. a ◉/○ dot on each preset chip toggles the binding; the bound chip is highlighted. hand edits still win, and unbinding leaves the knobs in place. see models & tuning models.md . auto-wired mtp draft models a scan now attaches an mtp- speculative draft sidecar to its parent model the way mmproj already is, filling spec-draft-model . it enables spec-type=draft-mtp only when the sidecar actually declares nextn layers — the signal llama.cpp itself gates on — so a model that can't use mtp is never broken. the wiring is additive: it never overwrites a spec-type you set by hand e.g. an ngram mode . see models.ini format models-ini.md . offload-aware vram-fit rating the fits / tight / cpu offload badge in discover now defers to the same physics estimate as the will-it-run panel instead of a raw size-vs-vram guess. a large moe that runs fast with its experts on cpu reads as tight rather than being mislabeled cpu offload just for being bigger than vram. the size heuristic remains the fallback when no prediction is available. see discover discover.md . a more forgiving first run several fresh-install rough edges are gone. a missing config.json is seeded from config.example.json instead of crashing; models.ini is created if absent; a relative models_ini resolves against the repo root so the router never comes up with zero models; a busy router port is reported by name instead of failing silently; a freshly installed tool is detected without a restart; and a build whose llama-server succeeded but whose ui-asset step failed reports \"built, with warnings\" instead of build failed. see first run first-run.md , setup setup.md , and troubleshooting troubleshooting.md . lite and advanced modes, with a guided first run a first-run wizard now walks a new install through engine detection, hardware review, model selection, and a recommended tune — then applies it and loads the model. the dashboard runs in one of two modes: lite presents a reduced, task-oriented set of controls; advanced exposes every server flag. a hardware auto-tune proposes per-model settings gpu-layer offload, kv-cache type, context ceiling, and intent presets for balanced / speed / context / coding sized to the detected vram. see first run first-run.md and models & tuning models.md . anthropic-compatible endpoint the panel exposes an anthropic-compatible post /v1/messages endpoint that translates to the local openai-style router, with full streaming and tool-use support. combined with the existing openai-compatible surface, llamaforge can serve clients written for either api against your local models. see http api api.md . one-click agent setup a connect an agent panel generates — and optionally writes — the configuration for claude code , codex , and pi.dev , pointing each at your local endpoint. claude code is scoped to 127.0.0.1 ; generated files are backed up before any change is written. see connect an agent agents.md . context wiki a working directory of markdown context documents, composed into named profiles and selected per model . an active profile is delivered two ways: injected into requests through the anthropic shim and the openai proxy, or exported into an agent's native context file claude.md / agents.md inside a managed marker region. because the injected prefix is stable, the router's prompt-cache reuses it across requests. see context wiki context-wiki.md . light and dark themes, plus a colorblind-safe mode the dashboard now offers a light theme alongside the original dark one, and an independent colorblind-safe mode that applies a universal okabe–ito status palette and adds non-color cues glyphs and labels so status never depends on hue alone. the two axes are orthogonal — all four combinations are valid — and each choice persists per device. see theming & accessibility theming.md . in-app documentation the documentation you are reading is available inside the dashboard under the help view and is also published as a static site. both surfaces render from a single markdown source, so they never drift. a collapsible sidebar layout navigation moved from a top tab bar to a left sidebar that collapses between a compact icon rail and a labeled, expanded state. settings are pinned at the bottom; the layout adapts to narrow windows with an overlay drawer. all existing navigation, theming, and keyboard shortcuts are unchanged. see keyboard shortcuts keymap.md . refine benchmark in the models panel a refine button now sits inline in each model's editor beside the presets bar . pick an intent balanced / speed / context / coding , click run , and it auto-generates knob recommendations, benchmarks candidates with real completion requests ~200 tokens each , and applies the fastest config. a results table shows tok/s per candidate and which was chosen. the same autotune engine used in the first-run wizard is now available anytime from the main models tab. see models & tuning models.md . vram \"will-it-run\" panel before downloading, the discover tab now shows a will-it-run panel that predicts whether a model quant will fit your gpu and at what approximate speed. it factors in moe active-vs-total parameters, your gpu's memory bandwidth with manual overrides in setup , and the quant's size — then rates it as fits , tight , or cpu offload with an estimated tok/s. the same estimate appears as a badge when you expand a model in discover. see discover discover.md .",
+"text": "what's new this page summarizes the most recent additions to llamaforge. each entry links to the full reference for that capability. for the longer-term direction, see the project's roadmap.md . v0.18.19: chat from your phone click phone in the top bar, turn it on and scan the qr code: your phone gets a chat page for the models on your pc, streaming from your own gpus with live tokens per second and gpu memory. nothing to install on the phone, no account, no cloud relay. on a tailscale https://tailscale.com/ network it works from anywhere. see phone remote phone.md . - it's off until you turn it on. the panel stays loopback-only; the phone gets a separate listener on port 8092 that can list models and chat, and nothing else. - the link's token rides in the qr code's fragment , which never crosses the network. new link unpairs every phone at once. - the qr code is drawn by llamaforge itself, so the panel still ships no third-party code. v0.18.18: live demo in your browser try llamaforge without installing it https://dadwritestech.github.io/llamaforge/demo/ . the demo is the real panel, served from the docs site, with every screen answered from a recording of a real rtx 5080 + 5060 ti box: its models, gpu cards, auto-forge leaderboard qwen3.8-27b at 118 tokens/s on code , stats, discover, embers and help. click anything; changes are answered with a note that nothing runs there. - the recording is made by tools/demo_record.py from a running panel. it keeps a fixed set of models, replaces paths, host names, lan addresses and keys with neutral ones, and refuses to write if anything personal is left. - the models were idle when it was recorded, so no model shows as loaded. v0.18.17: llamaforge agent skill your coding agent, on your own gpu. npx skills add dadwritestech/llamaforge or the claude code plugin: /plugin marketplace add dadwritestech/llamaforge installs a skill that teaches claude code, codex and other agents to drive llamaforge: see what fits your gpus, download and load a model, speed-tune it, and hand it grunt work. it asks you before anything slow or disruptive. see agent skill skill.md . the mcp server mcp.md gained auto-forge: forge_start , forge_status , forge_apply and forge_undo . an agent can start a run, follow it and show you the result; on the test machine forge_status reported a qwen3.8-27b setup at 118 tokens/s on code. it applies the winner only when you say so. v0.18.16: re-upload watch gguf makers often replace a file in a release's first weeks to fix a template or a broken quant, and until now nothing told you. once a day llamaforge asks hugging face whether each model's file still matches yours. a changed one gets a re-uploaded badge, the date and commit message, and a re-download button. see models models.md . - one small request per model, no downloads: 11 models checked in 0.7 s here. - on this machine it caught a gemma 4 31b whose repo had replaced the file with \"added gemma official chat template update\". - the old file is replaced only when the new one has fully downloaded. v0.18.15: recommended samplers a model's editor has a samplers row. recommended reads the temperature, top-p, top-k and other sampler values the model's makers publish in generation_config.json , from the gguf repo or the base model on its card, and shows them next to yours. use these writes only the values that differ. see models models.md . - the source is linked, so you can check where a number came from. - here, qwen3.8-27b's base repo recommends temp 1, top-k 20, top-p 0.95; the gguf repo has no generation_config.json , which is why the base model is the fallback. - prose recommendations in a model card aren't parsed: too fuzzy to apply with one click. v0.18.14: template doctor a model's editor has a template row. check compares the chat template inside your gguf with the repo you downloaded it from and the base model's, and says when yours is stale. a stale template is the usual cause of broken tool calls and thinking that won't switch off. one click uses the newer template through llama.cpp's --chat-template-file ; the gguf isn't touched. see models models.md . - it reads only the repo file's header, never the weights. a check took about 1.5 s per model here. - on this machine it found a gemma 4 31b whose repo had since been re-uploaded with a template that handles null tool arguments. - a difference from the base model is only a hint: gguf makers often change templates on purpose. v0.18.13: free disk space setup has a free disk space card. one click lists the models nobody has used in 90 days from stats , largest first, and any gguf that's a byte-identical copy of another, like the same quant in two apps' folders. each row has a delete button that asks first, then unloads the model, deletes the file every part of a split one and removes it from your config. see setup setup.md free-disk-space . - it won't delete a file another model points at, a link into another app's cache, or anything but a .gguf . shared mmproj files stay. - if stats is younger than 90 days, the card says so instead of calling everything unused. v0.18.12: sleep idle models setup has a sleep idle models card. pick a number of minutes and any llama.cpp model that sits idle that long frees its vram and ram, stays in the list as sleeping a hollow light , and wakes on the next request. on a test here a 3b model went from about 3.2 gb of vram to under 0.5 gb asleep, and woke for a chat request in 0.65 s. see setup setup.md sleep-idle-models . - it's llama.cpp's own --sleep-idle-seconds , set for every model; it applies from each model's next load and needs a build that has the flag the card says when yours doesn't . - a sleeping model still gets chat, unload and the claude code button, and the stats poller leaves it asleep. v0.18.11: share your rig stats has a share my rig button: a 1200x630 image and markdown of your gpus, ram and os, your five most-used models with their speed and token counts, and how many tokens this machine has generated. download it, copy it, post it. see stats stats.md . - model names lose any folder part, and nothing on the card can carry a path, key or host. - the speed is now llama.cpp's own timing. the old tok/s column divided tokens by 4-second poll windows, so parallel requests and late polls pushed it far too high. the new figure is the router's per-slot generation speed averaged over every token, and reads \"-\" until a model has generated under this version. that's also what the stats tab shows now. v0.18.10: the router comes back on its own if llama.cpp's router crashes, every app pointed at it gets \"connection refused\" until someone notices. llamaforge now probes it every 5 seconds and, after 15 seconds without an answer, starts it again with the same settings. models aren't preloaded; the next request loads its model as usual. - it only watches a router it has seen running, and it stays out of the way of restarts you or another setting are doing. - when the router keeps dying right after it starts, it backs off 4, 8, 16, 32 s and stops after 5 quick deaths. the models tab then shows why, read from the router log out of memory, a bad flag, a missing file , instead of crash-looping in the background. - models shows a short line when it restarted the router, with the count and the time. - off switch: router_watchdog: false in config.json see configuration config.md . v0.18.9: link straight to a quant - discover?repo=owner/name&file=x.gguf . opening the panel with that on the end of its url http://127.0.0.1:8090/ discover?repo=...&file=... goes to discover, opens that hugging face repo with its fit ratings, and highlights the quant with its download button focused. leave out file to just open the repo; a pasted huggingface.co/owner/name url works as the repo too. - it only shows, it never downloads. the download still takes your click, so a web page that links to the panel can't start a multi-gigabyte download. anything that isn't a plain owner/name repo or a .gguf path is ignored. v0.18.8: embedding and reranker models, set up for rag - recognized by what they are, not their name. a model scan reads the gguf header: a rank pooling type, or an encoder with a classifier head how llama.cpp itself tells them apart , means a reranker; a mean, cls or last pooling type, or an encoder architecture such as bert or nomic-bert, means an embedding model. before, only a filename containing \"embed\" counted, and rerankers weren't detected at all. - started the right way. rerankers get reranking = true in models.ini , so the router starts them with --reranking and they answer /v1/rerank ; embedding models keep embeddings = true . a rescan never clears a flag you set by hand. models found in ollama's store get the same check. - tagged and explained. the model list shows an embed or rerank tag. client config on one of them gives the /v1/embeddings or /v1/rerank request instead of a chat one, plus open webui's documents settings and, for embeddings, continue's embed role. checked end to end on llama.cpp b12032 with nomic-embed-text v1.5 and jina-reranker-v1-tiny-en. v0.18.7: amd and intel gpus show up - vram for cards nvidia-smi can't see. when nvidia-smi has nothing to report, llamaforge asks your llama.cpp build for its device list llama-server --list-devices . a vulkan, rocm or sycl build lists each gpu with its total and free memory, so amd and intel cards now get the gpu tiles, the vram preview and fit ratings. if a card appears under two backends it's counted once. on linux, an amd card shows up from sysfs even before a gpu build is installed. - integrated gpus don't inflate the total. an igpu reports shared system ram as its memory a ryzen igpu here claimed 16 gb , so it's left out when a real card is present. if it's the only gpu, as on a laptop, it's kept. - what's missing. these cards show memory but not utilization or temperature; the tile says which backend the numbers came from. elastic vram and auto-forge stay nvidia-only. this was checked against real vulkan and cuda builds on an nvidia machine, not on real amd or intel hardware yet, so reports are welcome. v0.18.6: start at login, if you want it - llamaforge service on . on linux it writes a systemd user unit, on macos a launch agent. either one starts the router and dashboard when you log in, without opening a browser, for an always-on box behind open webui or continue. llamaforge service off removes it, and llamaforge uninstall turns it off too. it's off unless you turn it on, and the dashboard still listens on 127.0.0.1 only. see start at login install.md . v0.18.5: a gpu box with no screen - run.sh over ssh prints the tunnel. when you start llamaforge in an ssh session or on linux with no display, or with llamaforge_headless=1 , run.sh no longer tries to open a browser. it prints the ssh -n -l 8090:127.0.0.1:8090 ... line to run on your own computer, using the address and port of your current ssh session. the dashboard still listens on 127.0.0.1 only. see headless machines index.md . v0.18.4: paste-ready settings for your apps - client config fills in your apps. next to curl and the openai environment variables, a model's client config now has an apps section with that model's settings for open webui where to click, and the host.docker.internal address when open webui runs in docker and the router is on 127.0.0.1 , a continue config.yaml , cline 's openai compatible fields and an aider command. each has a copy button. v0.18.3: thinking effort, per model - set how hard a model thinks. models whose chat template takes a reasoning effort qwen3.8, gpt-oss and others get an effort dropdown in the thinking row, next to the budget. it lists only the levels that template knows, read from the gguf qwen3.8 offers low, medium and xhigh , and writes llama.cpp's --reasoning-effort for that model, so every app that talks to the router gets it without sending anything. needs a llama.cpp build from v0.8.0 on. see models models.md . v0.18.2: multi-model that keeps vram free on its own - client loading no longer means guessing. with multi-model on and let client requests load models ticked, any app can ask the router for a model the planner never checked. on llama.cpp v0.8.0 and newer, llamaforge now hands the router your vram kept free per gpu as its --models-memory-margin , so the router unloads its least recently used model until the new one fits instead of running out of memory. older builds keep working as before. v0.18.1: ollama users skip the download - first run knows about ollama. if you already use ollama, the setup wizard's model step now leads with use the n models you already have in ollama . one click adds them in place nothing is downloaded or copied and picks the first chat model, so you go straight to tuning and loading. the starter downloads are still there below it. see setup setup.md models-you-already-have-in-ollama . v0.18.0: bring your ollama models - your ollama models, on llama.cpp. ollama stores models as gguf files without a .gguf name, so a scan never saw them. setup scan now reads ollama's manifests ~/.ollama/models , ollama_models , or the linux service's folder and lists every model it downloaded, marked from ollama , with the vision projector attached. adding one points models.ini at ollama's own file: nothing is copied, and ollama keeps working. a model ollama converted for its own engine may not load in upstream llama.cpp; the load error says so. see setup setup.md models-you-already-have-in-ollama . v0.17.3: a star, once, when it's earned - one ask for a github star. the one-line installer clones the repo, so most people who use llamaforge never see its github page. llamaforge now asks once, in a small card at the bottom right, right after it has done something for you: an auto-forge run that made a model at least 1.1x faster, or the 5th model you load. pick not now and it never asks again. it makes no network request; the button is a plain link. the sidebar also has a small star link next to the version. v0.17.2: share your auto-forge result - share. when auto-forge finds a setup faster than yours, a share button makes it a 1200x630 image card before and after tokens a second, the speedup, your gpus, the context, whether answers stay the same and a markdown table with the flags it chose. neither holds a file path, key or host. see auto-forge autoforge.md share . api: /api/forge/share . - auto-forge survives more out-of-memory cases. an out-of-memory line that llama.cpp retries past no longer fails the candidate, the window steps down when the asked context doesn't fit, and when your current setup is faster than every candidate say it uses a drafter forge can't rebuild the result says so and offers apply anyway instead of pushing apply. - fix. lite mode shows gpu layers again on llama.cpp builds whose first spelling of the flag is --gpu-layers . v0.17.1: claude code launch fixes - claude code on a folder works from the launch button on windows. the terminal window no longer closes the moment it opens, and claude code no longer gets 401 invalid x-api-key when llamaforge itself was started from a claude session it used that session's login instead of the panel key . - no more 500 on the first message. claude code 2.1 sends system messages in the middle of a conversation; qwen's chat template rejects those \"system message must be at the beginning\" . the anthropic endpoint now moves them where every template accepts them. v0.17.0: auto-forge, claude code on a folder - auto-forge. finds the fastest way to run a model on your gpus by measuring it, not guessing. in a private sandbox it tries gpu placements, kv cache types and speculative drafters dflash, mtp at the context you ask for, benchmarks code, prose and prompt speed, and checks token for token that a drafter gives the same answers as the model without it. pick what you use the model for coding, chat, long documents, agents , quick or thorough, and optionally allow lossy kv or try without the vision projector. apply writes only what it changed into models.ini ; undo puts your values back. on a qwen3.8-27b with an rtx 5080 and an rtx 5060 ti it went from 26.8 to 126.0 tokens/s on code and from 26.5 to 71.0 on prose. the old setup sat mostly on the slower card at 70k context, and forge was asked for 32k; the 5080 alone without a drafter did 52.1 one machine, one model . nvidia only, and new. see auto-forge autoforge.md . api: /api/forge/status , /api/forge/start , /api/forge/cancel , /api/forge/apply , /api/forge/undo . - claude code on a folder, one click. a claude code button on a loaded model checks that it's ready cli found, anthropic endpoint on, context size, jinja, a small model for background requests , lets you pick a folder, and opens a terminal there running claude against the local model. the endpoint and key are set on that one process, so your other claude code sessions and ~/.claude/settings.json are untouched, and an inherited cloud api key never reaches the local endpoint. see api api.md . api: /api/claude/check , /api/claude/pick-folder , /api/claude/launch . - fixes. a metrics scrape on stats and a slot read by elastic vram never load a model any more. a router that can't start because its port is taken now says so, with a fix. controls you could only click are keyboard buttons now, and inputs that only had a placeholder have labels. python and javascript lint run in ci. the docs are also served as llms.txt https://dadwritestech.github.io/llamaforge/llms.txt . v0.16.4: elastic vram, live ram - elastic vram. when another app needs your gpu, llamaforge moves a loaded model's layers to the cpu instead of unloading it moe experts first , keeps the conversation through llama.cpp's slot save and restore after one router restart; the router gets a save folder only while elastic is on , and moves the layers back once the memory is free. a resized model is much slower, and the dashboard row says so; click its chip to grow it back. nvidia only, off by default, and new: not yet tested on many machines. see setup elastic vram setup.md elastic-vram . api: /api/elastic , /api/elastic/grow . - live system ram on stats. a system ram meter sits next to the gpu memory in every look, also on machines without a gpu. \"used\" leaves out cache the os can hand back, like task manager's \"in use\". see stats stats.md . - a warning before an unknown architecture fails. if a model's architecture is newer than the llama.cpp checkout that would load it, the model editor says so and to update the build instead of the load failing with unknown model architecture . embedding models such as embeddinggemma now have a section in models.ini models-ini.md embedding-models . - fixes. /v1/audio/speech answers an unsupported response_format say mp3 with a 400 instead of wav under the wrong name. ember quotes copied from pdfs match across line-break and soft hyphens. reloading models.ini works on router builds that serve it on a different route thanks @vergillll , and allowed values: lists that wrap over several lines in --help are read whole thanks @vergillll . v0.16.3: game mode - game mode. start a game and llamaforge unloads your models; quit it and they load again. games are recognised by their steam, epic, gog, xbox, riot, ea or ubisoft folder, by names you add, or windows by exclusive full screen. pick models to keep loaded through it. off by default. see setup setup.md game-mode . - discover shows vram in use next to the fit rating, so you can see what's already taken. v0.16.2: load progress, thinking and vision switches - real load progress. a loading model shows loading n% and a bar through its stages weights, draft model, vision projector instead of a stopwatch. the numbers are llama.cpp's own load callback, which the router streams on get /models/sse ; llamaforge listens only while something is loading. a router build without that stream keeps the elapsed-seconds display. see models & tuning models.md . - thinking: auto / on / off, plus a budget. a one-click row in the model editor over llama.cpp's --reasoning and --reasoning-budget . the model's chat template decides the hint: a template with a thinking switch enable_thinking and the like really turns thinking off; a template that only shows <think or think tags may keep thinking anyway. models with neither don't get the row. - vision on/off. turning a model's vision off removes its mmproj line and remembers the path, so the projector's vram is free and the file stays on disk. a rescan or re-download doesn't turn it back on; on restores the line. v0.16.1 - model scout runs overnight again. an ember with no model of its own now uses the auto-load model from setup when nothing is loaded, instead of skipping its jobs. see embers embers.md . v0.16: embers, several models at once, an mcp server, voice - voice: text to speech on your gpu. a new voice tab speaks through llama.cpp's own llama-tts with qwen3-tts 10 languages or the tiny english pocket tts faster than real time, even on a cpu , optionally in a voice you record or upload only clone voices you may use . the panel also serves an openai-style post /v1/audio/speech , so openai clients get local speech. no vram is held between requests. see voice voice.md . - several models at once. multi-model mode places your main model on the fastest gpu that fits it and keeps worker models off that gpu. fit is checked against footprints measured on this machine, and each verdict says whether it's measured, predicted or a rough estimate. workers are evicted least-recently-used, and only after you agree to it. a model with no context size set is refused, with the reason. the model rows get load as worker , make main and unload x and load , and setup has a multi-model card. api: /api/slots , /api/slots/plan , /api/slots/main , /api/slots/apply . - per-model builds. pin a model to any installed llama.cpp build. an ik_llama build runs as its own llama-server on 127.0.0.1:8100 and up, with arguments translated between the builds. crash exit codes are named instead of shown as raw numbers. - \"runs on\" for ggufs. the file card says whether a gguf runs on any build, mainline only or ik_llama only. the diagnosis explains invalid ggml type n instead of leaving you with the number. - embers. small local agents that keep watch on a topic, keep a wiki and write you a brief on a schedule. a wiki item only counts if it quotes its source verbatim. model scout needs no setup, and forge builds a new ember by interviewing you tested on 8 models from 3b to 27b . see embers embers.md . - mcp server. claude code, codex or any mcp client can check status, load and unload models, check fit, search and download from hugging face, and hand a task to a local model. see mcp server mcp.md . - pi from setup. the pi coding agent card installs, updates and removes pi under <root /agents/pi with --ignore-scripts , and can install node.js through winget, chocolatey or homebrew. see connect an agent agents.md . - stowage, the new default look. each gpu on models and stats is drawn as a cargo hold ruled in 1 gib cells, with every loaded model stowed in it at its measured size. open a model and it shows where it would go: if it won't fit, the part that doesn't fit hangs past the end of the hold and anything that would be unloaded is marked. a ledger adds up used, booked and free to the tenth. light, dark and colorblind-safe. hearth and classic are one click away. motion is subtle, never runs on the views that refresh every few seconds, and is off when your system asks for reduced motion. see theming & accessibility theming.md . - no font cdn. the panel's fonts ship with it, so it renders the same offline and no third party learns you opened it. - stats count every loaded model , including models running as their own process, with live tokens per second for each. see stats stats.md . - vision projectors pair again. a scan only attached an mmproj file to models on a fixed list of architectures, so gemma 4, qwen 3.5 and other current vision models lost theirs discussion 16 https://github.com/dadwritestech/llamaforge/discussions/16 . a projector now pairs when its width matches the model's, the same check llama.cpp makes when it loads one. several quants of one model can share a projector, and with several projectors f16 wins. files named <model -mmproj- .gguf count as projectors, in a scan and in discover. - logs stay small. with verbose = true a router log could grow to gigabytes, and the panel read all of it every time the log view refreshed, using tens of gb of ram 26 https://github.com/dadwritestech/llamaforge/issues/26 . the panel now reads only the end of a log, and once a router, vllm or model log passes 50 mb it moves to .1 7 old copies kept , both when the process starts and every minute while it runs. on windows, a router started by run.ps1 is rotated from its next restart from the panel. - docs search reads the whole page , not only titles and headings, and says so when nothing matches. - fixes. an out-of-memory load on a model with split-mode = tensor now says that tensor split turns llama.cpp's fit off and suggests split-mode = layer . a pi_run that gave no answer and had every tool call fail is reported as a failure. the ik_llama update check reads ik_llama's own default branch main . a busy router port points you at config.json . v0.15: llama.cpp sizes memory, honest diagnosis, safer by default - llama.cpp's --fit decides context, gpu layers and split. llamaforge no longer pins ctx-size , n-gpu-layers or tensor-split . auto-tune clears them, and the old ctx-size = 150000 pin is removed once on upgrade. see first run first-run.md and models.ini format models-ini.md . - load failures quote the attempt that failed. the diagnosis reads only the last load of that model from the router log and quotes llama.cpp's own error line. if a value you pinned turned fit off, the out-of-memory hint names it. see troubleshooting troubleshooting.md . - split ggufs count all their shards in sizes and fit estimates. speed and fit badges are labelled as rough estimates. - a download ends in load & chat , and a first run with no models suggests starters sized to your vram. - security: the router always runs with an api key, and cors is localhost-only unless you opt into lan. recipes import only allowlisted tuning knobs. stop and uninstall touch only processes and files llamaforge owns. vulnerabilities can be reported privately see security.md . - the running version is shown next to the logo and requested in bug reports. community recipe gallery click browse recipes on the profiles strip to see tested setups people have shared: the model, the hardware it ran on, what the key knobs do, and an on this machine badge when you already have the file. import runs the normal recipe import, so a missing model downloads from hugging face and the same knob filter applies. the list comes live from the repo's recipes/ folder, so a merged recipe appears without a release; offline, llamaforge shows the copy that shipped with your version. to add yours, export it with ↗ and open a pull request see recipes/readme.md . see models & tuning models.md and http api api.md . shareable recipes any llama.cpp profile can be shared as a recipe : click ↗ on its chip and copy readable json with the model file, the hugging face repo it came from, its knobs, and the llama.cpp build it was made on. paste a recipe into + import recipe to get the same preset and profile. if you don't have the model, download from <repo & import fetches it. only tuning knobs are imported; paths, hosts, keys and logging flags are always dropped. see models & tuning models.md and http api api.md . one-click launch profiles save a model, a preset, and optionally a specific installed llama.cpp build as a named profile from the model's editor, then launch the whole combination from a ▶ chip above the model list. if the pinned build isn't the active one, llamaforge switches to it, waits for the router, applies the preset, and loads the model. that's useful when a new llama.cpp release regresses one model and you want to keep it on the build that worked. builds a profile pins are kept out of the automatic pruning after an update. see models & tuning models.md and http api api.md . focused scanning and a lighter models tab setup can now persist one or more model folders instead of walking every drive, while an explicit blank list still selects the platform defaults. a llama.cpp model can be unregistered from models.ini without deleting its gguf file. the models view also avoids polling collapsed logs, shares gpu telemetry through a short cache instead of spawning nvidia-smi per browser poll, and keeps the crt scanline look without the expensive full-viewport blend mode. fresh bootstrap runs now accept an existing llama.cpp checkout and derive its build/server paths, removing the hand-edit step reported by wsl2 users. see setup setup.md , models & tuning models.md , and install install.md . fail-closed network and explicit credentials network access now distinguishes the loopback-only dashboard from the router it controls. llamaforge accepts only local 127.0.0.1 or lan 0.0.0.0 router scope, requires a usable key for every newly configured lan router, and refuses llamaforge-owned starts/restarts when that policy is unsafe. existing manual or legacy settings are shown for repair rather than silently rewritten. routine dashboard state is redacted; client config, agent config, and generated keys are deliberate no-store actions. this is tested product behavior in an early preview, not a formal security standard or audit certification. see security https://github.com/dadwritestech/llamaforge/blob/master/security.md , setup setup.md , http api api.md , and connect an agent agents.md . ik_llama as a second llama-family engine the build tab now builds and drives ik_llama.cpp alongside stock llama.cpp, switched with one control post /api/engine/switch . the switch is gated on a capability probe: a binary whose llama-server lacks router mode --models-preset is refused with an explanation rather than taking the router down, and ik_llama keeps its own models.ini registry a -ikllama sibling of the main one . per-model tuning comes along automatically because the knob schema is parsed from whichever binary is active. see build & update build.md and models.ini format models-ini.md . bind a preset as a model's default named presets can now be bound to a model, not just applied once. binding writes the preset's knobs into the model's section and — the point of it — editing a bound preset re-syncs every model using it. a ◉/○ dot on each preset chip toggles the binding; the bound chip is highlighted. hand edits still win, and unbinding leaves the knobs in place. see models & tuning models.md . auto-wired mtp draft models a scan now attaches an mtp- speculative draft sidecar to its parent model the way mmproj already is, filling spec-draft-model . it enables spec-type=draft-mtp only when the sidecar actually declares nextn layers — the signal llama.cpp itself gates on — so a model that can't use mtp is never broken. the wiring is additive: it never overwrites a spec-type you set by hand e.g. an ngram mode . see models.ini format models-ini.md . offload-aware vram-fit rating the fits / tight / cpu offload badge in discover now defers to the same physics estimate as the will-it-run panel instead of a raw size-vs-vram guess. a large moe that runs fast with its experts on cpu reads as tight rather than being mislabeled cpu offload just for being bigger than vram. the size heuristic remains the fallback when no prediction is available. see discover discover.md . a more forgiving first run several fresh-install rough edges are gone. a missing config.json is seeded from config.example.json instead of crashing; models.ini is created if absent; a relative models_ini resolves against the repo root so the router never comes up with zero models; a busy router port is reported by name instead of failing silently; a freshly installed tool is detected without a restart; and a build whose llama-server succeeded but whose ui-asset step failed reports \"built, with warnings\" instead of build failed. see first run first-run.md , setup setup.md , and troubleshooting troubleshooting.md . lite and advanced modes, with a guided first run a first-run wizard now walks a new install through engine detection, hardware review, model selection, and a recommended tune — then applies it and loads the model. the dashboard runs in one of two modes: lite presents a reduced, task-oriented set of controls; advanced exposes every server flag. a hardware auto-tune proposes per-model settings gpu-layer offload, kv-cache type, context ceiling, and intent presets for balanced / speed / context / coding sized to the detected vram. see first run first-run.md and models & tuning models.md . anthropic-compatible endpoint the panel exposes an anthropic-compatible post /v1/messages endpoint that translates to the local openai-style router, with full streaming and tool-use support. combined with the existing openai-compatible surface, llamaforge can serve clients written for either api against your local models. see http api api.md . one-click agent setup a connect an agent panel generates — and optionally writes — the configuration for claude code , codex , and pi.dev , pointing each at your local endpoint. claude code is scoped to 127.0.0.1 ; generated files are backed up before any change is written. see connect an agent agents.md . context wiki a working directory of markdown context documents, composed into named profiles and selected per model . an active profile is delivered two ways: injected into requests through the anthropic shim and the openai proxy, or exported into an agent's native context file claude.md / agents.md inside a managed marker region. because the injected prefix is stable, the router's prompt-cache reuses it across requests. see context wiki context-wiki.md . light and dark themes, plus a colorblind-safe mode the dashboard now offers a light theme alongside the original dark one, and an independent colorblind-safe mode that applies a universal okabe–ito status palette and adds non-color cues glyphs and labels so status never depends on hue alone. the two axes are orthogonal — all four combinations are valid — and each choice persists per device. see theming & accessibility theming.md . in-app documentation the documentation you are reading is available inside the dashboard under the help view and is also published as a static site. both surfaces render from a single markdown source, so they never drift. a collapsible sidebar layout navigation moved from a top tab bar to a left sidebar that collapses between a compact icon rail and a labeled, expanded state. settings are pinned at the bottom; the layout adapts to narrow windows with an overlay drawer. all existing navigation, theming, and keyboard shortcuts are unchanged. see keyboard shortcuts keymap.md . refine benchmark in the models panel a refine button now sits inline in each model's editor beside the presets bar . pick an intent balanced / speed / context / coding , click run , and it auto-generates knob recommendations, benchmarks candidates with real completion requests ~200 tokens each , and applies the fastest config. a results table shows tok/s per candidate and which was chosen. the same autotune engine used in the first-run wizard is now available anytime from the main models tab. see models & tuning models.md . vram \"will-it-run\" panel before downloading, the discover tab now shows a will-it-run panel that predicts whether a model quant will fit your gpu and at what approximate speed. it factors in moe active-vs-total parameters, your gpu's memory bandwidth with manual overrides in setup , and the quant's size — then rates it as fits , tight , or cpu offload with an estimated tok/s. the same estimate appears as a badge when you expand a model in discover. see discover discover.md .",
 "title": "What's New"
 },
 {
@@ -300,6 +302,19 @@
 },
 {
 "headings": [
+"Phone Remote",
+"What the phone can reach",
+"Pairing and unpairing",
+"Away from home with Tailscale",
+"Troubleshooting",
+"Config keys"
+],
+"slug": "phone",
+"text": "phone remote chat with the models on your pc from your phone. click phone in the top bar of the panel, turn it on, and scan the qr code with your phone's camera. the phone opens a small chat page served by llamaforge: pick a model, ask, and the answer streams back from your own gpus with its speed in tokens per second. nothing to install on the phone, no account, no cloud relay. what the phone can reach the panel itself stays on 127.0.0.1 only: it can build llama.cpp and install packages, which no phone link should reach. the phone remote is a separate listener on port 8092 of every network address 0.0.0.0 , and it serves exactly three things: route what it does --- --- get / the chat page. it holds no data until it has a token. get /api/status model names and which are loaded plus gpu memory and load. post /api/chat a plain chat with one model, streamed. only the model name and text messages are passed on; tools, sampler settings and anything else are dropped. everything else answers 404 . the router's api key is added on the pc, so the phone never sees it. warning anyone who has the link can chat with your models and load one by picking it . use it on networks you trust: your home wi-fi, or tailscale https://tailscale.com/ when you're away. don't forward port 8092 on your router to the internet. pairing and unpairing the qr code holds a link like http://192.168.1.20:8092/ k=<token . the token sits after the , which browsers never send over the network. the page moves it into the phone's storage and removes it from the address bar. each request then sends it as a bearer token, compared in constant time. - new link makes a new token. every phone with the old link stops working until it scans the new qr code. - turn off closes the port. turning it on again keeps the same token, so paired phones keep working. away from home with tailscale if this pc is on a tailscale https://tailscale.com/ network, the dialog shows a second qr code for its tailnet address 100.x.y.z . install tailscale on the phone, sign in to the same tailnet, and the link works from anywhere, encrypted, with no ports opened on your router. troubleshooting - the phone can't open the page. windows may ask whether python can use private networks; allow it. if you said no, allow python.exe in windows security firewall & network protection allow an app through firewall . also check that the phone is on the same wi-fi as the pc, not mobile data or a guest network. - \"this link is out of date.\" the token was rotated. scan the qr code again. - port 8092 is taken. set phone_port in config.json to a free port and turn the remote on again. config keys key default meaning --- --- --- phone_enabled false start the listener with the panel. phone_port 8092 the listener's port. phone_token \"\" made when you first turn it on. never part of the panel's state.",
+"title": "Phone Remote"
+},
+{
+"headings": [
 "config.json Reference",
 "Keys",
 "Preset bindings",
@@ -475,6 +490,10 @@
 {
 "slug": "skill",
 "title": "Agent Skill"
+},
+{
+"slug": "phone",
+"title": "Phone Remote"
 }
 ],
 "title": "Guides"
@@ -758,10 +777,10 @@
 "state": "idle",
 "tag": null
 },
-"latest": "v0.18.17",
+"latest": "v0.18.19",
 "managed": false,
-"name": "v0.18.17: LlamaForge agent skill",
-"url": "https://github.com/dadwritestech/LlamaForge/releases/tag/v0.18.17"
+"name": "v0.18.19: Chat from your phone",
+"url": "https://github.com/dadwritestech/LlamaForge/releases/tag/v0.18.19"
 },
 "engine_build": null,
 "engine_news": [
@@ -1791,23 +1810,23 @@ null
 {
 "index": 0,
 "name": "NVIDIA GeForce RTX 5080",
-"temp": 43,
+"temp": 48,
 "total": 16303,
-"used": 48,
-"util": 0
+"used": 15854,
+"util": 29
 },
 {
 "index": 1,
 "name": "NVIDIA GeForce RTX 5060 Ti",
-"temp": 40,
+"temp": 61,
 "total": 16311,
-"used": 0,
-"util": 0
+"used": 15833,
+"util": 63
 }
 ],
 "ram": {
 "total": 31801,
-"used": 23163
+"used": 21555
 }
 },
 "GET /api/hub/progress": {
@@ -2553,7 +2572,7 @@ null
 ],
 "hours": 751,
 "link": "github.com/dadwritestech/LlamaForge",
-"markdown": "**My local AI rig**: RTX 5080 16 GB + RTX 5060 Ti 16 GB · 31 GB RAM · Windows\n\n| model | tok/s | tokens generated |\n|---|---|---|\n| qwen3.6-35b-a3b-ud-q6-k | - | 6.1M |\n| qwen3.8-27b-ud-q6-k-xl | - | 4.3M |\n| qwopus3.6-35b-a3b-coder-mtp-q6-k | - | 4.2M |\n| qwen3.8-27b-ud-q6-k | - | 2.9M |\n| qwen3.6-27b-fable-fus-711-unheretic-nm-dau-neo-max-neo-mtp-q6-k | - | 2.2M |\n\n28.3M tokens generated over 751 hours of loaded models.\n\nRun with LlamaForge 0.18.16 on llama.cpp: https://github.com/dadwritestech/LlamaForge",
+"markdown": "**My local AI rig**: RTX 5080 16 GB + RTX 5060 Ti 16 GB · 31 GB RAM · Windows\n\n| model | tok/s | tokens generated |\n|---|---|---|\n| qwen3.6-35b-a3b-ud-q6-k | - | 6.1M |\n| qwen3.8-27b-ud-q6-k-xl | - | 4.3M |\n| qwopus3.6-35b-a3b-coder-mtp-q6-k | - | 4.2M |\n| qwen3.8-27b-ud-q6-k | - | 2.9M |\n| qwen3.6-27b-fable-fus-711-unheretic-nm-dau-neo-max-neo-mtp-q6-k | - | 2.2M |\n\n28.3M tokens generated over 751 hours of loaded models.\n\nRun with LlamaForge 0.18.19 on llama.cpp: https://github.com/dadwritestech/LlamaForge",
 "models": [
 {
 "generated": 6125901,
@@ -2563,7 +2582,7 @@ null
 ],
 "os": "Windows",
 "ram_gb": 31,
-"version": "0.18.16"
+"version": "0.18.19"
 },
 "GET /api/router/log": {
 "log": ""
@@ -7621,7 +7640,30 @@ null
 },
 "GET /api/slots": {
 "enabled": true,
-"loaded": [],
+"loaded": [
+{
+"devices": [
+0,
+1
+],
+"footprint": {},
+"last_used": 0,
+"model": "nomic-embed-text-v1.5.q4-k-m",
+"role": "worker",
+"status": "loaded"
+},
+{
+"devices": [
+0,
+1
+],
+"footprint": {},
+"last_used": 0,
+"model": "qwen3.6-35b-a3b-ud-q6-k",
+"role": "worker",
+"status": "loaded"
+}
+],
 "main": "",
 "multi_model": true,
 "pool": {
@@ -7633,34 +7675,24 @@ null
 "GET /api/slots/plan?model=gemma-4-26b-a4b-it-mxfp4-moe&role=main": {
 "already": false,
 "confident": true,
-"devices": [
-1
-],
+"devices": [],
 "evict": [],
-"footprint": {
-"0": 1714,
-"1": 13615
-},
-"ok": true,
+"footprint": {},
+"ok": false,
 "place": null,
-"reason": "",
-"source": "predicted"
+"reason": "needs ~5.0 GiB of system RAM for the part kept on the CPU; 5.4 GiB is free",
+"source": null
 },
 "GET /api/slots/plan?model=gemma-4-26b-a4b-it-mxfp4-moe&role=worker": {
 "already": false,
 "confident": true,
-"devices": [
-1
-],
+"devices": [],
 "evict": [],
-"footprint": {
-"0": 1714,
-"1": 13615
-},
-"ok": true,
+"footprint": {},
+"ok": false,
 "place": null,
-"reason": "",
-"source": "predicted"
+"reason": "needs ~5.0 GiB of system RAM for the part kept on the CPU; 5.4 GiB is free",
+"source": null
 },
 "GET /api/slots/plan?model=gemma-4-31b-it-ud-q6-k-xl&role=main": {
 "already": false,
@@ -7670,7 +7702,7 @@ null
 "footprint": {},
 "ok": false,
 "place": null,
-"reason": "needs ~35.9 GiB (predicted); GPU0 has 15.1 GiB, GPU1 has 15.2 GiB free after 0.5 GiB headroom. ctx-size isn't set, so llama-server takes the model's full 262,144-token context; set a ctx-size to run it beside other models",
+"reason": "needs ~35.9 GiB (predicted); GPU0 has 0.0 GiB, GPU1 has 0.0 GiB free after 0.5 GiB headroom. ctx-size isn't set, so llama-server takes the model's full 262,144-token context; set a ctx-size to run it beside other models",
 "source": null
 },
 "GET /api/slots/plan?model=gemma-4-31b-it-ud-q6-k-xl&role=worker": {
@@ -7681,25 +7713,19 @@ null
 "footprint": {},
 "ok": false,
 "place": null,
-"reason": "needs ~35.9 GiB (predicted); GPU0 has 15.1 GiB, GPU1 has 15.2 GiB free after 0.5 GiB headroom. ctx-size isn't set, so llama-server takes the model's full 262,144-token context; set a ctx-size to run it beside other models",
+"reason": "needs ~35.9 GiB (predicted); GPU0 has 0.0 GiB, GPU1 has 0.0 GiB free after 0.5 GiB headroom. ctx-size isn't set, so llama-server takes the model's full 262,144-token context; set a ctx-size to run it beside other models",
 "source": null
 },
 "GET /api/slots/plan?model=ministral-3-3b-instruct-2512-q4-k-m&role=main": {
 "already": false,
 "confident": true,
-"devices": [
-0,
-1
-],
+"devices": [],
 "evict": [],
-"footprint": {
-"0": 14974,
-"1": 15090
-},
-"ok": true,
-"place": "",
-"reason": "",
-"source": "predicted"
+"footprint": {},
+"ok": false,
+"place": null,
+"reason": "needs ~28.7 GiB (predicted); GPU0 has 0.0 GiB, GPU1 has 0.0 GiB free after 0.5 GiB headroom. ctx-size isn't set, so llama-server takes the model's full 262,144-token context; set a ctx-size to run it beside other models",
+"source": null
 },
 "GET /api/slots/plan?model=ministral-3-3b-instruct-2512-q4-k-m&role=worker": {
 "already": false,
@@ -7709,55 +7735,39 @@ null
 "footprint": {},
 "ok": false,
 "place": null,
-"reason": "needs ~28.7 GiB (predicted); GPU0 has 15.1 GiB, GPU1 has 15.2 GiB free after 0.5 GiB headroom. ctx-size isn't set, so llama-server takes the model's full 262,144-token context; set a ctx-size to run it beside other models",
+"reason": "needs ~28.7 GiB (predicted); GPU0 has 0.0 GiB, GPU1 has 0.0 GiB free after 0.5 GiB headroom. ctx-size isn't set, so llama-server takes the model's full 262,144-token context; set a ctx-size to run it beside other models",
 "source": null
 },
 "GET /api/slots/plan?model=nomic-embed-text-v1.5.q4-k-m&role=main": {
-"already": false,
-"confident": true,
-"devices": [
-0
-],
+"already": true,
+"devices": [],
 "evict": [],
-"footprint": {
-"0": 851
-},
+"footprint": {},
 "ok": true,
-"place": "CUDA0",
-"reason": "",
-"source": "predicted"
+"place": null,
+"reason": "already loaded",
+"source": null
 },
 "GET /api/slots/plan?model=nomic-embed-text-v1.5.q4-k-m&role=worker": {
-"already": false,
-"confident": true,
-"devices": [
-0
-],
+"already": true,
+"devices": [],
 "evict": [],
-"footprint": {
-"0": 851
-},
+"footprint": {},
 "ok": true,
-"place": "CUDA0",
-"reason": "",
-"source": "predicted"
+"place": null,
+"reason": "already loaded",
+"source": null
 },
 "GET /api/slots/plan?model=qwen3.5-9b-deepseek-v4-flash-q8-0&role=main": {
 "already": false,
 "confident": true,
-"devices": [
-0,
-1
-],
+"devices": [],
 "evict": [],
-"footprint": {
-"0": 9983,
-"1": 8853
-},
-"ok": true,
-"place": "",
-"reason": "",
-"source": "predicted"
+"footprint": {},
+"ok": false,
+"place": null,
+"reason": "needs ~17.7 GiB (predicted); GPU0 has 0.0 GiB, GPU1 has 0.0 GiB free after 0.5 GiB headroom. ctx-size isn't set, so llama-server takes the model's full 262,144-token context; set a ctx-size to run it beside other models",
+"source": null
 },
 "GET /api/slots/plan?model=qwen3.5-9b-deepseek-v4-flash-q8-0&role=worker": {
 "already": false,
@@ -7767,76 +7777,50 @@ null
 "footprint": {},
 "ok": false,
 "place": null,
-"reason": "needs ~17.7 GiB (predicted); GPU0 has 15.1 GiB, GPU1 has 15.2 GiB free after 0.5 GiB headroom. ctx-size isn't set, so llama-server takes the model's full 262,144-token context; set a ctx-size to run it beside other models",
+"reason": "needs ~17.7 GiB (predicted); GPU0 has 0.0 GiB, GPU1 has 0.0 GiB free after 0.5 GiB headroom. ctx-size isn't set, so llama-server takes the model's full 262,144-token context; set a ctx-size to run it beside other models",
 "source": null
 },
 "GET /api/slots/plan?model=qwen3.6-35b-a3b-ud-q6-k&role=main": {
-"already": false,
-"confident": true,
-"devices": [
-0,
-1
-],
+"already": true,
+"devices": [],
 "evict": [],
-"footprint": {
-"0": 15172,
-"1": 15172
-},
+"footprint": {},
 "ok": true,
 "place": null,
-"reason": "",
-"source": "predicted"
+"reason": "already loaded",
+"source": null
 },
 "GET /api/slots/plan?model=qwen3.6-35b-a3b-ud-q6-k&role=worker": {
-"already": false,
-"confident": true,
-"devices": [
-0,
-1
-],
+"already": true,
+"devices": [],
 "evict": [],
-"footprint": {
-"0": 15172,
-"1": 15172
-},
+"footprint": {},
 "ok": true,
 "place": null,
-"reason": "",
-"source": "predicted"
+"reason": "already loaded",
+"source": null
 },
 "GET /api/slots/plan?model=qwen3.8-27b-ud-iq4-xs&role=main": {
 "already": false,
 "confident": true,
-"devices": [
-0,
-1
-],
+"devices": [],
 "evict": [],
-"footprint": {
-"0": 13210,
-"1": 8488
-},
-"ok": true,
+"footprint": {},
+"ok": false,
 "place": null,
-"reason": "",
-"source": "measured"
+"reason": "needs ~21.2 GiB (measured); GPU0 has 0.0 GiB, GPU1 has 0.0 GiB free after 0.5 GiB headroom",
+"source": null
 },
 "GET /api/slots/plan?model=qwen3.8-27b-ud-iq4-xs&role=worker": {
 "already": false,
 "confident": true,
-"devices": [
-0,
-1
-],
+"devices": [],
 "evict": [],
-"footprint": {
-"0": 13210,
-"1": 8488
-},
-"ok": true,
+"footprint": {},
+"ok": false,
 "place": null,
-"reason": "",
-"source": "measured"
+"reason": "needs ~21.2 GiB (measured); GPU0 has 0.0 GiB, GPU1 has 0.0 GiB free after 0.5 GiB headroom",
+"source": null
 },
 "GET /api/starters": {
 "ollama": [],
@@ -7887,7 +7871,7 @@ null
 "ikllama",
 "vllm"
 ],
-"chat_port": 8098,
+"chat_port": 8091,
 "config": {
 "active_engine": "llamacpp",
 "auto_load_model": "",
@@ -8031,21 +8015,72 @@ null
 {
 "index": 0,
 "name": "NVIDIA GeForce RTX 5080",
-"temp": 43,
+"temp": 48,
 "total": 16303,
-"used": 48,
-"util": 0
+"used": 15854,
+"util": 29
 },
 {
 "index": 1,
 "name": "NVIDIA GeForce RTX 5060 Ti",
-"temp": 40,
+"temp": 61,
 "total": 16311,
-"used": 0,
-"util": 0
+"used": 15833,
+"util": 63
 }
 ],
 "models": [
+{
+"backend": "llamacpp",
+"eff_ctx": "2048",
+"endpoint": "http://127.0.0.1:8080",
+"failed": false,
+"file_gib": 0.08,
+"id": "nomic-embed-text-v1.5.q4-k-m",
+"in_ini": true,
+"modalities": [
+"text"
+],
+"settings": {
+"ctx-size": "2048",
+"embeddings": "true",
+"model": "D:\\lf-demo\\LM Studio/resources/app/.webpack/bin/bundled-models/nomic-ai/nomic-embed-text-v1.5-GGUF/nomic-embed-text-v1.5.Q4_K_M.gguf"
+},
+"status": "loaded"
+},
+{
+"backend": "llamacpp",
+"eff_ctx": "81920",
+"endpoint": "http://127.0.0.1:8080",
+"failed": false,
+"file_gib": 27.95,
+"id": "qwen3.6-35b-a3b-ud-q6-k",
+"in_ini": true,
+"modalities": [
+"text"
+],
+"settings": {
+"cache-type-k": "q8_0",
+"cache-type-v": "q8_0",
+"ctx-size": "81920",
+"flash-attn": "on",
+"load-mode": "none",
+"mmproj-auto": "true",
+"model": "D:\\lf-demo\\Qwen3.6-35B-A3B-UD-Q6_K.gguf",
+"n-gpu-layers": "99",
+"no-mmproj": "true",
+"parallel": "1",
+"spec-draft-n-max": "2",
+"spec-type": "draft-mtp",
+"split-mode": "layer",
+"temp": "0.6",
+"tensor-split": "16,16",
+"threads": "16",
+"top-p": "0.9"
+},
+"status": "loaded",
+"vision_off": true
+},
 {
 "backend": "llamacpp",
 "eff_ctx": "90000",
@@ -8122,23 +8157,6 @@ null
 },
 {
 "backend": "llamacpp",
-"eff_ctx": "2048",
-"failed": false,
-"file_gib": 0.08,
-"id": "nomic-embed-text-v1.5.q4-k-m",
-"in_ini": true,
-"modalities": [
-"text"
-],
-"settings": {
-"ctx-size": "2048",
-"embeddings": "true",
-"model": "D:\\lf-demo\\LM Studio/resources/app/.webpack/bin/bundled-models/nomic-ai/nomic-embed-text-v1.5-GGUF/nomic-embed-text-v1.5.Q4_K_M.gguf"
-},
-"status": "unloaded"
-},
-{
-"backend": "llamacpp",
 "eff_ctx": "?",
 "failed": false,
 "file_gib": 8.87,
@@ -8155,38 +8173,6 @@ null
 "reasoning": "off"
 },
 "status": "unloaded"
-},
-{
-"backend": "llamacpp",
-"eff_ctx": "81920",
-"failed": false,
-"file_gib": 27.95,
-"id": "qwen3.6-35b-a3b-ud-q6-k",
-"in_ini": true,
-"modalities": [
-"text"
-],
-"settings": {
-"cache-type-k": "q8_0",
-"cache-type-v": "q8_0",
-"ctx-size": "81920",
-"flash-attn": "on",
-"load-mode": "none",
-"mmproj-auto": "true",
-"model": "D:\\lf-demo\\Qwen3.6-35B-A3B-UD-Q6_K.gguf",
-"n-gpu-layers": "99",
-"no-mmproj": "true",
-"parallel": "1",
-"spec-draft-n-max": "2",
-"spec-type": "draft-mtp",
-"split-mode": "layer",
-"temp": "0.6",
-"tensor-split": "16,16",
-"threads": "16",
-"top-p": "0.9"
-},
-"status": "unloaded",
-"vision_off": true
 },
 {
 "backend": "llamacpp",
@@ -8233,7 +8219,7 @@ null
 "platform": "windows",
 "ram": {
 "total": 31801,
-"used": 23214
+"used": 21539
 },
 "router_watchdog": {
 "armed": false,
@@ -8262,7 +8248,7 @@ null
 "slot_headroom_mib": 500
 }
 },
-"version": "0.18.16",
+"version": "0.18.19",
 "vllm_supported": true
 },
 "GET /api/stats": {
@@ -8419,13 +8405,16 @@ null
 }
 ],
 "live": {
-"gen_per_sec": 0.0,
-"loaded_model": null,
-"loaded_models": [],
+"gen_per_sec": 0,
+"loaded_model": "nomic-embed-text-v1.5.q4-k-m",
+"loaded_models": [
+"nomic-embed-text-v1.5.q4-k-m",
+"qwen3.6-35b-a3b-ud-q6-k"
+],
 "models": [],
-"prompt_per_sec": 0.0,
+"prompt_per_sec": 0,
 "requests_processing": 0,
-"router_up": false
+"router_up": true
 },
 "per_model": [
 {
@@ -8434,7 +8423,7 @@ null
 "generated": 6125901,
 "id": "qwen3.6-35b-a3b-ud-q6-k",
 "last_used": 1793221458.8738508,
-"loaded_secs": 150865,
+"loaded_secs": 150905,
 "prompt": 27011130,
 "runs": 2000,
 "tokens": 33137031
@@ -8500,7 +8489,7 @@ null
 "generated": 0,
 "id": "nomic-embed-text-v1.5.q4-k-m",
 "last_used": 1793169163.8800194,
-"loaded_secs": 39505,
+"loaded_secs": 39550,
 "prompt": 47278,
 "runs": 0,
 "tokens": 47278
@@ -8676,7 +8665,7 @@ null
 "created": "2026-10-25",
 "downloads": 44825,
 "gated": false,
-"likes": 474,
+"likes": 476,
 "platforms": [
 "windows",
 "linux",
@@ -8702,7 +8691,7 @@ null
 "created": "2026-10-24",
 "downloads": 150260,
 "gated": false,
-"likes": 169,
+"likes": 170,
 "platforms": [
 "windows",
 "linux",
@@ -8715,7 +8704,7 @@ null
 "created": "2026-10-19",
 "downloads": 317709,
 "gated": false,
-"likes": 264,
+"likes": 265,
 "platforms": [
 "windows",
 "linux",
@@ -8855,6 +8844,19 @@ null
 "updated": "2026-10-28"
 },
 {
+"created": "2026-10-27",
+"downloads": 15051,
+"gated": false,
+"likes": 28,
+"platforms": [
+"windows",
+"linux",
+"macos"
+],
+"repo": "LiquidAI/d1-2B-GGUF",
+"updated": "2026-10-28"
+},
+{
 "created": "2026-10-25",
 "downloads": 18702,
 "gated": false,
@@ -8866,32 +8868,6 @@ null
 ],
 "repo": "abenzerps/Nanbeige4.3-33B-GSQ-RCO-GGUF",
 "updated": "2026-10-27"
-},
-{
-"created": "2026-10-27",
-"downloads": 15051,
-"gated": false,
-"likes": 27,
-"platforms": [
-"windows",
-"linux",
-"macos"
-],
-"repo": "LiquidAI/d1-2B-GGUF",
-"updated": "2026-10-28"
-},
-{
-"created": "2026-10-18",
-"downloads": 434507,
-"gated": false,
-"likes": 57,
-"platforms": [
-"windows",
-"linux",
-"macos"
-],
-"repo": "migtissera/Tess-4.5-27B-GGUF",
-"updated": "2026-10-18"
 },
 {
 "created": "2026-10-23",
@@ -8985,6 +8961,19 @@ null
 "updated": "2026-11-01"
 },
 {
+"created": "2026-10-23",
+"downloads": 4622,
+"gated": false,
+"likes": 28,
+"platforms": [
+"windows",
+"linux",
+"macos"
+],
+"repo": "GrootTeam/Groot-19B-A3B-261023-GGUF",
+"updated": "2026-10-23"
+},
+{
 "created": "2026-10-20",
 "downloads": 279921,
 "gated": false,
@@ -9009,19 +8998,6 @@ null
 ],
 "repo": "InternScience/Sage-A1.5-Q4_K_M-GGUF",
 "updated": "2026-10-22"
-},
-{
-"created": "2026-10-23",
-"downloads": 4622,
-"gated": false,
-"likes": 28,
-"platforms": [
-"windows",
-"linux",
-"macos"
-],
-"repo": "GrootTeam/Groot-19B-A3B-261023-GGUF",
-"updated": "2026-10-23"
 },
 {
 "created": "2026-10-28",
@@ -9064,6 +9040,6 @@ null
 }
 ],
 "vram_mib": 32614,
-"vram_used_mib": 48
+"vram_used_mib": 31559
 }
 }
