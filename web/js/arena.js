@@ -5,6 +5,7 @@
 import { $, esc, setHTML, api, toast, askYes } from "./core.js";
 import { showModal } from "./models.js";
 import { drawArena } from "./arenacard.js";
+import { loadRecent, saveRecent, recentLabel } from "./arenarecent.js";
 
 let round = null;       // {left, right, prompt, answers: {left, right}, voted}
 let models = [];
@@ -37,6 +38,7 @@ function render(view) {
         <select id="arena-b" aria-label="Second model">${opts(models[1])}</select>
         <button type="button" class="ghost" id="arena-surprise">Surprise me</button>
       </div>
+      <select id="arena-recent" aria-label="Recent prompts" hidden></select>
       <textarea id="arena-prompt" placeholder="Ask something you actually care about: a bug, an email, a tricky question" style="min-height:90px"></textarea>
       <div class="actions"><button type="button" id="arena-ask">Ask both</button>
         <span class="note" id="arena-status" style="margin:0" aria-live="polite"></span></div>
@@ -45,14 +47,41 @@ function render(view) {
     <div id="arena-board"></div>`);
   $("#arena-surprise", view).onclick = surprise;
   $("#arena-ask", view).onclick = ask;
+  $("#arena-recent", view).onchange = e => {
+    const p = recent[+e.target.value];
+    if (p) $("#arena-prompt").value = p;
+    e.target.value = "";
+  };
+  fillRecent(loadRecent());
 }
 
-async function surprise() {
+let recent = [];
+function fillRecent(list) {
+  recent = list;
+  const el = $("#arena-recent");
+  if (!el) return;
+  el.hidden = !list.length;
+  setHTML(el, `<option value="">Recent prompts (${list.length})</option>` +
+    list.map((p, i) => `<option value="${i}">${esc(recentLabel(p))}</option>`).join(""));
+}
+
+async function surprise(quiet) {
   const d = await api("/api/arena/pair", {}).catch(() => null);
-  if (!d || d.error) { toast((d && d.error) || "couldn't pick", "err"); return; }
+  if (!d || d.error) { toast((d && d.error) || "couldn't pick", "err"); return false; }
   $("#arena-a").value = d.a;
   $("#arena-b").value = d.b;
-  toast("Two models picked. Their names stay up there, but Left and Right are shuffled.", "ok");
+  if (quiet !== true) toast("Two models picked. Their names stay up there, but Left and Right are shuffled.", "ok");
+  return true;
+}
+
+// After a vote: the same prompt again, either on a fresh random pair (builds
+// the board fastest) or on the same two models, shuffled again.
+async function again(how) {
+  if (busy || !round) return;
+  $("#arena-prompt").value = round.prompt;
+  if (how === "pair") { if (!(await surprise(true))) return; }
+  else { $("#arena-a").value = round.left; $("#arena-b").value = round.right; }
+  ask();
 }
 
 function status(t) { const s = $("#arena-status"); if (s) s.textContent = t; }
@@ -64,6 +93,7 @@ async function ask() {
   if (!prompt) { toast("Type a prompt first", "err"); return; }
   const flip = crypto.getRandomValues(new Uint8Array(1))[0] & 1;
   round = {left: flip ? b : a, right: flip ? a : b, prompt, answers: {}, voted: false};
+  fillRecent(saveRecent(prompt));
   busy = true;
   $("#arena-ask").disabled = true;
   renderRound();
@@ -103,8 +133,11 @@ function renderRound() {
       <button type="button" class="ghost" data-vote="tie">Tie</button>
       <button type="button" data-vote="right">Right is better</button></div>` : "";
   setHTML(el, `<div class="card"><h3>This round</h3><div class="arena-cols">${side("left")}${side("right")}</div>${votes}
-    ${round.voted ? `<div class="note">${esc(round.voted)}</div>` : ""}</div>`);
+    ${round.voted ? `<div class="note">${esc(round.voted)}</div>
+      <div class="actions"><button type="button" data-again="pair">Same prompt, new pair</button>
+        <button type="button" class="ghost" data-again="rematch">Rematch these two</button></div>` : ""}</div>`);
   el.querySelectorAll("[data-vote]").forEach(btn => btn.onclick = () => vote(btn.dataset.vote));
+  el.querySelectorAll("[data-again]").forEach(btn => btn.onclick = () => again(btn.dataset.again));
 }
 
 async function vote(pick) {

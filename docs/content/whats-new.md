@@ -8,6 +8,10 @@ order: 1
 
 This page summarizes the most recent additions to LlamaForge. Each entry links to the full reference for that capability. For the longer-term direction, see the project's `ROADMAP.md`.
 
+## v0.18.22: Faster arena rounds
+
+After you vote, **Same prompt, new pair** asks the same prompt of two other models, and **Rematch these two** asks it again of the same two, shuffled again. Your last ten prompts sit in a **Recent prompts** list above the prompt box, kept in this browser only. Building a board that means something takes a few dozen rounds; now each one is a click. See [Blind Arena](arena.md).
+
 ## v0.18.21: Arena board as an image
 
 **Share image** under the Arena board draws it as a 1200x630 card: your top six models with Elo and wins-losses-ties, the vote count and your GPU names. Download it or copy it to the clipboard, ready for a post. It holds no prompts, paths or hosts. See [Blind Arena](arena.md).

@@ -13,6 +13,7 @@ Which of your models is actually better at the things you ask? The **Arena** tab
 1. Pick two models, or click **Surprise me** for a random pair. Left and Right are shuffled after you click **Ask both**, so the order of the two boxes gives nothing away.
 2. Type a prompt you care about: a bug you hit this week, an email to rewrite, a question you know the answer to.
 3. Read both answers, then pick **Left is better**, **Tie** or **Right is better**. The names and tokens per second appear after the vote.
+4. Play again: **Same prompt, new pair** asks two other models at random; **Rematch these two** asks the same two again, with Left and Right shuffled anew. The **Recent prompts** list above the prompt box holds your last ten prompts (in this browser only).
 
 Both sides get the same request: your prompt as a single user message, the model's own sampler settings from `models.ini`, and at most 1024 tokens. An answer that hits the limit says so. If a model thinks before answering, its reasoning is folded away under **thinking**, so the vote is about the answer.
 
