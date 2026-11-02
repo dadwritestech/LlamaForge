@@ -247,7 +247,7 @@ def _verdict(ok, reason="", devices=None, place=None, footprint=None, source=Non
             "already": already}
 
 
-def _refusal(cand, free, headroom_mib, cmap):
+def _refusal(cand, free, headroom_mib, cmap, alone=False):
     first = _first(cmap)
     p = cand.get("pins")
     if p is not None and p["devices"]:
@@ -266,8 +266,8 @@ def _refusal(cand, free, headroom_mib, cmap):
         # llama-server's ctx-size 0 is the model's own context, and --fit then
         # grows/shrinks it to fill the GPU - either way nothing fits beside it
         why += (f". ctx-size isn't set, so llama-server takes the model's full "
-                f"{cand['ctx_from_model']:,}-token context; set a ctx-size to run it "
-                f"beside other models")
+                f"{cand['ctx_from_model']:,}-token context; set a ctx-size "
+                + ("so it fits your GPUs" if alone else "to run it beside other models"))
     return why
 
 
@@ -315,7 +315,7 @@ def plan(candidate, gpus, loaded, headroom_mib=DEFAULT_HEADROOM_MIB, cap=3,
             return _verdict(True, devices=devs, place=place, footprint=fp, source=src)
 
     reason = (f"{len(loaded)} models are loaded; the limit is {cap}" if over_cap
-              else _refusal(candidate, free, headroom_mib, cmap))
+              else _refusal(candidate, free, headroom_mib, cmap, alone=not loaded))
     if role != "main":
         return _verdict(False, reason)
     workers = sorted((s for s in loaded if s.get("role") != "main"),

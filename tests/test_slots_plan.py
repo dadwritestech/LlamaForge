@@ -89,6 +89,16 @@ class Plan(unittest.TestCase):
         self.assertFalse(v["ok"])
         self.assertIn("ctx-size", v["reason"])
         self.assertIn("262,144", v["reason"])
+        self.assertNotIn("beside other models", v["reason"])     # nothing else is loaded
+        self.assertIn("fits your GPUs", v["reason"])
+
+    def test_unset_context_beside_loaded_models_says_beside(self):
+        c = cand(need=28 * G)
+        c["ctx_from_model"] = 262144
+        main = [{"model": "m0", "role": "main", "devices": [0]}]
+        v = slots.plan(c, gpus(0, 0), main, headroom_mib=1 * G, role="worker")
+        self.assertFalse(v["ok"])
+        self.assertIn("beside other models", v["reason"])
 
     def test_predicted_off_gpu0_pays_a_context_on_gpu0(self):
         # GPU0 is too full for the model (3 GiB free) but not for a CUDA context
