@@ -3,6 +3,8 @@
 // arena.json) ranks them. Names and speeds stay hidden until the vote.
 // Model output is plain text through esc(): it never becomes markup.
 import { $, esc, setHTML, api, toast, askYes } from "./core.js";
+import { showModal } from "./models.js";
+import { drawArena } from "./arenacard.js";
 
 let round = null;       // {left, right, prompt, answers: {left, right}, voted}
 let models = [];
@@ -130,12 +132,39 @@ function renderBoard(d) {
     ${rows.map((r, i) => `<tr><td>${i + 1}</td><td>${esc(r.model)}</td><td>${esc(r.elo)}</td><td>${esc(r.wins)}-${esc(r.losses)}-${esc(r.ties)}</td></tr>`).join("")}
     </tbody></table>
     <div class="note">${esc(d.games)} games. Elo starts at 1000; a few dozen votes before it means much.</div>
-    <div class="actions"><button type="button" class="ghost" id="arena-md">Copy as markdown</button>
+    <div class="actions"><button type="button" class="ghost" id="arena-card">Share image</button>
+      <button type="button" class="ghost" id="arena-md">Copy as markdown</button>
       <button type="button" class="ghost" id="arena-reset">Reset board</button></div></div>`);
   $("#arena-md", el).onclick = () => navigator.clipboard.writeText(d.markdown || "")
     .then(() => toast("Board copied as markdown", "ok"), () => toast("Couldn't copy", "err"));
+  $("#arena-card", el).onclick = openArenaCard;
   $("#arena-reset", el).onclick = async () => {
     if (!(await askYes("Every vote and rating goes. This can't be undone.", {title: "Reset the board?", ok: "Reset", danger: true}))) return;
     renderBoard(await api("/api/arena/reset", {}));
+  };
+}
+
+// The board as a 1200x630 image (arenacard.js), fetched fresh so it carries
+// the GPU names. Same dialog as the rig and Auto-Forge cards.
+async function openArenaCard() {
+  const d = await api("/api/arena").catch(e => ({error: String(e.message || e)}));
+  if (!d || d.error) { toast((d && d.error) || "couldn't build the card", "err"); return; }
+  showModal("Share your board", `<canvas class="af-card" width="1200" height="630" aria-label="Arena board card"></canvas>
+    <p class="af-q">Holds model names, Elo, wins, losses and ties, the vote count and your GPU names. No prompts, paths or hosts.</p>
+    <div class="af-act"><button type="button" class="qbtn load" data-ac-png>Download image</button>
+      <button type="button" class="qbtn" data-ac-copyimg>Copy image</button></div>`);
+  const dlg = document.querySelector("#modal-root dialog");
+  const canvas = dlg && dlg.querySelector("canvas.af-card");
+  if (!canvas) return;
+  await drawArena(canvas, d);
+  const blob = () => new Promise(r => canvas.toBlob(r, "image/png"));
+  dlg.querySelector("[data-ac-png]").onclick = async () => {
+    const url = URL.createObjectURL(await blob());
+    const a = Object.assign(document.createElement("a"), {href: url, download: "llamaforge-arena.png"});
+    a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+  dlg.querySelector("[data-ac-copyimg]").onclick = async () => {
+    try { await navigator.clipboard.write([new ClipboardItem({"image/png": blob()})]); toast("Image copied", "ok"); }
+    catch { toast("This browser can't copy images; use Download", "err"); }
   };
 }

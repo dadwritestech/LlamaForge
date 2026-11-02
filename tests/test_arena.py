@@ -148,6 +148,15 @@ class Routes(unittest.TestCase):
         self.assertEqual(out["models"], ["gemma", "qwen"])
         self.assertEqual(out["board"], [])
 
+    def test_board_names_the_gpus_for_the_share_card(self):
+        from unittest import mock
+        tele = mock.Mock()
+        tele.get.return_value = [{"name": "NVIDIA GeForce RTX 5080", "total": 16303},
+                                 {"error": "nvidia-smi failed"}]
+        with mock.patch.object(self.routes, "_GPU_TELEMETRY", tele):
+            _, out = self.routes.get_arena(self.routes.Req())
+        self.assertEqual(out["gpus"], ["RTX 5080"])
+
     def test_answer_loads_when_needed_and_returns_plain_text(self):
         _, out = self.routes.post_arena_answer(self.routes.Req(body={"model": "qwen", "prompt": "hi"}))
         self.assertEqual(self.loads, [])

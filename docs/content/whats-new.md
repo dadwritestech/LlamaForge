@@ -8,6 +8,10 @@ order: 1
 
 This page summarizes the most recent additions to LlamaForge. Each entry links to the full reference for that capability. For the longer-term direction, see the project's `ROADMAP.md`.
 
+## v0.18.21: Arena board as an image
+
+**Share image** under the Arena board draws it as a 1200x630 card: your top six models with Elo and wins-losses-ties, the vote count and your GPU names. Download it or copy it to the clipboard, ready for a post. It holds no prompts, paths or hosts. See [Blind Arena](arena.md).
+
 ## v0.18.20: Blind Arena
 
 A new **Arena** tab: two of your models answer the same prompt, shown only as Left and Right in random order. You vote, then the names and speeds appear, and an Elo board on your PC ranks your models on your own prompts and GPUs. See [Blind Arena](arena.md).

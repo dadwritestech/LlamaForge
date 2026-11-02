@@ -28,13 +28,13 @@ Only llama.cpp and ik_llama.cpp chat models take part. Embedding and reranker mo
 
 Each model starts at 1000. A win against an equal model moves 16 points each way; beating a higher-rated model moves more (K = 32). A few dozen votes are needed before the order means much.
 
-The board lives in `arena.json` next to `config.json`. **Copy as markdown** copies a table you can paste into a post or an issue. **Reset board** removes every vote.
+The board lives in `arena.json` next to `config.json`. **Share image** draws the board as a 1200x630 card (top six models, Elo, W-L-T, the vote count and your GPU names) to download or copy; it holds no prompts, paths or hosts. **Copy as markdown** copies a table you can paste into a post or an issue. **Reset board** removes every vote.
 
 ## API
 
 | Route | What it does |
 |---|---|
-| `GET /api/arena` | The models that can take part, the board, the number of games and the markdown table. |
+| `GET /api/arena` | The models that can take part, the board, the number of games, the markdown table and the GPU names. |
 | `POST /api/arena/pair` | Two different models at random: `{a, b}`. |
 | `POST /api/arena/answer` | `{model, prompt}` → `{text, thinking, tokens, tok_s, cut, seconds}`. Loads the model if needed. |
 | `POST /api/arena/vote` | `{a, b, winner}` with `winner` `"a"`, `"b"` or `"tie"`. Returns the new board. |

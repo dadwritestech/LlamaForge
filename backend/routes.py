@@ -3591,8 +3591,13 @@ def _arena_models():
 def get_arena(req):
     """The blind arena: models it can use and the local Elo board."""
     board = arena.load()
+    try:
+        gpus = [rigcard._short_gpu(g["name"]) for g in _GPU_TELEMETRY.get() or []
+                if isinstance(g, dict) and not g.get("error") and g.get("name")]
+    except Exception:
+        gpus = []
     return 200, {"models": _arena_models(), "board": arena.leaderboard(board),
-                 "games": board.get("games", 0), "markdown": arena.markdown(board)}
+                 "games": board.get("games", 0), "markdown": arena.markdown(board), "gpus": gpus}
 
 
 def post_arena_pair(req):
