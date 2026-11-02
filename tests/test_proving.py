@@ -1,5 +1,8 @@
 """Proving ground: built-in tasks with answers a script can check, the
 checkers, and the morning verdict. Model output is only ever compared."""
+import os
+import tempfile
+import threading
 import unittest
 
 import conftest_paths  # noqa: F401
@@ -62,8 +65,9 @@ class Checks(unittest.TestCase):
 
     def test_json_strips_fences_and_compares_values(self):
         t = T("json-person")
-        self.assertTrue(proving.check(t, '```json\n{"gpus": 3, "name": "Rin"}\n```'))
-        self.assertFalse(proving.check(t, '{"name": "Rin", "gpus": "3"}'))
+        self.assertTrue(proving.check(t, '```json\n{"gpus": 3, "owner": "Rin"}\n```'))
+        self.assertFalse(proving.check(t, '{"owner": "Rin", "gpus": "3"}'))
+        self.assertFalse(proving.check(t, '{"owner": "Rin\'s workstation", "gpus": 3}'))
         self.assertFalse(proving.check(t, "not json {"))
 
     def test_lines_set_words_and_csv(self):
@@ -115,6 +119,194 @@ class Verdict(unittest.TestCase):
                          "a beats daily on 0 of 5 categories (5 ties), about as fast.")
         self.assertIsNone(proving.verdict(res, "a", "nope"))
         self.assertIsNone(proving.verdict(res, "a", "a"))
+
+
+class RunnerTests(unittest.TestCase):
+    """The background run, with loading and asking passed in (no router)."""
+    def setUp(self):
+        fd, self.path = tempfile.mkstemp(suffix=".json")
+        os.close(fd)
+        os.remove(self.path)
+        self.addCleanup(lambda: os.path.exists(self.path) and os.remove(self.path))
+        self.loaded, self.released, self.asked = [], [], []
+
+    def runner(self, answer=None, ensure=None):
+        def ask(mid, prompt):
+            self.asked.append(mid)
+            t = next(t for t in proving.TASKS if t["prompt"] == prompt)
+            return (answer or (lambda mid, t: {"text": proving.sample_answer(t), "tok_s": 40.0, "cut": False}))(mid, t)
+        return proving.Runner(ask, ensure or self.loaded.append, lambda: self.released.append(1), path=self.path)
+
+    def test_runs_every_task_on_every_model_and_saves(self):
+        r = self.runner()
+        self.assertTrue(r.start(["a", "b"]))
+        r.join(5)
+        st = r.status()
+        self.assertFalse(st["running"])
+        self.assertEqual((st["done"], st["total"]), (2 * len(proving.TASKS), 2 * len(proving.TASKS)))
+        self.assertEqual(self.loaded, ["a", "b"])
+        self.assertEqual(self.released, [1])
+        saved = proving.load(self.path)["models"]
+        self.assertEqual(proving.score(saved["a"]["results"])["passed"], len(proving.TASKS))
+        self.assertIn("at", saved["b"])
+
+    def test_wrong_and_cut_answers_are_kept_short_and_marked(self):
+        r = self.runner(answer=lambda mid, t: {"text": "x" * 5000, "tok_s": 10.0, "cut": True})
+        r.start(["a"])
+        r.join(5)
+        res = proving.load(self.path)["models"]["a"]["results"]
+        one = res[proving.TASKS[0]["id"]]
+        self.assertFalse(one["pass"])
+        self.assertTrue(one["cut"])
+        self.assertLessEqual(len(one["answer"]), proving.MAX_KEEP)
+
+    def test_a_model_that_wont_load_is_skipped_with_its_error(self):
+        def ensure(mid):
+            if mid == "bad":
+                raise RuntimeError("needs 28.7 GiB")
+            self.loaded.append(mid)
+        r = self.runner(ensure=ensure)
+        r.start(["bad", "a"])
+        r.join(5)
+        st = r.status()
+        self.assertEqual(st["errors"], {"bad": "needs 28.7 GiB"})
+        self.assertEqual(list(proving.load(self.path)["models"]), ["a"])
+
+    def test_an_answer_error_fails_that_task_only(self):
+        def answer(mid, t):
+            if t["id"] == "math-pct":
+                raise RuntimeError("HTTP 500")
+            return {"text": proving.sample_answer(t), "tok_s": 40.0, "cut": False}
+        r = self.runner(answer=answer)
+        r.start(["a"])
+        r.join(5)
+        res = proving.load(self.path)["models"]["a"]["results"]
+        self.assertFalse(res["math-pct"]["pass"])
+        self.assertEqual(res["math-pct"]["answer"], "error: HTTP 500")
+        self.assertTrue(res["math-kv"]["pass"])
+
+    def test_cancel_stops_and_keeps_old_results(self):
+        gate = threading.Event()
+        proving.save_model(self.path, "a", {"math-kv": {"pass": True, "tok_s": 1.0, "cut": False}})
+        def answer(mid, t):
+            gate.wait(5)
+            return {"text": "", "tok_s": None, "cut": False}
+        r = self.runner(answer=answer)
+        r.start(["a"])
+        self.assertFalse(r.start(["b"]), "one run at a time")
+        r.cancel()
+        gate.set()
+        r.join(5)
+        self.assertFalse(r.status()["running"])
+        self.assertTrue(r.status()["cancelled"])
+        self.assertEqual(proving.load(self.path)["models"]["a"]["results"], {"math-kv": {"pass": True, "tok_s": 1.0, "cut": False}})
+        self.assertEqual(self.released, [1])
+
+    def test_load_survives_junk(self):
+        with open(self.path, "w") as f:
+            f.write("[1,2")
+        self.assertEqual(proving.load(self.path), {"models": {}})
+
+
+class Routes(unittest.TestCase):
+    """/api/proving*: the panel side, router mocked (same harness as the arena)."""
+    def setUp(self):
+        from unittest import mock
+        import routes
+        self.routes = routes
+        fd, path = tempfile.mkstemp(suffix=".json")
+        os.close(fd)
+        os.remove(path)
+        self.addCleanup(lambda: os.path.exists(path) and os.remove(path))
+        reg = mock.Mock()
+        reg.state.return_value = {"models": [
+            {"id": "qwen", "backend": "llamacpp", "settings": {}},
+            {"id": "gemma", "backend": "llamacpp", "settings": {}},
+            {"id": "nomic", "backend": "llamacpp", "settings": {"embeddings": "true"}}]}
+        self.loads, self.unloads = [], []
+        self.up = {"qwen"}
+        by_prompt = {t["prompt"]: t for t in proving.TASKS}
+
+        self.bodies = []
+
+        def openai(body, stream=False, base=None):
+            self.bodies.append(body)
+            t = by_prompt[body["messages"][-1]["content"]]
+            text = proving.sample_answer(t) if body["model"] == "qwen" else "no idea"
+            return 200, {"choices": [{"message": {"content": text}, "finish_reason": "stop"}],
+                         "timings": {"predicted_n": 3, "predicted_per_second": 50.0 if body["model"] == "qwen" else 25.0}}
+        runner = proving.Runner(routes._proving_ask, routes._ensure_loaded, routes._proving_release)
+        for p in (mock.patch.object(proving, "PROVING_FILE", path),
+                  mock.patch.object(routes, "REGISTRY", reg),
+                  mock.patch.object(routes, "PROVING", runner),
+                  mock.patch.object(routes.SLOTS, "_main", return_value="qwen"),
+                  mock.patch.object(routes, "_model_status",
+                                    side_effect=lambda m: {"value": "loaded" if m in self.up else "unloaded"}),
+                  mock.patch.object(routes, "_load_and_wait", side_effect=lambda m, r: self.loads.append((m, r)) or self.up.add(m)),
+                  mock.patch.object(routes, "_router_openai", side_effect=openai),
+                  mock.patch.object(routes, "_model_base", return_value="http://127.0.0.1:8080"),
+                  mock.patch.object(routes, "_unload_and_wait", side_effect=lambda m: self.unloads.append(m) or self.up.discard(m)),
+                  mock.patch.object(routes, "_ARENA_LOADED", set())):
+            p.start()
+            self.addCleanup(p.stop)
+
+    def run_all(self, body=None):
+        code, out = self.routes.post_proving_run(self.routes.Req(body=body or {}))
+        self.assertEqual(code, 200)
+        self.routes.PROVING.join(5)
+        return self.routes.get_proving(self.routes.Req())[1]
+
+    def test_fresh_state_lists_tasks_and_models(self):
+        _, out = self.routes.get_proving(self.routes.Req())
+        self.assertFalse(out["status"]["running"])
+        self.assertEqual(len(out["tasks"]), len(proving.TASKS))
+        self.assertEqual(out["models"], ["gemma", "qwen"])
+        self.assertEqual(out["scores"], {})
+        self.assertEqual(out["driver"], "qwen")
+
+    def test_run_scores_every_chat_model_and_gives_the_verdict(self):
+        out = self.run_all()
+        self.assertEqual(out["scores"]["qwen"]["passed"], len(proving.TASKS))
+        self.assertEqual(out["scores"]["gemma"]["passed"], 0)
+        self.assertEqual(out["scores"]["gemma"]["tok_s"], 25.0)
+        self.assertIn("at", out["scores"]["gemma"])
+        self.assertEqual(out["verdicts"], {"gemma": "gemma beats qwen on 0 of 5 categories, 50% slower."})
+        self.assertEqual(out["results"]["gemma"]["math-kv"]["answer"], "no idea")
+
+    def test_thinking_models_get_room_to_finish(self):
+        self.run_all({"models": ["qwen"]})
+        self.assertEqual({b["max_tokens"] for b in self.bodies}, {proving.MAX_TOKENS})
+        self.assertGreater(proving.MAX_TOKENS, 1024)
+
+    def test_loads_what_it_needs_and_puts_it_back(self):
+        self.run_all()
+        self.assertEqual(self.loads, [("gemma", "worker")])
+        self.assertEqual(self.unloads, ["gemma"], "the model the user had up stays up")
+        self.assertEqual(self.up, {"qwen"})
+
+    def test_picked_models_only_and_unknown_ones_refused(self):
+        out = self.run_all({"models": ["qwen"]})
+        self.assertEqual(list(out["scores"]), ["qwen"])
+        with self.assertRaises(self.routes.ApiError) as cm:
+            self.routes.post_proving_run(self.routes.Req(body={"models": ["nomic"]}))
+        self.assertEqual(cm.exception.status, 400)
+
+    def test_one_run_at_a_time_and_the_arena_waits(self):
+        gate = threading.Event()
+        real = self.routes._proving_ask
+        from unittest import mock
+        with mock.patch.object(self.routes.PROVING, "_ask", side_effect=lambda m, p: gate.wait(5) and real(m, p)):
+            self.routes.post_proving_run(self.routes.Req(body={}))
+            with self.assertRaises(self.routes.ApiError) as cm:
+                self.routes.post_proving_run(self.routes.Req(body={}))
+            self.assertEqual(cm.exception.status, 409)
+            with self.assertRaises(self.routes.ApiError) as cm:
+                self.routes.post_arena_answer(self.routes.Req(body={"model": "qwen", "prompt": "hi"}))
+            self.assertEqual(cm.exception.status, 409)
+            _, st = self.routes.post_proving_cancel(self.routes.Req())
+            gate.set()
+            self.routes.PROVING.join(5)
+        self.assertTrue(self.routes.get_proving(self.routes.Req())[1]["status"]["cancelled"])
 
 
 if __name__ == "__main__":

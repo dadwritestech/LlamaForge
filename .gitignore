@@ -6,6 +6,7 @@ config.json.backup-*
 models.ini.backup-*
 stats.json
 arena.json
+proving.json
 footprints.json
 wiki/
 /embers/

@@ -7,8 +7,19 @@ smoke test, not a benchmark: it says which of *your* models gets *these* right
 on *your* GPUs, and how fast.
 """
 import json
+import os
 import re
 import statistics
+import threading
+import time
+
+import atomicio
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+PROVING_FILE = os.path.join(ROOT, "proving.json")
+MAX_TOKENS = 4096  # per answer; runs are overnight, so thinking models get room to finish
+MAX_KEEP = 300  # characters of each answer kept, so the user can see why it failed
+_FILE_LOCK = threading.Lock()
 
 CATEGORIES = ("extract", "math", "json", "follow", "reason")
 CHECKS = ("exact", "exact_case", "number", "json", "lines_set", "words", "csv")
@@ -32,9 +43,9 @@ TASKS = [
     {"id": "math-time", "cat": "math", "check": "exact", "expect": "12:25",
      "prompt": "A train leaves at 09:47 and the trip takes 2 hours 38 minutes. When does it arrive? "
                "Reply with only the time as HH:MM (24-hour)."},
-    {"id": "json-person", "cat": "json", "check": "json", "expect": {"name": "Rin", "gpus": 3},
-     "prompt": "Reply with only a JSON object with the keys \"name\" (a string) and \"gpus\" (an integer) "
-               "for this sentence: \"Rin's workstation has three GPUs.\""},
+    {"id": "json-person", "cat": "json", "check": "json", "expect": {"owner": "Rin", "gpus": 3},
+     "prompt": "Reply with only a JSON object with the keys \"owner\" (the person's name, a string) and "
+               "\"gpus\" (an integer) for this sentence: \"Rin's workstation has three GPUs.\""},
     {"id": "json-sort", "cat": "json", "check": "json", "expect": [3, 7, 19, 25, 42],
      "prompt": "Reply with only a JSON array of these numbers sorted from smallest to largest: 42, 7, 19, 3, 25"},
     {"id": "json-prime", "cat": "json", "check": "json", "expect": {"ok": False},
@@ -164,3 +175,105 @@ def verdict(all_results, model, driver):
     else:
         speed = "speed unknown"
     return f"{model} beats {driver} on {wins} of {len(CATEGORIES)} categories{tie}, {speed}."
+
+
+def load(path=None):
+    """Stored runs: {"models": {mid: {"results": {task_id: {...}}, "at": epoch}}}."""
+    try:
+        with open(path or PROVING_FILE, encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return {"models": {}}
+    if not isinstance(data, dict) or not isinstance(data.get("models"), dict):
+        return {"models": {}}
+    return data
+
+
+def save_model(path, mid, results):
+    """Replace one model's results; other models' runs are kept."""
+    with _FILE_LOCK:
+        data = load(path)
+        data["models"][mid] = {"results": results, "at": int(time.time())}
+        atomicio.write_json(path or PROVING_FILE, data)
+
+
+class Runner:
+    """One proving run at a time, in a background thread.
+
+    ask(mid, prompt) -> {text, tok_s, cut}; ensure(mid) loads the model (raises if it
+    can't); release() puts the GPUs back afterwards. Only finished models are saved,
+    so a cancelled or crashed run never leaves half a score behind.
+    """
+
+    def __init__(self, ask, ensure, release, path=None):
+        self._ask, self._ensure, self._release = ask, ensure, release
+        self.path = path
+        self._lock = threading.Lock()
+        self._thread = None
+        self._cancel = threading.Event()
+        self._st = {"running": False, "model": None, "done": 0, "total": 0,
+                    "errors": {}, "cancelled": False}
+
+    def status(self):
+        with self._lock:
+            return dict(self._st, errors=dict(self._st["errors"]))
+
+    def start(self, models):
+        models = [m for m in dict.fromkeys(models or []) if isinstance(m, str) and m]
+        with self._lock:
+            if self._st["running"] or not models:
+                return False
+            self._cancel.clear()
+            self._st = {"running": True, "model": None, "done": 0,
+                        "total": len(models) * len(TASKS), "errors": {}, "cancelled": False}
+            self._thread = threading.Thread(target=self._run, args=(models,), daemon=True,
+                                            name="proving")
+            self._thread.start()
+        return True
+
+    def cancel(self):
+        self._cancel.set()
+
+    def join(self, timeout=None):
+        t = self._thread
+        if t:
+            t.join(timeout)
+
+    def _bump(self, **kw):
+        with self._lock:
+            for k, v in kw.items():
+                self._st[k] = self._st[k] + v if k == "done" else v
+
+    def _run(self, models):
+        try:
+            for mid in models:
+                if self._cancel.is_set():
+                    break
+                self._bump(model=mid)
+                try:
+                    self._ensure(mid)
+                except Exception as e:  # noqa: BLE001 - shown to the user as is
+                    with self._lock:
+                        self._st["errors"][mid] = str(e) or type(e).__name__
+                    self._bump(done=len(TASKS))
+                    continue
+                results = {}
+                for t in TASKS:
+                    if self._cancel.is_set():
+                        break
+                    try:
+                        r = self._ask(mid, t["prompt"]) or {}
+                        text = r.get("text") or ""
+                        results[t["id"]] = {"pass": check(t, text), "tok_s": r.get("tok_s"),
+                                            "cut": bool(r.get("cut")), "answer": text[:MAX_KEEP]}
+                    except Exception as e:  # noqa: BLE001
+                        results[t["id"]] = {"pass": False, "tok_s": None, "cut": False,
+                                            "answer": f"error: {e}"[:MAX_KEEP]}
+                    self._bump(done=1)
+                if not self._cancel.is_set():
+                    save_model(self.path, mid, results)
+        finally:
+            try:
+                self._release()
+            finally:
+                self._bump(running=False, model=None, cancelled=self._cancel.is_set())

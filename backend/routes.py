@@ -27,7 +27,7 @@ import vram_predict, gpuprobe
 import wsl, vllm_ctl, vllm_registry, vllm_setup, vllm_job, vllm_hub, vllm_download
 import gguf, diag, backends, prebuilt, version, slots, slotctl, slotproc, builds, compat
 import idle, reclaim, tmpldoctor, samplers, reupload, mcp_server, ollama, piinstall, tts, logfiles, loadprog, gamemode, footprint, elastic, slotkeep
-import claudelaunch, rigcard, watchdog, phone, arena
+import claudelaunch, rigcard, watchdog, phone, arena, proving
 from builder import BuildManager
 from embers import panel as embers_panel
 import forge_panel
@@ -3609,6 +3609,20 @@ def post_arena_pair(req):
     return 200, {"a": a, "b": b}
 
 
+def _ensure_loaded(mid):
+    """Load `mid` if it isn't up, first dropping what earlier arena rounds or proving
+    runs loaded themselves (never a model the user had up). Raises RuntimeError."""
+    if (_model_status(mid) or {}).get("value") in slotctl.RUNNING:
+        return
+    for other in sorted(_ARENA_LOADED - {mid}):
+        if (_model_status(other) or {}).get("value") in slotctl.RUNNING:
+            _unload_and_wait(other)
+        _ARENA_LOADED.discard(other)
+    main = SLOTS._main()
+    _load_and_wait(mid, "main" if main in (None, "", mid) else "worker")
+    _ARENA_LOADED.add(mid)
+
+
 def post_arena_answer(req):
     """One side of a round: load the model if it isn't up (one at a time, as
     any load does), then ask it the prompt. Answers come back as plain text;
@@ -3620,18 +3634,12 @@ def post_arena_answer(req):
         body = arena.request_body(mid, req.body.get("prompt"))
     except ValueError as e:
         raise ApiError(400, str(e))
-    if (_model_status(mid) or {}).get("value") not in slotctl.RUNNING:
-        # make room: drop what earlier rounds loaded, never a model the user had up
-        for other in sorted(_ARENA_LOADED - {mid}):
-            if (_model_status(other) or {}).get("value") in slotctl.RUNNING:
-                _unload_and_wait(other)
-            _ARENA_LOADED.discard(other)
-        main = SLOTS._main()
-        try:
-            _load_and_wait(mid, "main" if main in (None, "", mid) else "worker")
-        except RuntimeError as e:
-            raise ApiError(409, f"couldn't load {mid}: {e}")
-        _ARENA_LOADED.add(mid)
+    if PROVING.status()["running"]:
+        raise ApiError(409, "a proving run is using the GPUs; wait for it or cancel it")
+    try:
+        _ensure_loaded(mid)
+    except RuntimeError as e:
+        raise ApiError(409, f"couldn't load {mid}: {e}")
     t0 = time.time()
     code, res = _router_openai(body, base=_model_base(mid))
     if code != 200:
@@ -3656,8 +3664,73 @@ def post_arena_reset(req):
     return get_arena(req)
 
 
+# ---------------------------------------------------------------- proving ground
+def _proving_ask(mid, prompt):
+    body = dict(arena.request_body(mid, prompt), max_tokens=proving.MAX_TOKENS)
+    code, res = _router_openai(body, base=_model_base(mid))
+    if code != 200:
+        raise RuntimeError(_router_error(res, f"HTTP {code}"))
+    out = arena.reply(res)
+    return {"text": out["text"], "tok_s": out["tok_s"], "cut": out["cut"]}
+
+
+def _proving_release():
+    """After a run: unload what it loaded, so the GPUs are as the user left them."""
+    for mid in sorted(_ARENA_LOADED):
+        try:
+            if (_model_status(mid) or {}).get("value") in slotctl.RUNNING:
+                _unload_and_wait(mid)
+        except Exception:
+            pass
+        _ARENA_LOADED.discard(mid)
+
+
+PROVING = proving.Runner(_proving_ask, _ensure_loaded, _proving_release)
+
+
+def get_proving(req):
+    """Checked tasks: run status, stored scores per model, and each model's
+    verdict against the daily driver (the main slot's model)."""
+    models = proving.load()["models"]
+    results, scores = {}, {}
+    for mid, run in models.items():
+        if isinstance(run, dict) and isinstance(run.get("results"), dict):
+            results[mid] = run["results"]
+            scores[mid] = dict(proving.score(run["results"]), at=run.get("at"))
+    driver = SLOTS._main() or None
+    verdicts = {}
+    for mid in results:
+        v = proving.verdict(results, mid, driver)
+        if v:
+            verdicts[mid] = v
+    return 200, {"status": PROVING.status(), "models": _arena_models(),
+                 "tasks": [{"id": t["id"], "cat": t["cat"]} for t in proving.TASKS],
+                 "categories": list(proving.CATEGORIES), "driver": driver,
+                 "scores": scores, "results": results, "verdicts": verdicts}
+
+
+def post_proving_run(req):
+    chat = _arena_models()
+    want = req.body.get("models") or chat
+    if not isinstance(want, list) or any(m not in chat for m in want):
+        raise ApiError(400, "pick chat models from this panel")
+    if not want:
+        raise ApiError(400, "no chat models to run")
+    if not PROVING.start(want):
+        raise ApiError(409, "a proving run is already going")
+    return 200, {"status": PROVING.status()}
+
+
+def post_proving_cancel(req):
+    PROVING.cancel()
+    return 200, {"status": PROVING.status()}
+
+
 GET_ROUTES["/api/arena"] = get_arena
 POST_ROUTES["/api/arena/pair"] = post_arena_pair
 POST_ROUTES["/api/arena/answer"] = post_arena_answer
 POST_ROUTES["/api/arena/vote"] = post_arena_vote
 POST_ROUTES["/api/arena/reset"] = post_arena_reset
+GET_ROUTES["/api/proving"] = get_proving
+POST_ROUTES["/api/proving/run"] = post_proving_run
+POST_ROUTES["/api/proving/cancel"] = post_proving_cancel
