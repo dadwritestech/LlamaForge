@@ -3,6 +3,8 @@
 // a script marks every reply. Model answers are plain text through esc().
 import { $, esc, setHTML, api, toast } from "./core.js";
 import { boardRows, progressLine, failures, CAT_LABELS } from "./provingview.js";
+import { showModal } from "./models.js";
+import { drawProving } from "./provingcard.js";
 
 let timer = null;
 let picked = null;      // models ticked for the next run; null = all
@@ -35,6 +37,7 @@ function render(el, d) {
       ${pick}
       <div class="actions">${st.running ? `<button type="button" class="ghost" id="pv-cancel">Cancel</button>`
         : `<button type="button" id="pv-run"${models.length ? "" : " disabled"}>Run checks</button>`}
+        ${Object.keys(d.scores || {}).length ? `<button type="button" class="ghost" id="pv-card">Share image</button>` : ""}
         <span class="note" style="margin:0" aria-live="polite">${esc(prog)}</span></div>
       ${bar}${errs}
       ${table(d)}
@@ -44,6 +47,8 @@ function render(el, d) {
   });
   const run = $("#pv-run", el);
   if (run) run.onclick = start;
+  const card = $("#pv-card", el);
+  if (card) card.onclick = () => openCard(d);
   const cancel = $("#pv-cancel", el);
   if (cancel) cancel.onclick = async () => {
     cancel.disabled = true;
@@ -82,4 +87,26 @@ async function start() {
   if (!d || d.error) { toast((d && d.error) || "couldn't start", "err"); return; }
   toast(`Checking ${models.length} model${models.length === 1 ? "" : "s"}. You can leave this tab; it keeps going.`, "ok");
   loadProving();
+}
+
+// The board as a 1200x630 image (provingcard.js). Same dialog as the arena card.
+async function openCard(d) {
+  showModal("Share your checked tasks", `<canvas class="af-card" width="1200" height="630" aria-label="Checked tasks card"></canvas>
+    <p class="af-q">Holds model names, which tasks each got right, the passed count, tok/s and your GPU names. No answers, prompts, paths or hosts.</p>
+    <div class="af-act"><button type="button" class="qbtn load" data-pc-png>Download image</button>
+      <button type="button" class="qbtn" data-pc-copyimg>Copy image</button></div>`);
+  const dlg = document.querySelector("#modal-root dialog");
+  const canvas = dlg && dlg.querySelector("canvas.af-card");
+  if (!canvas) return;
+  await drawProving(canvas, d);
+  const blob = () => new Promise(r => canvas.toBlob(r, "image/png"));
+  dlg.querySelector("[data-pc-png]").onclick = async () => {
+    const url = URL.createObjectURL(await blob());
+    const a = Object.assign(document.createElement("a"), {href: url, download: "llamaforge-checked-tasks.png"});
+    a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+  dlg.querySelector("[data-pc-copyimg]").onclick = async () => {
+    try { await navigator.clipboard.write([new ClipboardItem({"image/png": blob()})]); toast("Image copied", "ok"); }
+    catch { toast("This browser can't copy images; use Download", "err"); }
+  };
 }

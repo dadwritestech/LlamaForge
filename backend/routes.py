@@ -3588,14 +3588,19 @@ def _arena_models():
                    and _retrieval_kind(r) == "chat"})
 
 
+def _gpu_short_names():
+    """GPU names for the share cards ("RTX 5080"); empty when nvidia-smi can't say."""
+    try:
+        return [rigcard._short_gpu(g["name"]) for g in _GPU_TELEMETRY.get() or []
+                if isinstance(g, dict) and not g.get("error") and g.get("name")]
+    except Exception:
+        return []
+
+
 def get_arena(req):
     """The blind arena: models it can use and the local Elo board."""
     board = arena.load()
-    try:
-        gpus = [rigcard._short_gpu(g["name"]) for g in _GPU_TELEMETRY.get() or []
-                if isinstance(g, dict) and not g.get("error") and g.get("name")]
-    except Exception:
-        gpus = []
+    gpus = _gpu_short_names()
     return 200, {"models": _arena_models(), "board": arena.leaderboard(board),
                  "games": board.get("games", 0), "markdown": arena.markdown(board), "gpus": gpus}
 
@@ -3706,7 +3711,8 @@ def get_proving(req):
     return 200, {"status": PROVING.status(), "models": _arena_models(),
                  "tasks": [{"id": t["id"], "cat": t["cat"]} for t in proving.TASKS],
                  "categories": list(proving.CATEGORIES), "driver": driver,
-                 "scores": scores, "results": results, "verdicts": verdicts}
+                 "scores": scores, "results": results, "verdicts": verdicts,
+                 "gpus": _gpu_short_names()}
 
 
 def post_proving_run(req):

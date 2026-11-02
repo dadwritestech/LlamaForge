@@ -264,6 +264,15 @@ class Routes(unittest.TestCase):
         self.assertEqual(out["scores"], {})
         self.assertEqual(out["driver"], "qwen")
 
+    def test_gpu_names_for_the_share_card(self):
+        from unittest import mock
+        with mock.patch.object(self.routes._GPU_TELEMETRY, "get",
+                               return_value=[{"name": "NVIDIA GeForce RTX 5080"}, {"error": "x"}]):
+            out = self.routes.get_proving(self.routes.Req())[1]
+        self.assertEqual(out["gpus"], ["RTX 5080"])
+        with mock.patch.object(self.routes._GPU_TELEMETRY, "get", side_effect=RuntimeError("no smi")):
+            self.assertEqual(self.routes.get_proving(self.routes.Req())[1]["gpus"], [])
+
     def test_run_scores_every_chat_model_and_gives_the_verdict(self):
         out = self.run_all()
         self.assertEqual(out["scores"]["qwen"]["passed"], len(proving.TASKS))

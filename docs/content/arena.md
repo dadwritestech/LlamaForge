@@ -51,6 +51,8 @@ The table shows passed tasks per group and the median decode speed. The model in
 
 Fifteen tasks with one try each is a smoke test, not a benchmark: a small model can pass a task in one run and miss it in the next. Results live in `proving.json` next to `config.json`; running a model again replaces its row.
 
+**Share image** makes a 1200x630 picture of the table: one square per task (green right, dark wrong), passed count, speed and your GPU names. When your fastest model isn't the one that gets most right, the card says so in two lines. It holds no answers, prompts, paths or hosts.
+
 ## API
 
 | Route | What it does |

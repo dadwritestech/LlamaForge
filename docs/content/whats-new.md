@@ -8,6 +8,10 @@ order: 1
 
 This page summarizes the most recent additions to LlamaForge. Each entry links to the full reference for that capability. For the longer-term direction, see the project's `ROADMAP.md`.
 
+## v0.18.24: Share your checked tasks
+
+**Share image** in Checked tasks turns the table into a 1200x630 card: one square per task, green for right, plus each model's score and speed. If your fastest model isn't the one that gets the most right, the card says so: "Fastest: ministral-3-3b, 228 tok/s, 8 of 15 right." See [Blind Arena](arena.md#checked-tasks).
+
 ## v0.18.23: Checked tasks
 
 The Arena tab now has a second way to compare models. **Checked tasks** asks your models 15 short tasks with one right answer each (extraction, math, JSON, following instructions, reasoning), marks them with a script, and puts them in a table with each model's speed. Every model gets one line against the one in your main slot, like "gemma-4-12b beats qwen3-8b on 3 of 5 categories, 40% slower", and you can see exactly what each one got wrong. It runs in the background, one model at a time; start it before bed. See [Blind Arena](arena.md#checked-tasks).
