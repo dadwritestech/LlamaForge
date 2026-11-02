@@ -166,6 +166,18 @@ body.app{display:grid;grid-template-columns:var(--nav-w) 1fr;min-height:100vh;ma
 .chat-bar{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:0 0 8px;font-size:12px}
 .chat-bar a{color:var(--amber);text-decoration:none}.chat-bar a:hover{text-decoration:underline}
 .chat-frame{flex:1;width:100%;border:1px solid var(--hair);border-radius:var(--r);background:var(--panel)}
+.arena-pick{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:10px 0}
+.arena-pick select{flex:1;min-width:180px}
+.arena-cols{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media (max-width:900px){.arena-cols{grid-template-columns:1fr}}
+.arena-side{border:1px solid var(--hair);border-radius:var(--r);padding:10px 12px;min-width:0;background:var(--panel2)}
+.arena-head{display:flex;justify-content:space-between;gap:8px;margin-bottom:6px;font-size:12px}
+.arena-who{color:var(--amber-text)}
+.arena-ans,.arena-think pre{white-space:pre-wrap;word-break:break-word;margin:0;font-size:12.5px;line-height:1.55;max-height:420px;overflow:auto}
+.arena-think{margin-bottom:6px;font-size:11px;color:var(--dim)}
+.arena-vote{justify-content:center}
+.arena-board{width:100%;border-collapse:collapse;font-size:12.5px}
+.arena-board th,.arena-board td{text-align:left;padding:5px 8px;border-bottom:1px solid var(--hair)}
 .gpus{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px;margin-bottom:24px}
 @media(max-width:720px){.gpus{grid-template-columns:1fr}}
 .gpu{background:linear-gradient(180deg,var(--panel2),var(--panel) 60%);border:1px solid var(--hair);border-radius:var(--r);padding:14px 16px;box-shadow:var(--lift)}
@@ -751,6 +763,7 @@ button.danger:hover,.ef-danger:hover{background:var(--red-tint);border-color:var
     <div class="tab navitem" data-tab="chat" data-lede="Talk to whatever is loaded, through llama.cpp&rsquo;s own web UI." tabindex="0" role="button"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 5h16v11H9l-5 4z"/><line x1="8" y1="9" x2="16" y2="9"/><line x1="8" y1="12" x2="13" y2="12"/></svg><span class="label">Chat</span></div>
     <div class="tab navitem" data-tab="voice" data-lede="Text to speech on your GPU, in your own voice, through llama.cpp&rsquo;s llama-tts." tabindex="0" role="button"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><line x1="4" y1="10" x2="4" y2="14"/><line x1="8" y1="7" x2="8" y2="17"/><line x1="12" y1="4" x2="12" y2="20"/><line x1="16" y1="8" x2="16" y2="16"/><line x1="20" y1="11" x2="20" y2="13"/></svg><span class="label">Voice</span></div>
     <div class="tab navitem" data-tab="embers" data-lede="Small local agents that keep watch on a topic and write you a brief." tabindex="0" role="button"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 3c1 4 5 5 5 10a5 5 0 0 1-10 0c0-3 2-4 2-7 1 1 2 2 3 2 0-2 0-3 0-5z"/></svg><span class="label">Embers</span></div>
+    <div class="tab navitem" data-tab="arena" data-lede="Two of your models, one prompt, names hidden: vote and build your own leaderboard." tabindex="0" role="button"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="5" width="7" height="12" rx="1"/><rect x="14" y="5" width="7" height="12" rx="1"/><line x1="12" y1="3" x2="12" y2="21"/></svg><span class="label">Arena</span></div>
     <div class="tab navitem" data-tab="stats" data-lede="Throughput and memory, read from the router&rsquo;s own /metrics." tabindex="0" role="button"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><line x1="6" y1="20" x2="6" y2="12"/><line x1="12" y1="20" x2="12" y2="6"/><line x1="18" y1="20" x2="18" y2="14"/></svg><span class="label">Stats</span></div>
     <div class="tab navitem" data-tab="discover" data-lede="Find GGUFs on Hugging Face and pull them onto this machine." tabindex="0" role="button"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="11" cy="11" r="6"/><line x1="16" y1="16" x2="21" y2="21"/></svg><span class="label">Discover</span></div>
     <div class="tab navitem" data-tab="willrun" data-lede="Estimate placement and speed before you download anything." tabindex="0" role="button"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M13 2 4 14h6l-1 8 9-12h-6z"/></svg><span class="label">Will it run?</span></div>
@@ -822,6 +835,7 @@ button.danger:hover,.ef-danger:hover{background:var(--red-tint);border-color:var
   <div class="view" id="view-chat"><div class="skel">OPENING CHAT...</div></div>
   <div class="view" id="view-voice"><div class="skel">WARMING UP THE VOICE...</div></div>
   <div class="view" id="view-embers"><div class="skel">READING EMBERS...</div></div>
+  <div class="view" id="view-arena"><div class="skel">SETTING UP THE ARENA...</div></div>
   <div class="view" id="view-stats"><div class="skel">LOADING STATS...</div></div>
   <div class="view" id="view-discover"><div class="skel">LOADING...</div></div>
   <div class="view" id="view-willrun"><div class="skel">READY</div></div>

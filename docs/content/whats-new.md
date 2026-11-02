@@ -8,6 +8,14 @@ order: 1
 
 This page summarizes the most recent additions to LlamaForge. Each entry links to the full reference for that capability. For the longer-term direction, see the project's `ROADMAP.md`.
 
+## v0.18.20: Blind Arena
+
+A new **Arena** tab: two of your models answer the same prompt, shown only as Left and Right in random order. You vote, then the names and speeds appear, and an Elo board on your PC ranks your models on your own prompts and GPUs. See [Blind Arena](arena.md).
+
+- The arena loads models as needed and unloads only the ones it loaded, never one you had running.
+- Answers are shown as plain text, with any reasoning folded away so the vote is about the answer.
+- **Copy as markdown** turns the board into a table to post.
+
 ## v0.18.19: Chat from your phone
 
 Click **Phone** in the top bar, turn it on and scan the QR code: your phone gets a chat page for the models on your PC, streaming from your own GPUs with live tokens per second and GPU memory. Nothing to install on the phone, no account, no cloud relay. On a [Tailscale](https://tailscale.com/) network it works from anywhere. See [Phone Remote](phone.md).

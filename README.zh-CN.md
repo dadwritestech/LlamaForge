@@ -76,6 +76,7 @@ LlamaForge 直接运行 **llama.cpp 官方发布版本**（也可以是你自己
 
   - 在 Setup 里打开 **Multi-model**，可以同时保持一个主模型和若干工作模型加载。规划器根据在你机器上实测的占用，把每个模型放到放得下的显卡上。模型也可以固定到它自己的 llama.cpp（或 ik_llama.cpp）构建。
 - **Chat**：llama.cpp 自带的聊天界面（Markdown、推理过程、图片），嵌在面板里，运行在独立端口，API 密钥已自动带上。
+- **Arena**：两个本地模型回答同一个提示，名字隐藏；你投票后，本机上的 Elo 排行榜按你的提示和你的显卡给它们排名。排行榜可以复制为 Markdown 表格。见 [Blind Arena](docs/content/arena.md)。
 - **Voice**：通过 llama.cpp 自带的 `llama-tts` 在显卡上做文字转语音：支持 10 种语言的 Qwen3-TTS，或小巧的英文 Pocket TTS（即使在 CPU 上也快于实时），可以用你录制或上传的声音（只克隆你有权使用的声音）。
 - **Embers**：小型本地智能体，盯住一个话题，维护自己的 wiki，并定时给你写简报。wiki 条目必须逐字引用来源才算数。**Forge** 通过向你提问来创建一个 Ember；**Model Scout** 无需配置。Ember 没有浏览器也没有工具，除非你打开推送通知，否则没有任何数据离开本机。
 - **Discover**：Hugging Face GGUF 搜索，打开就是本周新增。每个量化版本在下载前都会按你的显存给出粗略评级（FITS / TIGHT / CPU OFFLOAD）。下载可断点续传，完成后自动注册，最后一步是 **Load & Chat**。形如 `http://127.0.0.1:8090/#discover?repo=owner/name&file=x.gguf` 的链接会直接打开某个量化版本。

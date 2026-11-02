@@ -50,7 +50,7 @@ GETS = [
     "/api/wiki/profiles", "/api/docs", "/api/embers", "/api/embers/templates", "/api/elastic",
     "/api/idle", "/api/reclaim", "/api/reupload", "/api/rig", "/api/starters",
     "/api/recipes/gallery", "/api/pi/status", "/api/mcp/setup", "/api/presets", "/api/slots",
-    "/api/schema", "/api/hub/progress", "/api/engine/prebuilt",
+    "/api/schema", "/api/hub/progress", "/api/engine/prebuilt", "/api/arena",
 ]
 PER_MODEL = [
     "/api/forge/status?model={m}", "/api/forge/share?model={m}", "/api/model/metadata?model={m}",
@@ -198,6 +198,11 @@ def record(port):
             fx["GET " + p] = get(port, p)
         except Exception as ex:
             print("skip", p, ex, file=sys.stderr)
+    # the arena: the kept chat models and an empty board (no round can run in the demo)
+    ar = fx.get("GET /api/arena")
+    if isinstance(ar, dict):
+        fx["GET /api/arena"] = {"models": [m for m in ar.get("models", []) if m in keep],
+                                "board": [], "games": 0, "markdown": ""}
     # read-only POSTs the demo answers: the Discover tab's opening search, and
     # the file list of the repos the kept models come from
     try:

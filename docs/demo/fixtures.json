@@ -1,4 +1,17 @@
 {
+"GET /api/arena": {
+"board": [],
+"games": 0,
+"markdown": "",
+"models": [
+"gemma-4-26b-a4b-it-mxfp4-moe",
+"gemma-4-31b-it-ud-q6-k-xl",
+"ministral-3-3b-instruct-2512-q4-k-m",
+"qwen3.5-9b-deepseek-v4-flash-q8-0",
+"qwen3.6-35b-a3b-ud-q6-k",
+"qwen3.8-27b-ud-iq4-xs"
+]
+},
 "GET /api/build/info": {
 "behind": 0,
 "branch": "master",

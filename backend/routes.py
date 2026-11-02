@@ -27,7 +27,7 @@ import vram_predict, gpuprobe
 import wsl, vllm_ctl, vllm_registry, vllm_setup, vllm_job, vllm_hub, vllm_download
 import gguf, diag, backends, prebuilt, version, slots, slotctl, slotproc, builds, compat
 import idle, reclaim, tmpldoctor, samplers, reupload, mcp_server, ollama, piinstall, tts, logfiles, loadprog, gamemode, footprint, elastic, slotkeep
-import claudelaunch, rigcard, watchdog, phone
+import claudelaunch, rigcard, watchdog, phone, arena
 from builder import BuildManager
 from embers import panel as embers_panel
 import forge_panel
@@ -612,11 +612,12 @@ def _shim_auth_ok(headers):
     return headers.get("authorization", "") == f"Bearer {key}"
 
 
-def _router_openai(oai_body, stream=False):
-    """POST the translated body to the router's OpenAI chat endpoint.
-    Non-stream: returns (status, dict). Stream: returns (status, response) where
-    response is the open urllib object to iterate for SSE lines."""
-    url = router_base() + "/v1/chat/completions"
+def _router_openai(oai_body, stream=False, base=None):
+    """POST the translated body to the router's OpenAI chat endpoint (or base,
+    a process slot's). Non-stream: returns (status, dict). Stream: returns
+    (status, response) where response is the open urllib object to iterate for
+    SSE lines."""
+    url = (base or router_base()) + "/v1/chat/completions"
     headers = {"Content-Type": "application/json"}
     key = network_policy.effective_key(cfg())
     if key:
@@ -3572,3 +3573,86 @@ class EmbersPool:
                     f"pick another model for this ember, or set {mid} back to the "
                     f"router's build")
         return ""
+
+
+# ---------------------------------------------------------------- arena
+_ARENA_RNG = __import__("random").SystemRandom()
+_ARENA_LOADED = set()       # models a round loaded itself: the next round may unload them
+
+
+def _arena_models():
+    """Chat models the arena can pit against each other: llama.cpp-family rows
+    that aren't embedding or reranking models."""
+    return sorted({r["id"] for r in REGISTRY.state().get("models", [])
+                   if r.get("id") and r.get("backend") in backends.LLAMA_FAMILY
+                   and _retrieval_kind(r) == "chat"})
+
+
+def get_arena(req):
+    """The blind arena: models it can use and the local Elo board."""
+    board = arena.load()
+    return 200, {"models": _arena_models(), "board": arena.leaderboard(board),
+                 "games": board.get("games", 0), "markdown": arena.markdown(board)}
+
+
+def post_arena_pair(req):
+    """Two different chat models at random, for a "surprise me" round."""
+    try:
+        a, b = arena.pick_two(_arena_models(), _ARENA_RNG)
+    except ValueError as e:
+        raise ApiError(400, str(e))
+    return 200, {"a": a, "b": b}
+
+
+def post_arena_answer(req):
+    """One side of a round: load the model if it isn't up (one at a time, as
+    any load does), then ask it the prompt. Answers come back as plain text;
+    the UI escapes them, model output never becomes markup."""
+    mid = req.body.get("model")
+    if mid not in _arena_models():
+        raise ApiError(400, f"not a chat model here: {mid}")
+    try:
+        body = arena.request_body(mid, req.body.get("prompt"))
+    except ValueError as e:
+        raise ApiError(400, str(e))
+    if (_model_status(mid) or {}).get("value") not in slotctl.RUNNING:
+        # make room: drop what earlier rounds loaded, never a model the user had up
+        for other in sorted(_ARENA_LOADED - {mid}):
+            if (_model_status(other) or {}).get("value") in slotctl.RUNNING:
+                _unload_and_wait(other)
+            _ARENA_LOADED.discard(other)
+        main = SLOTS._main()
+        try:
+            _load_and_wait(mid, "main" if main in (None, "", mid) else "worker")
+        except RuntimeError as e:
+            raise ApiError(409, f"couldn't load {mid}: {e}")
+        _ARENA_LOADED.add(mid)
+    t0 = time.time()
+    code, res = _router_openai(body, base=_model_base(mid))
+    if code != 200:
+        raise ApiError(502, _router_error(res, f"{mid} didn't answer (HTTP {code})"))
+    out = arena.reply(res)
+    out["seconds"] = round(time.time() - t0, 1)
+    return 200, out
+
+
+def post_arena_vote(req):
+    b = req.body
+    try:
+        board = arena.vote(None, b.get("a"), b.get("b"), b.get("winner"))
+    except ValueError as e:
+        raise ApiError(400, str(e))
+    return 200, {"board": arena.leaderboard(board), "games": board["games"],
+                 "markdown": arena.markdown(board)}
+
+
+def post_arena_reset(req):
+    arena.reset()
+    return get_arena(req)
+
+
+GET_ROUTES["/api/arena"] = get_arena
+POST_ROUTES["/api/arena/pair"] = post_arena_pair
+POST_ROUTES["/api/arena/answer"] = post_arena_answer
+POST_ROUTES["/api/arena/vote"] = post_arena_vote
+POST_ROUTES["/api/arena/reset"] = post_arena_reset
