@@ -31,6 +31,26 @@ Each model starts at 1000. A win against an equal model moves 16 points each way
 
 The board lives in `arena.json` next to `config.json`. **Share image** draws the board as a 1200x630 card (top six models, Elo, W-L-T, the vote count and your GPU names) to download or copy; it holds no prompts, paths or hosts. **Copy as markdown** copies a table you can paste into a post or an issue. **Reset board** removes every vote.
 
+## Checked tasks
+
+Votes tell you which answers you like. **Checked tasks**, below the board, tells you which models get things right. It asks each model 15 short tasks that have one right answer, three in each of five groups:
+
+| Group | Example |
+|---|---|
+| Extract | The new invoice number in a message that mentions two. |
+| Math | The largest context that fits in a GPU, given weights and KV cache per token. |
+| JSON | A JSON object with given keys, from a sentence. |
+| Follow | Exactly seven words, or three lines with no numbering. |
+| Reason | A day of the week 100 days from now. |
+
+A script marks each reply against the known answer; model output is only compared, never run. Thinking is ignored, so a model is marked on its final answer. Each answer may use up to 4096 tokens so thinking models can finish; one that still runs out is marked wrong and flagged as cut off.
+
+Tick the models and press **Run checks**. Models load one at a time, as in a round, and the ones you had loaded stay loaded. A run takes a few minutes per model and keeps going if you leave the tab; **Cancel** stops it and keeps the models that finished. Arena rounds wait while a run is going.
+
+The table shows passed tasks per group and the median decode speed. The model in your main slot is marked as your main model, and every other model gets one line against it, for example "gemma-4-12b beats qwen3-8b on 3 of 5 categories (1 tie), 40% slower." A model that wins no category "trails" or "matches" instead. **What ... got wrong** shows each missed task with the start of the model's reply.
+
+Fifteen tasks with one try each is a smoke test, not a benchmark: a small model can pass a task in one run and miss it in the next. Results live in `proving.json` next to `config.json`; running a model again replaces its row.
+
 ## API
 
 | Route | What it does |
@@ -40,3 +60,6 @@ The board lives in `arena.json` next to `config.json`. **Share image** draws the
 | `POST /api/arena/answer` | `{model, prompt}` → `{text, thinking, tokens, tok_s, cut, seconds}`. Loads the model if needed. |
 | `POST /api/arena/vote` | `{a, b, winner}` with `winner` `"a"`, `"b"` or `"tie"`. Returns the new board. |
 | `POST /api/arena/reset` | Removes every vote. |
+| `GET /api/proving` | Checked tasks: `status` (`running`, `model`, `done`, `total`, `errors`, `cancelled`), the models, the tasks, `scores` and `results` per model, `driver` (the main slot's model) and `verdicts`. |
+| `POST /api/proving/run` | `{models?}` starts a run on those chat models (all of them if left out). 409 while one is going. |
+| `POST /api/proving/cancel` | Stops the run after the current answer. |

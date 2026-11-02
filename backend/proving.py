@@ -174,7 +174,12 @@ def verdict(all_results, model, driver):
                  f"{round((1 - ratio) * 100)}% slower" if ratio <= 0.9 else "about as fast")
     else:
         speed = "speed unknown"
-    return f"{model} beats {driver} on {wins} of {len(CATEGORIES)} categories{tie}, {speed}."
+    n = len(CATEGORIES)
+    if wins:
+        return f"{model} beats {driver} on {wins} of {n} categories{tie}, {speed}."
+    if ties == n:
+        return f"{model} matches {driver} on all {n} categories, {speed}."
+    return f"{model} trails {driver} on {n - ties} of {n} categories{tie}, {speed}."
 
 
 def load(path=None):

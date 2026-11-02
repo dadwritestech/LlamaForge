@@ -8,6 +8,10 @@ order: 1
 
 This page summarizes the most recent additions to LlamaForge. Each entry links to the full reference for that capability. For the longer-term direction, see the project's `ROADMAP.md`.
 
+## v0.18.23: Checked tasks
+
+The Arena tab now has a second way to compare models. **Checked tasks** asks your models 15 short tasks with one right answer each (extraction, math, JSON, following instructions, reasoning), marks them with a script, and puts them in a table with each model's speed. Every model gets one line against the one in your main slot, like "gemma-4-12b beats qwen3-8b on 3 of 5 categories, 40% slower", and you can see exactly what each one got wrong. It runs in the background, one model at a time; start it before bed. See [Blind Arena](arena.md#checked-tasks).
+
 ## v0.18.22: Faster arena rounds
 
 After you vote, **Same prompt, new pair** asks the same prompt of two other models, and **Rematch these two** asks it again of the same two, shuffled again. Your last ten prompts sit in a **Recent prompts** list above the prompt box, kept in this browser only. Building a board that means something takes a few dozen rounds; now each one is a click. See [Blind Arena](arena.md).

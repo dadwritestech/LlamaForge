@@ -111,12 +111,12 @@ class Verdict(unittest.TestCase):
     def test_faster_and_worse(self):
         res = {"small": run([], 100.0), "daily": run(self.math, 50.0)}
         self.assertEqual(proving.verdict(res, "small", "daily"),
-                         "small beats daily on 0 of 5 categories (4 ties), 2.0x faster.")
+                         "small trails daily on 1 of 5 categories (4 ties), 2.0x faster.")
 
     def test_same_speed_and_missing(self):
         res = {"a": run(self.all, 51.0), "daily": run(self.all, 50.0)}
         self.assertEqual(proving.verdict(res, "a", "daily"),
-                         "a beats daily on 0 of 5 categories (5 ties), about as fast.")
+                         "a matches daily on all 5 categories, about as fast.")
         self.assertIsNone(proving.verdict(res, "a", "nope"))
         self.assertIsNone(proving.verdict(res, "a", "a"))
 
@@ -270,7 +270,7 @@ class Routes(unittest.TestCase):
         self.assertEqual(out["scores"]["gemma"]["passed"], 0)
         self.assertEqual(out["scores"]["gemma"]["tok_s"], 25.0)
         self.assertIn("at", out["scores"]["gemma"])
-        self.assertEqual(out["verdicts"], {"gemma": "gemma beats qwen on 0 of 5 categories, 50% slower."})
+        self.assertEqual(out["verdicts"], {"gemma": "gemma trails qwen on 5 of 5 categories, 50% slower."})
         self.assertEqual(out["results"]["gemma"]["math-kv"]["answer"], "no idea")
 
     def test_thinking_models_get_room_to_finish(self):

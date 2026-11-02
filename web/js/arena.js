@@ -6,6 +6,7 @@ import { $, esc, setHTML, api, toast, askYes } from "./core.js";
 import { showModal } from "./models.js";
 import { drawArena } from "./arenacard.js";
 import { loadRecent, saveRecent, recentLabel } from "./arenarecent.js";
+import { loadProving } from "./proving.js";
 
 let round = null;       // {left, right, prompt, answers: {left, right}, voted}
 let models = [];
@@ -19,13 +20,14 @@ export async function loadArena() {
   models = d.models || [];
   if (!$("#arena-ask", view)) render(view);
   renderBoard(d);
+  loadProving();
 }
 
 function render(view) {
   const opts = sel => models.map(m => `<option value="${esc(m)}"${m === sel ? " selected" : ""}>${esc(m)}</option>`).join("");
   if (models.length < 2) {
     setHTML(view, `<div class="card"><h3>Blind arena</h3><div class="note">The arena needs at least two chat models.
-      Find another one in Discover.</div></div><div id="arena-board"></div>`);
+      Find another one in Discover.</div></div><div id="arena-board"></div><div id="proving"></div>`);
     return;
   }
   setHTML(view, `<div class="card"><h3>Blind arena</h3>
@@ -44,7 +46,8 @@ function render(view) {
         <span class="note" id="arena-status" style="margin:0" aria-live="polite"></span></div>
     </div>
     <div id="arena-round"></div>
-    <div id="arena-board"></div>`);
+    <div id="arena-board"></div>
+    <div id="proving"></div>`);
   $("#arena-surprise", view).onclick = surprise;
   $("#arena-ask", view).onclick = ask;
   $("#arena-recent", view).onchange = e => {
