@@ -1,4 +1,8 @@
 import conftest_paths  # noqa: F401
+import json
+import os
+import shutil
+import tempfile
 import unittest
 
 import prtry
@@ -85,6 +89,111 @@ class Plan(unittest.TestCase):
         self.assertEqual(m["installed_at"], 5.0)
         self.assertTrue(prtry.is_pr({"channel": "pr"}))
         self.assertFalse(prtry.is_pr({"channel": "nightly"}))
+
+
+class Builder(unittest.TestCase):
+    """PrBuilder with git/cmake faked: the build command drops binaries."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.engines = os.path.join(self.tmp, "engines")
+        self.work = os.path.join(self.tmp, "work")
+        self.ran, self.head, self.fail_at, self.hook = [], SHA, None, None
+        self.b = prtry.PrBuilder(self.engines, self.work, self.tmp,
+                                 run=self._run, capture=self._capture,
+                                 fetch_json=lambda url: api())
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _run(self, cmd, cwd=None):
+        self.ran.append(cmd)
+        if self.hook:
+            self.hook(cmd)
+        if self.fail_at and cmd[0] == self.fail_at[0] and self.fail_at[1] in cmd:
+            return 1
+        if cmd[:2] == ["cmake", "--build"]:
+            out = os.path.join(cmd[2], "bin", "Release")
+            os.makedirs(out, exist_ok=True)
+            for n in ("llama-server.exe", "llama-bench.exe", "ggml-cuda.dll"):
+                open(os.path.join(out, n), "w").close()
+        return 0
+
+    def _capture(self, cmd):
+        return self.head + "\n"
+
+    def build(self):
+        info = self.b.look("1234")
+        self.assertTrue(self.b.start(info, {"GGML_CUDA": "ON"}))
+        self.b.join(10)
+        return self.b.status()
+
+    def test_look(self):
+        self.assertEqual(self.b.look("#1234")["sha"], SHA)
+        bad = prtry.PrBuilder(self.engines, self.work, self.tmp,
+                              fetch_json=lambda url: {"message": "Not Found"})
+        with self.assertRaises(ValueError):
+            bad.look("99")
+        def down(url):
+            raise OSError("no network")
+        with self.assertRaisesRegex(ValueError, "GitHub"):
+            prtry.PrBuilder(self.engines, self.work, self.tmp, fetch_json=down).look("1")
+
+    def test_build_installs_beside_the_prebuilt_ones(self):
+        st = self.build()
+        self.assertEqual(st["phase"], "done", st)
+        d = os.path.join(self.engines, "pr-1234-0123456")
+        self.assertEqual(st["install"], "pr-1234-0123456")
+        self.assertEqual(sorted(os.listdir(d)),
+                         ["ggml-cuda.dll", "lf-install.json", "llama-bench.exe", "llama-server.exe"])
+        with open(os.path.join(d, "lf-install.json"), encoding="utf-8") as f:
+            self.assertEqual(json.load(f)["channel"], "pr")
+        self.assertFalse(os.path.exists(os.path.join(self.work, "pr-1234")))   # sources gone
+        self.assertEqual(self.ran[0][:2], ["git", "init"])
+
+    def test_a_changed_head_stops_before_cmake(self):
+        self.head = "f" * 40
+        st = self.build()
+        self.assertEqual(st["phase"], "failed")
+        self.assertIn("changed", st["error"])
+        self.assertFalse(any(c[0] == "cmake" for c in self.ran))
+        self.assertFalse(os.path.exists(self.engines) and os.listdir(self.engines))
+
+    def test_a_failing_step_says_which(self):
+        self.fail_at = ("cmake", "-S")
+        st = self.build()
+        self.assertEqual(st["phase"], "failed")
+        self.assertEqual(st["error"], "cmake configure failed")
+        self.fail_at = ("git", "fetch")
+        self.assertIn("fetch", self.build()["error"])
+
+    def test_cancel_stops_between_steps(self):
+        self.hook = lambda cmd: cmd[:2] == ["git", "init"] and self.b.cancel()
+        st = self.build()
+        self.assertEqual(st["phase"], "cancelled")
+        self.assertEqual(len(self.ran), 1)
+
+    def test_one_build_at_a_time(self):
+        import threading
+        gate = threading.Event()
+        self.hook = lambda cmd: gate.wait(5)
+        info = self.b.look("1234")
+        self.assertTrue(self.b.start(info, {}))
+        self.assertFalse(self.b.start(info, {}))
+        gate.set()
+        self.b.join(10)
+
+    def test_remove_only_pr_builds(self):
+        self.build()
+        os.makedirs(os.path.join(self.engines, "b7000-cuda"))
+        with open(os.path.join(self.engines, "b7000-cuda", "lf-install.json"), "w") as f:
+            json.dump({"tag": "b7000", "channel": "nightly"}, f)
+        with self.assertRaises(ValueError):
+            self.b.remove("b7000-cuda")
+        with self.assertRaises(ValueError):
+            self.b.remove("../etc")
+        self.b.remove("pr-1234-0123456")
+        self.assertEqual(os.listdir(self.engines), ["b7000-cuda"])
 
 
 if __name__ == "__main__":

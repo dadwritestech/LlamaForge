@@ -27,7 +27,7 @@ import vram_predict, gpuprobe
 import wsl, vllm_ctl, vllm_registry, vllm_setup, vllm_job, vllm_hub, vllm_download
 import gguf, diag, backends, prebuilt, version, slots, slotctl, slotproc, builds, compat
 import idle, reclaim, tmpldoctor, samplers, reupload, mcp_server, ollama, piinstall, tts, logfiles, loadprog, gamemode, footprint, elastic, slotkeep
-import claudelaunch, rigcard, watchdog, phone, arena, proving
+import claudelaunch, rigcard, watchdog, phone, arena, proving, prtry
 from builder import BuildManager
 from embers import panel as embers_panel
 import forge_panel
@@ -2844,8 +2844,89 @@ def post_engine_prebuilt_use(req):
                  if os.path.normcase(os.path.abspath(i["dir"])) == want), None)
     if not inst or not inst.get("server_bin"):
         raise ApiError(404, "no such installed build")
+    if prtry.is_pr(inst):
+        raise ApiError(400, "a PR build only runs the models you pin to it, never the router")
     ok, err = _activate_prebuilt(inst["server_bin"])
     return 200, {"ok": ok, "error": err, "server_bin": inst["server_bin"]}
+
+
+# ============================================================ try a llama.cpp PR
+# Build ggml-org/llama.cpp PR #N into ENGINES_DIR as a pin target (see prtry.py).
+
+PRTRY = prtry.PrBuilder(ENGINES_DIR, os.path.join(ROOT, "engines", "prwork"), LOGDIR)
+
+
+def _pr_installs():
+    pins = cfg().get("model_builds")
+    pins = pins if isinstance(pins, dict) else {}
+    out = []
+    for i in prebuilt.list_installs(ENGINES_DIR):
+        if prtry.is_pr(i):
+            name = os.path.basename(i["dir"])
+            out.append({"name": name, "label": i.get("label") or name, "pr": i.get("pr"),
+                        "sha": i.get("sha", ""), "author": i.get("author", ""),
+                        "url": i.get("url", ""), "installed_at": i.get("installed_at"),
+                        "ok": bool(i.get("server_bin")),
+                        "models": sorted(m for m, ref in pins.items() if ref == name)})
+    return out
+
+
+def get_prtry(req):
+    return 200, {"status": PRTRY.status(), "installs": _pr_installs(), "log": PRTRY.tail(120)}
+
+
+def post_prtry_look(req):
+    try:
+        return 200, PRTRY.look(req.body.get("pr"))
+    except ValueError as e:
+        raise ApiError(400, str(e))
+
+
+def post_prtry_build(req):
+    """{pr, sha}: build the commit the user was shown, or 409 if it moved."""
+    try:
+        info = PRTRY.look(str(req.body.get("pr", "")))
+    except ValueError as e:
+        raise ApiError(400, str(e))
+    if info["sha"] != req.body.get("sha"):
+        raise ApiError(409, f"PR #{info['number']} changed since you looked "
+                            f"(now {info['sha'][:7]}); look again before building")
+    if BUILDER_LLAMA.state.get("running") or BUILDER_IKLLAMA.state.get("running"):
+        raise ApiError(409, "another build is running; try again when it's done")
+    flags = cfg().get("cmake_flags") or hardware.recommend()["cmake_flags"]
+    if not PRTRY.start(info, flags):
+        raise ApiError(409, "a PR build is already running")
+    return 200, {"started": True, "status": PRTRY.status()}
+
+
+def post_prtry_cancel(req):
+    PRTRY.cancel()
+    return 200, {"status": PRTRY.status()}
+
+
+def post_prtry_remove(req):
+    """Remove a PR build: unload the models running on it, unpin them, delete it."""
+    name = req.body.get("name")
+    inst = next((i for i in _pr_installs() if i["name"] == name), None)
+    if not inst:
+        raise ApiError(404, "no such PR build")
+    for mid in inst["models"]:
+        if (_model_status(mid) or {}).get("value") in slotctl.RUNNING + ("loading",):
+            code, out = _unload_and_wait(mid)
+            if code != 200:
+                raise ApiError(409, f"{mid} is still running on it: {out.get('error') or 'unload failed'}")
+
+    def unpin(conf):
+        p = conf.get("model_builds") if isinstance(conf.get("model_builds"), dict) else {}
+        conf["model_builds"] = {m: r for m, r in p.items() if r != name}
+    config.mutate(unpin)
+    try:
+        d = PRTRY.remove(name)
+    except ValueError as e:
+        raise ApiError(404, str(e))
+    if os.path.exists(d):
+        raise ApiError(409, "some files are still in use; close anything using that build and try again")
+    return 200, {"removed": name, "unpinned": inst["models"]}
 
 
 # ============================================================ text-to-speech
@@ -2951,6 +3032,7 @@ GET_ROUTES = {
     "/api/build/info":        get_build_info,
     "/api/build/log":         get_build_log,
     "/api/engine/prebuilt":   get_engine_prebuilt,
+    "/api/prtry":             get_prtry,
     "/api/engine/prebuilt/status": get_engine_prebuilt_status,
     "/api/hub/progress":      get_hub_progress,
     "/api/starters":          get_starters,
@@ -3056,6 +3138,10 @@ POST_ROUTES = {
     "/api/engine/prebuilt/install": post_engine_prebuilt_install,
     "/api/engine/prebuilt/cancel":  post_engine_prebuilt_cancel,
     "/api/engine/prebuilt/use":     post_engine_prebuilt_use,
+    "/api/prtry/look":              post_prtry_look,
+    "/api/prtry/build":             post_prtry_build,
+    "/api/prtry/cancel":            post_prtry_cancel,
+    "/api/prtry/remove":            post_prtry_remove,
     "/api/vllm/load":           post_vllm_load,
     "/api/vllm/unload":         post_vllm_unload,
     "/api/vllm/setup/install":  post_vllm_setup_install,
