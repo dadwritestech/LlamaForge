@@ -8,6 +8,10 @@ order: 1
 
 This page summarizes the most recent additions to LlamaForge. Each entry links to the full reference for that capability. For the longer-term direction, see the project's `ROADMAP.md`.
 
+## v0.18.29: Asked right after the update
+
+When an update finishes, the Engine card now asks: *you're on b7123 now, is it as fast as b7080 was on your models?* The build you were on is already picked in the **compare speed** row, so it's one model and one click. The old build stays installed, so **Use** takes you back if the answer is no. See [Build & Update](build.md#what-it-does).
+
 ## v0.18.28: Is the update faster?
 
 **Compare speed** now works on official builds too, not only PR builds. Got a new nightly but still running the old one? The Engine card's **compare speed** row runs `llama-bench` on your model with the build you're on and with the one you picked, and shows the change before you press **Use**. A regression on your GPU shows up as a minus sign in a table, not as a slow evening. See [Build & Update](build.md#what-it-does).

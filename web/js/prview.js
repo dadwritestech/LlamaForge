@@ -69,3 +69,12 @@ export function abView(ab) {
       + `${out.rows[i].change}${out.rows[i].noise ? " (within noise)" : ""} |`)].join("\n");
   return out;
 }
+
+// Right after an engine update: the build it replaced, if it's still installed
+// and not the active one, so the card can offer to compare the two.
+const baseName = d => String(d || "").split(/[\\/]/).pop();
+export function canaryOffer(installs, fromName) {
+  const now = (installs || []).find(i => i.active);
+  const old = fromName && (installs || []).find(i => !i.active && baseName(i.dir) === fromName);
+  return now && old ? {name: fromName, tag: old.tag, now: now.tag} : null;
+}

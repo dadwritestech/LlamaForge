@@ -1,7 +1,7 @@
 // "Try a llama.cpp PR" view helpers: the look card, the progress line, the pin list, the A/B.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { lookCard, phaseLine, pinChoices, abView } from "../web/js/prview.js";
+import { lookCard, phaseLine, pinChoices, abView, canaryOffer } from "../web/js/prview.js";
 
 const SHA = "0123456789abcdef0123456789abcdef01234567";
 const info = {number: 1234, title: "CUDA: faster MMQ", author: "someone", sha: SHA,
@@ -76,4 +76,14 @@ test("A/B of a release build says its tag, not a PR number", () => {
   assert.match(abView(rel).markdown, /\| test \| my build \| b7123 \| change \|/);
   assert.match(abView({running: true, phase: "pr", model: "qwen", pr: null, label: "b7123"}).phase,
                /^Benchmarking qwen on b7123 /);
+});
+
+test("after an update, offer to compare with the build it replaced", () => {
+  const ins = [{tag: "b7123", dir: "D:\\lf\\engines\\llama.cpp\\b7123-cuda", active: true},
+               {tag: "b7080", dir: "D:\\lf\\engines\\llama.cpp\\b7080-cuda", active: false}];
+  assert.deepEqual(canaryOffer(ins, "b7080-cuda"), {name: "b7080-cuda", tag: "b7080", now: "b7123"});
+  assert.equal(canaryOffer(ins, ""), null);
+  assert.equal(canaryOffer(ins, "b7123-cuda"), null);     // reinstalled the same build
+  assert.equal(canaryOffer(ins, "gone-cuda"), null);      // pruned since
+  assert.equal(canaryOffer(ins.slice(1), "b7080-cuda"), null);  // nothing active
 });

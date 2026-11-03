@@ -4,7 +4,7 @@
 // neither view.
 import { $, esc, setHTML, api, toast, askYes, meter, fmtAgo } from "./core.js";
 import { models } from "./state.js";
-import { pinChoices } from "./prview.js";
+import { pinChoices, canaryOffer } from "./prview.js";
 import { abHTML, abTick, wireAb, abAsk, abIsPr } from "./abbox.js";
 
 const PHASES = {
@@ -72,7 +72,7 @@ export async function mountEngineCard(el, opts = {}) {
         <span class="v">${esc(i.channel || "")} &middot; installed ${esc(fmtAgo(i.installed_at))}
         ${i.active ? `<strong class="ok">active</strong>`
                    : `<button class="ghost" data-use="${esc(i.dir)}" style="padding:2px 8px">Use</button>`}</span></div>`).join("")}</div>` : ""}
-    ${opts.compact ? "" : compareHTML(installs, ab)}
+    ${opts.compact ? "" : compareHTML(installs, ab, canaryOffer(installs, el.dataset.updatedFrom))}
     ${opts.compact ? "" : `<div class="log" id="eng-log" style="display:none"></div>`}
   </div>`);
 
@@ -93,20 +93,27 @@ export async function mountEngineCard(el, opts = {}) {
     toast(r.ok ? "Switched engine build" : (r.error || "switch failed"), r.ok ? "ok" : "err");
     mountEngineCard(el, opts);
   });
+  // remembered so the poll can tell which build an update replaced
+  el.dataset.activeBuild = cur ? baseName(cur.dir) : "";
   if (!opts.compact) wireCompare(el, opts, ab);
   if (st.running) poll(el, opts);
 }
 
 // Update canary: llama-bench one model on the router's build and on another
 // installed one, before you switch to it.
-function compareHTML(installs, ab) {
+const baseName = d => String(d || "").split(/[\\/]/).pop();
+
+function compareHTML(installs, ab, offer) {
   const others = installs.filter(i => !i.active);
   const ids = pinChoices(models(), null);
-  const opt = (v, t) => `<option value="${esc(v)}">${esc(t)}</option>`;
-  const row = others.length && ids.length ? `<div class="actions" style="margin-top:6px">
+  const opt = (v, t, sel) => `<option value="${esc(v)}" ${sel ? "selected" : ""}>${esc(t)}</option>`;
+  const nudge = offer && ids.length && !(ab && ab.running) ? `<div class="note warn" style="margin:6px 0 0" id="eng-canary">
+      You're on ${esc(offer.now)} now. Is it as fast as ${esc(offer.tag)} was on your models? Pick a model and
+      compare; ${esc(offer.tag)} stays installed, so <strong>Use</strong> takes you back.</div>` : "";
+  const row = others.length && ids.length ? `${nudge}<div class="actions" style="margin-top:6px">
       <span class="k">compare speed</span>
       <select id="eng-ab-build" aria-label="build to compare">${others.map(i =>
-        opt(i.dir.split(/[\\/]/).pop(), `${i.tag} · ${i.variant}`)).join("")}</select>
+        opt(baseName(i.dir), `${i.tag} · ${i.variant}`, offer && baseName(i.dir) === offer.name)).join("")}</select>
       <select id="eng-ab-model" aria-label="model to benchmark"><option value="">pick a model...</option>${
         ids.map(m => opt(m.id, m.id)).join("")}</select>
       <button class="ghost" id="eng-ab-go" ${ab && ab.running ? "disabled" : ""}>Compare with your build</button>
@@ -123,6 +130,7 @@ function wireCompare(el, opts, ab) {
     const other = build.options[build.selectedIndex].textContent.split(" · ")[0];
     if (!await askYes(abAsk(model, other), {title: "Compare speed", ok: "Compare"})) return;
     go.disabled = true;
+    el.dataset.updatedFrom = "";
     const r = await api("/api/prtry/ab", {model, install: build.value});
     if (r.error) { go.disabled = false; return toast(r.error, "err"); }
     mountEngineCard(el, opts);
@@ -154,6 +162,7 @@ function poll(el, opts) {
     clearInterval(el._poll);
     if (s.phase === "done") {
       toast(`llama.cpp ${s.tag} installed`, "ok");
+      el.dataset.updatedFrom = el.dataset.activeBuild || "";
       if (opts.onDone) opts.onDone(s);
       mountEngineCard(el, opts);
     } else if (s.phase === "failed") {
