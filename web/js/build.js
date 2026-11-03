@@ -4,6 +4,7 @@
 // concern rather than a setup one.
 import { $, esc, setHTML, api, toast, agoText, fmtDur } from "./core.js";
 import { mountEngineCard } from "./engine.js";
+import { mountPrTry } from "./prtry.js";
 
 let buildPoll = null;
 let _target = localStorage.getItem("build_target") || "llamacpp";
@@ -54,7 +55,7 @@ export async function loadBuild(force) {
         ${!isActive?`<button class="ghost" id="btn-switch-engine">Switch to ${esc(label)}</button>`:''}
       </span>
     </div>
-    ${_target === "llamacpp" ? `<div id="engine-prebuilt"></div>` : ""}
+    ${_target === "llamacpp" ? `<div id="engine-prebuilt"></div><div id="pr-try"></div>` : ""}
     <div class="card"><h3>${_target === "llamacpp" ? "Or build from source" : "Current Build"} · ${esc(label)}</h3>
       <div class="kv"><span class="k">commit</span><span class="v">${esc(cur.hash||"?")} &middot; ${esc((cur.subject||"").slice(0,60))}</span></div>
       <div class="kv"><span class="k">branch</span><span class="v">${esc(cur.branch||"?")}</span></div>
@@ -86,6 +87,7 @@ export async function loadBuild(force) {
     </div>`));
 
   mountEngineCard($("#engine-prebuilt"), {force});
+  mountPrTry($("#pr-try"));
 
   // Target toggle
   $("#btn-tgt-llamacpp").onclick = () => { setTarget("llamacpp"); loadBuild(); };

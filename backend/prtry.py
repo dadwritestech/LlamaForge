@@ -66,12 +66,28 @@ def install_name(n, sha):
     return f"pr-{int(n)}-{sha[:7]}"
 
 
-def commands(n, sha, work, build_dir, flags, jobs=8):
+def toolset_args(flags, env, os_name, isdir=os.path.isdir):
+    """["-T", "cuda=<CUDA_PATH>", "-DCUDAToolkit_ROOT=<CUDA_PATH>"] for a CUDA build with a Visual Studio
+    generator (CMake's default on Windows). With two CUDA toolkits installed,
+    a fresh build dir got nvcc from PATH but MSBuild's CUDA targets from the
+    other one, mixed their headers, and failed. -T pins nvcc; CUDAToolkit_ROOT
+    pins the headers ggml finds before CUDA is enabled. The user's own build never
+    hits it: its dir was configured once and keeps its cache."""
+    gen = (env.get("CMAKE_GENERATOR") or "").strip()
+    cuda = (env.get("CUDA_PATH") or "").strip()
+    if (os_name != "nt" or str((flags or {}).get("GGML_CUDA", "")).upper() != "ON"
+            or (gen and not gen.startswith("Visual Studio")) or not cuda or not isdir(cuda)):
+        return []
+    return ["-T", f"cuda={cuda}", f"-DCUDAToolkit_ROOT={cuda}"]
+
+
+def commands(n, sha, work, build_dir, flags, jobs=8, toolset=()):
     """argv lists, run in order (never through a shell). check_head() goes
     between the checkout and the configure."""
     cfg = ["cmake", "-B", build_dir, "-S", work, "-DCMAKE_BUILD_TYPE=Release",
            "-DLLAMA_CURL=OFF"]
     cfg += [f"-D{k}={v}" for k, v in (flags or {}).items()]
+    cfg += list(toolset)
     return [
         ["git", "init", "-q", work],
         ["git", "-C", work, "fetch", "-q", "--depth", "1", REPO, f"pull/{int(n)}/head"],
@@ -211,7 +227,8 @@ class PrBuilder:
             shutil.rmtree(work, ignore_errors=True)
             os.makedirs(self.work_root, exist_ok=True)
             bdir = os.path.join(work, "build")
-            for i, cmd in enumerate(commands(n, sha, work, bdir, flags, jobs)):
+            ts = toolset_args(flags, os.environ, os.name)
+            for i, cmd in enumerate(commands(n, sha, work, bdir, flags, jobs, ts)):
                 if self._cancel.is_set():
                     return self._set(phase="cancelled")
                 if i == 3:               # between checkout and configure

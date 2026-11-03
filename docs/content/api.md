@@ -72,6 +72,11 @@ These are the endpoints external coding agents (Claude Code, Codex, etc.) talk t
 | POST | `/api/engine/prebuilt/install` | Download and install the latest official build for your GPU. Body: `channel`, optional `variant`. |
 | POST | `/api/engine/prebuilt/cancel` | Cancel a running prebuilt install. |
 | POST | `/api/engine/prebuilt/use` | Switch to an already-installed build (rollback). Body: `dir`, which must be one `/api/engine/prebuilt` lists. |
+| GET | `/api/prtry` | "Try a PR": the running PR build's status and log tail, and the installed PR builds with the models pinned to each. |
+| POST | `/api/prtry/look` | Look a llama.cpp PR up on GitHub. Body: `pr` (number, `#N` or a ggml-org/llama.cpp pull link). Returns its title, author, state and head `sha`. |
+| POST | `/api/prtry/build` | Build that PR. Body: `pr`, `sha` (from look; 409 if the PR has moved since). One build at a time, never beside a source build. |
+| POST | `/api/prtry/cancel` | Cancel the running PR build. |
+| POST | `/api/prtry/remove` | Delete a PR build. Body: `name`. Unloads and unpins the models on it first. |
 | GET | `/api/starters` | Starter-model suggestions sized to your total VRAM. |
 | GET | `/api/feed` | "New this week": architectures llama.cpp just merged, marked against your engine build, plus whether a newer LlamaForge release is out. |
 | GET | `/api/app/update` | Progress of a LlamaForge self-update. |

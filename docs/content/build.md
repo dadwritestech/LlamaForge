@@ -41,6 +41,17 @@ A rebuild (`BuildManager.run_build()`) runs in a background thread: it first val
 5. Click **Pull latest & Rebuild** (or **Rebuild current** if already up to date). The build runs in the background; watch progress and any errors in the Build Log panel below, which polls live until the build finishes or fails.
 6. On Windows, the same tab has a **vLLM (pip package in WSL)** card showing its installed vs. latest PyPI version, with an **Update vLLM to <version>** button when a newer release is available.
 
+## Try a llama.cpp PR
+
+Someone opened a pull request that makes your GPU faster, or adds the model you've been waiting for? You don't have to wait for it to merge.
+
+1. In **Build / Update** (llama.cpp target), paste the PR number or its `github.com/ggml-org/llama.cpp/pull/...` link into **Try a llama.cpp pull request** and click **Look it up**. LlamaForge shows the PR's title, author and commit, and says so if it's already merged, closed, or a draft.
+2. Click **Build PR #N**. LlamaForge fetches only that PR's commit into a temporary folder, builds `llama-server` and `llama-bench` with your **Build Flags**, and installs them beside your other builds. It needs the same git, CMake and compiler as building from source. The temporary sources are deleted afterwards.
+3. Pick a model under the new build and click **Run it on this build**. That model now loads on the PR in its own process; the router and every other model stay on your build. **unpin** puts it back.
+4. **Remove** deletes the PR build, after unloading and unpinning any model on it.
+
+The commit is fixed when you look the PR up: if the author pushes again before the build reaches CMake, the build stops and asks you to look it up again, so you always run the code you saw. Only PRs on `ggml-org/llama.cpp` can be built. PR builds are never pruned by updates and never become the router's build.
+
 ## Screenshot
 
 ![Build tab](docs/img/build.png)
@@ -60,6 +71,7 @@ A rebuild (`BuildManager.run_build()`) runs in a background thread: it first val
 | Rebuild | `BuildManager.run_build()` | Validates paths, optional `git pull --ff-only`, backs up prior binaries, `cmake` configure + build (Release, parallel jobs = CPU count by default), records the built `server_bin`. |
 | Partial success | `BuildManager.run_build()` | Build-step failure with a fresh `llama-server` present → `done_warnings` (amber "built with warnings"); no fresh binary → hard `failed`. |
 | Engine target / switch | Build tab toggle, `POST /api/engine/switch` | Builds `llama.cpp` or `ik_llama`; switching sets `active_engine` and restarts the router, refused if the target binary has no router mode. |
+| Try a PR | `backend/prtry.py`, `/api/prtry*` | Shallow-fetches `pull/N/head`, checks it is the looked-up SHA, builds `llama-server` + `llama-bench` with your flags into `engines/llama.cpp/pr-N-sha7` (channel `pr`); models pin to it like any build. |
 | Prebuilt engine | Engine card, `backend/prebuilt.py`, `/api/engine/prebuilt*` | Installs an official ggml-org release (`nightly` or `stable` channel), SHA-256 checked and test-run first; keeps the newest 3 installs, **Use** rolls back. |
 
 ## Troubleshooting

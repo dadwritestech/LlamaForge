@@ -75,6 +75,25 @@ class Plan(unittest.TestCase):
         # every command is a list of plain strings (no shell)
         self.assertTrue(all(isinstance(a, str) for c in cmds for a in c))
 
+    def test_cuda_toolset_is_pinned_for_visual_studio(self):
+        # two CUDA toolkits: nvcc from PATH (12.9) vs MSBuild's (13.2) mixed headers
+        # and failed on VS 2026; -T cuda=<CUDA_PATH> pins nvcc, CUDAToolkit_ROOT the headers
+        cuda = {"GGML_CUDA": "ON"}
+        env = {"CUDA_PATH": r"C:\CUDA\v13.2"}
+        isdir = lambda p: True
+        pinned = ["-T", r"cuda=C:\CUDA\v13.2", r"-DCUDAToolkit_ROOT=C:\CUDA\v13.2"]
+        self.assertEqual(prtry.toolset_args(cuda, env, "nt", isdir), pinned)
+        self.assertEqual(prtry.toolset_args(cuda, dict(env, CMAKE_GENERATOR="Visual Studio 17 2022"), "nt", isdir),
+                         pinned)
+        # Ninja takes no toolset; no CUDA, no CUDA_PATH, a missing dir, or not Windows: nothing
+        self.assertEqual(prtry.toolset_args(cuda, dict(env, CMAKE_GENERATOR="Ninja"), "nt", isdir), [])
+        self.assertEqual(prtry.toolset_args({"GGML_VULKAN": "ON"}, env, "nt", isdir), [])
+        self.assertEqual(prtry.toolset_args(cuda, {}, "nt", isdir), [])
+        self.assertEqual(prtry.toolset_args(cuda, env, "nt", lambda p: False), [])
+        self.assertEqual(prtry.toolset_args(cuda, env, "posix", isdir), [])
+        cmds = prtry.commands(1, SHA, "W", "W/build", cuda, toolset=["-T", "cuda=X"])
+        self.assertEqual(cmds[3][-2:], ["-T", "cuda=X"])
+
     def test_head_must_match(self):
         self.assertEqual(prtry.check_head(SHA + "\n", SHA), "")
         self.assertIn("changed", prtry.check_head("f" * 40, SHA))

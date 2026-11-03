@@ -19,7 +19,8 @@ export async function mountEngineCard(el, opts = {}) {
   const [info, st] = await Promise.all([api("/api/engine/prebuilt" + q),
                                         api("/api/engine/prebuilt/status")]);
   const L = info.latest || {};
-  const installs = info.installs || [];
+  // "Try a PR" builds have their own card and never become the router's build
+  const installs = (info.installs || []).filter(i => i.channel !== "pr");
   const cur = installs.find(i => i.active);
   el.dataset.channel = info.channel;
 

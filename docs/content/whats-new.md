@@ -8,6 +8,10 @@ order: 1
 
 This page summarizes the most recent additions to LlamaForge. Each entry links to the full reference for that capability. For the longer-term direction, see the project's `ROADMAP.md`.
 
+## v0.18.26: Try a llama.cpp PR
+
+Paste a llama.cpp pull request number into **Build / Update** and LlamaForge builds that PR beside your own build, with your GPU's flags. Then pick one model to run on it: that model loads on the PR in its own process, while the router and everything else stay on your build. The commit is fixed when you look the PR up, and **Remove** cleans it all away. See [Build & Update](build.md#try-a-llamacpp-pr).
+
 ## v0.18.25: Checked tasks overnight
 
 Checked tasks can now run themselves. Pick a time under **Every night at** and press **Schedule**: once nobody has used a model for 20 minutes, LlamaForge runs your ticked models through the 15 tasks before 06:00, and the table is up to date when you sit down. See [Blind Arena](arena.md#checked-tasks).
