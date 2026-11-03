@@ -1,9 +1,10 @@
 // Build / Update: "Try a llama.cpp PR". Look a PR up, build it beside your own
 // build, pin a model to it. The router never switches to a PR build; only
-// the models you pin run on it, each in its own process. GET /api/prtry.
+// the models you pin run on it, each in its own process. Compare speed runs
+// llama-bench on both builds for one model. GET /api/prtry.
 import { $, $$, esc, setHTML, api, toast, askYes, fmtAgo } from "./core.js";
 import { models } from "./state.js";
-import { lookCard, phaseLine, pinChoices } from "./prview.js";
+import { lookCard, phaseLine, pinChoices, abView } from "./prview.js";
 
 let poll = null;
 let looked = null;     // the PR the user looked up, pinned to its SHA
@@ -13,16 +14,41 @@ export async function mountPrTry(el) {
   clearInterval(poll);
   const d = await api("/api/prtry");
   draw(el, d);
-  if (d.status && d.status.running) {
+  if (busy(d)) {
     poll = setInterval(async () => {
       if (!el.isConnected) return clearInterval(poll);
       const n = await api("/api/prtry");
       if (n.status && n.status.running) return tick(el, n);
+      if (n.ab && n.ab.running) return abTick(el, n.ab);
       clearInterval(poll);
-      if (n.status && n.status.phase === "done") toast(`PR #${n.status.pr} built`, "ok");
+      if (d.status && d.status.running && n.status && n.status.phase === "done") toast(`PR #${n.status.pr} built`, "ok");
+      if (d.ab && d.ab.running && n.ab && n.ab.phase === "done") toast("Comparison done", "ok");
       draw(el, n);
     }, 2000);
   }
+}
+
+const busy = d => !!((d.status && d.status.running) || (d.ab && d.ab.running));
+
+function abTick(el, ab) {
+  const m = $("#pr-ab-phase", el);
+  if (m) m.textContent = abView(ab).phase;
+}
+
+function abHTML(ab) {
+  const v = abView(ab);
+  if (!v.phase && !v.rows.length) return "";
+  const cls = ab.running ? "work" : ab.phase === "failed" ? "err" : "";
+  const row = r => `<tr><td>${esc(r.label)}</td><td>${esc(r.base)}</td><td>${esc(r.pr)}</td>
+    <td>${esc(r.change)}${r.noise ? ` <span class="dim">(within noise)</span>` : ""}</td></tr>`;
+  return `<div class="pr-ab">
+    ${v.heading ? `<div class="pr-look-h">${esc(v.heading)}</div>` : ""}
+    ${v.phase ? `<span class="msg ${cls}" id="pr-ab-phase">${esc(v.phase)}</span>` : ""}
+    ${v.rows.length ? `<table class="pr-ab-t"><thead><tr><th>llama-bench, tok/s</th><th>your build</th>
+      <th>PR #${esc(ab.pr)}</th><th>change</th></tr></thead><tbody>${v.rows.map(row).join("")}</tbody></table>
+      <div class="actions" style="margin-top:4px"><button class="ghost" id="pr-ab-md">Copy as markdown</button>
+      <span class="note" style="margin:0">Same model file and GPU settings on both builds, every other model unloaded.</span></div>` : ""}
+  </div>`;
 }
 
 function tick(el, d) {
@@ -45,7 +71,7 @@ function lookHTML(running) {
 
 function installHTML(i) {
   const opts = pinChoices(models(), i).map(o =>
-    `<option value="${esc(o.id)}" ${o.pinned ? "disabled" : ""}>${esc(o.id)}${o.pinned ? " (on it)" : ""}</option>`).join("");
+    `<option value="${esc(o.id)}">${esc(o.id)}${o.pinned ? " (on it)" : ""}</option>`).join("");
   return `<div class="pr-inst">
     <div class="kv"><span class="k"><a href="${esc(i.url)}" target="_blank" rel="noopener">${esc(i.label || i.name)}</a></span>
       <span class="v">${esc(String(i.sha || "").slice(0, 7))} &middot; built ${esc(fmtAgo(i.installed_at))}
@@ -55,7 +81,8 @@ function installHTML(i) {
       : `<span class="dim">no model yet</span>`}</span></div>
     <div class="actions" style="margin-top:4px">
       ${opts ? `<select class="pr-pick" data-build="${esc(i.name)}"><option value="">pick a model...</option>${opts}</select>
-      <button class="ghost pr-pin" data-build="${esc(i.name)}">Run it on this build</button>` : `<span class="note" style="margin:0">add a model first</span>`}
+      <button class="ghost pr-pin" data-build="${esc(i.name)}">Run it on this build</button>
+      <button class="ghost pr-ab-go" data-build="${esc(i.name)}" data-pr="${esc(i.pr)}" ${i.ok ? "" : "disabled"}>Compare speed</button>` : `<span class="note" style="margin:0">add a model first</span>`}
       <button class="ghost danger pr-remove" data-build="${esc(i.name)}">Remove</button>
     </div></div>`;
 }
@@ -79,6 +106,7 @@ function draw(el, d) {
       ${st.running ? `<button class="ghost" id="pr-cancel">Cancel</button>` : ""}</div>` : ""}
     ${showLog ? `<div class="log" id="pr-log">${esc(d.log || "")}</div>` : ""}
     ${installs.length ? `<div style="margin-top:8px">${installs.map(installHTML).join("")}</div>` : ""}
+    ${abHTML(d.ab || {})}
     <div class="note">Fetches only that PR's commit from github.com/ggml-org/llama.cpp and builds it with your
       Build Flags (needs the same git, CMake and compiler as building from source). The commit is pinned when
       you look it up, so a push in between stops the build.</div>
@@ -105,9 +133,26 @@ function wire(el, d) {
   wireBuild(el);
   const cancel = $("#pr-cancel", el);
   if (cancel) cancel.onclick = async () => { cancel.disabled = true; await api("/api/prtry/cancel", {}); };
+  for (const b of $$(".pr-ab-go", el)) b.onclick = async () => {
+    const sel = $(`.pr-pick[data-build="${CSS.escape(b.dataset.build)}"]`, el);
+    if (!sel || !sel.value) return toast("pick a model first", "err");
+    const ok = await askYes(`Run llama-bench on ${sel.value} with your build, then with PR #${b.dataset.pr}? `
+      + "Every loaded model is unloaded for a few minutes and loaded back afterwards.",
+      {title: "Compare speed", ok: "Compare"});
+    if (!ok) return;
+    b.disabled = true;
+    const r = await api("/api/prtry/ab", {model: sel.value, install: b.dataset.build});
+    if (r.error) { b.disabled = false; return toast(r.error, "err"); }
+    mountPrTry(el);
+  };
+  const md = $("#pr-ab-md", el);
+  if (md) md.onclick = () => navigator.clipboard.writeText(abView(d.ab).markdown)
+    .then(() => toast("Markdown copied", "ok"), () => toast("Couldn't copy", "err"));
   for (const b of $$(".pr-pin", el)) b.onclick = async () => {
     const sel = $(`.pr-pick[data-build="${CSS.escape(b.dataset.build)}"]`, el);
     if (!sel || !sel.value) return toast("pick a model first", "err");
+    const inst = (d.installs || []).find(i => i.name === b.dataset.build);
+    if (inst && (inst.models || []).includes(sel.value)) return toast(`${sel.value} already runs on it`, "ok");
     b.disabled = true;
     const r = await api("/api/model/build", {model: sel.value, build: b.dataset.build});
     if (r.error) { b.disabled = false; return toast(r.error, "err"); }

@@ -18,7 +18,7 @@ content_type. Raising ApiError(status, message) produces {"error": message}.
 Streaming responses (the Anthropic and OpenAI SSE proxies) are not in these
 tables: they write to the socket themselves and stay in server.py.
 """
-import json, os, re, subprocess, sys, threading, time, urllib.request, urllib.error, urllib.parse
+import contextlib, json, os, re, subprocess, sys, threading, time, urllib.request, urllib.error, urllib.parse
 
 import config, argspec, hardware, osplat, prereqs, scanner, hub, router_ctl, stats, telemetry
 import autotune, anthropic_shim, agentsetup, clientsetup, network_policy, wiki, docs
@@ -27,7 +27,7 @@ import vram_predict, gpuprobe
 import wsl, vllm_ctl, vllm_registry, vllm_setup, vllm_job, vllm_hub, vllm_download
 import gguf, diag, backends, prebuilt, version, slots, slotctl, slotproc, builds, compat
 import idle, reclaim, tmpldoctor, samplers, reupload, mcp_server, ollama, piinstall, tts, logfiles, loadprog, gamemode, footprint, elastic, slotkeep
-import claudelaunch, rigcard, watchdog, phone, arena, proving, prtry
+import claudelaunch, rigcard, watchdog, phone, arena, proving, prtry, prbench
 from builder import BuildManager
 from embers import panel as embers_panel
 import forge_panel
@@ -2872,7 +2872,61 @@ def _pr_installs():
 
 
 def get_prtry(req):
-    return 200, {"status": PRTRY.status(), "installs": _pr_installs(), "log": PRTRY.tail(120)}
+    return 200, {"status": PRTRY.status(), "installs": _pr_installs(), "log": PRTRY.tail(120),
+                 "ab": PRBENCH.status()}
+
+
+@contextlib.contextmanager
+def _ab_lease():
+    """The GPUs to llama-bench alone: unload everything, load it back after."""
+    loaded = list(_game_loaded())
+    post_unload_all(Req({}))
+    try:
+        yield
+    finally:
+        for mid in loaded:
+            try:
+                _game_load(mid)
+            except Exception:       # noqa: BLE001 - best effort, the user can load it
+                pass
+
+
+PRBENCH = prbench.ABRunner(os.path.join(LOGDIR, "prtry-ab.json"), lease=_ab_lease)
+
+
+def post_prtry_ab(req):
+    """{model, install}: llama-bench that model on your build, then on the PR
+    build, same flags, with the GPUs cleared. Results in GET /api/prtry "ab"."""
+    name, mid = req.body.get("install"), req.body.get("model")
+    inst = next((i for i in prebuilt.list_installs(ENGINES_DIR)
+                 if prtry.is_pr(i) and os.path.basename(i["dir"]) == name), None)
+    if not inst:
+        raise ApiError(404, "no such PR build")
+    secs = config.read_sections()
+    if not mid or mid == "*" or mid not in secs:
+        raise ApiError(404, f"unknown model: {mid}")
+    base_bench = prbench.bench_bin(_active_server_bin(cfg()))
+    if not base_bench:
+        raise ApiError(400, "your build has no llama-bench next to llama-server; "
+                            "build from source in Build / Update to get one")
+    pr_bench = prbench.bench_bin(inst.get("server_bin") or os.path.join(inst["dir"], "llama-server.exe"))
+    if not pr_bench:
+        raise ApiError(400, "that PR build has no llama-bench; build it again")
+    if PRTRY.status().get("running"):
+        raise ApiError(409, "a PR build is running; compare when it's done")
+    if PRBENCH.status().get("running"):
+        raise ApiError(409, "a comparison is already running")
+    forge = globals().get("FORGE")
+    if forge is not None and forge.runner.running():
+        raise ApiError(409, "Auto-Forge has the GPUs right now; try when it's done")
+    settings = {**(secs.get("*") or {}), **secs[mid]}
+    try:
+        base_argv = prbench.argv(base_bench, settings)
+        pr_argv = prbench.argv(pr_bench, settings)
+    except ValueError as e:
+        raise ApiError(400, str(e))
+    PRBENCH.start({"pr": inst.get("pr"), "install": name, "model": mid}, base_argv, pr_argv)
+    return 200, {"started": True, "ab": PRBENCH.status()}
 
 
 def post_prtry_look(req):
@@ -3142,6 +3196,7 @@ POST_ROUTES = {
     "/api/prtry/build":             post_prtry_build,
     "/api/prtry/cancel":            post_prtry_cancel,
     "/api/prtry/remove":            post_prtry_remove,
+    "/api/prtry/ab":                post_prtry_ab,
     "/api/vllm/load":           post_vllm_load,
     "/api/vllm/unload":         post_vllm_unload,
     "/api/vllm/setup/install":  post_vllm_setup_install,

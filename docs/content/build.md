@@ -52,6 +52,10 @@ Someone opened a pull request that makes your GPU faster, or adds the model you'
 
 The commit is fixed when you look the PR up: if the author pushes again before the build reaches CMake, the build stops and asks you to look it up again, so you always run the code you saw. Only PRs on `ggml-org/llama.cpp` can be built. PR builds are never pruned by updates and never become the router's build.
 
+### Is the PR actually faster?
+
+Pick a model under the PR build and click **Compare speed**. LlamaForge unloads every model, runs `llama-bench` (pp512 and tg128, 3 runs each) on that model with your build, then with the PR build, and loads your models back. Both runs use the same model file and the same GPU settings from its models.ini section. The table shows each build's tokens per second with llama-bench's own spread, and the change in percent; a change smaller than the two spreads added together is marked *within noise*. **Copy as markdown** gives you the table to paste into the PR's thread. It refuses to start while a PR build, another comparison or Auto-Forge is running. The last result stays on the card after a restart.
+
 ## Screenshot
 
 ![Build tab](docs/img/build.png)
@@ -71,7 +75,7 @@ The commit is fixed when you look the PR up: if the author pushes again before t
 | Rebuild | `BuildManager.run_build()` | Validates paths, optional `git pull --ff-only`, backs up prior binaries, `cmake` configure + build (Release, parallel jobs = CPU count by default), records the built `server_bin`. |
 | Partial success | `BuildManager.run_build()` | Build-step failure with a fresh `llama-server` present → `done_warnings` (amber "built with warnings"); no fresh binary → hard `failed`. |
 | Engine target / switch | Build tab toggle, `POST /api/engine/switch` | Builds `llama.cpp` or `ik_llama`; switching sets `active_engine` and restarts the router, refused if the target binary has no router mode. |
-| Try a PR | `backend/prtry.py`, `/api/prtry*` | Shallow-fetches `pull/N/head`, checks it is the looked-up SHA, builds `llama-server` + `llama-bench` with your flags into `engines/llama.cpp/pr-N-sha7` (channel `pr`); models pin to it like any build. |
+| Try a PR | `backend/prtry.py`, `/api/prtry*` | Shallow-fetches `pull/N/head`, checks it is the looked-up SHA, builds `llama-server` + `llama-bench` with your flags into `engines/llama.cpp/pr-N-sha7` (channel `pr`); models pin to it like any build. `backend/prbench.py` runs the llama-bench A/B. |
 | Prebuilt engine | Engine card, `backend/prebuilt.py`, `/api/engine/prebuilt*` | Installs an official ggml-org release (`nightly` or `stable` channel), SHA-256 checked and test-run first; keeps the newest 3 installs, **Use** rolls back. |
 
 ## Troubleshooting

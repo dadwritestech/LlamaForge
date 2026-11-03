@@ -8,6 +8,10 @@ order: 1
 
 This page summarizes the most recent additions to LlamaForge. Each entry links to the full reference for that capability. For the longer-term direction, see the project's `ROADMAP.md`.
 
+## v0.18.27: Is the PR faster?
+
+A PR build now has a **Compare speed** button. Pick a model and LlamaForge runs `llama-bench` on it with your build and then with the PR, same model file and GPU settings, and shows both speeds side by side with the change in percent. A change inside the runs' own spread says *within noise*, so you don't mistake jitter for a speedup. **Copy as markdown** puts the table on your clipboard for the PR's thread. See [Build & Update](build.md#is-the-pr-actually-faster).
+
 ## v0.18.26: Try a llama.cpp PR
 
 Paste a llama.cpp pull request number into **Build / Update** and LlamaForge builds that PR beside your own build, with your GPU's flags. Then pick one model to run on it: that model loads on the PR in its own process, while the router and everything else stay on your build. The commit is fixed when you look the PR up, and **Remove** cleans it all away. See [Build & Update](build.md#try-a-llamacpp-pr).

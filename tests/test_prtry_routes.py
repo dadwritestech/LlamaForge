@@ -9,6 +9,7 @@ import unittest
 from unittest import mock
 
 import config
+import prbench
 import prtry
 import routes
 from routes import ApiError, Req
@@ -133,6 +134,73 @@ class Remove(Base):
                 routes.post_engine_prebuilt_use(Req(body={"dir": d}))
         self.assertEqual(e.exception.status, 400)
         act.assert_not_called()
+
+
+class AB(Base):
+    """POST /api/prtry/ab: llama-bench on your build vs a PR build, one model."""
+
+    def setUp(self):
+        super().setUp()
+        self.pr_dir = self.install("pr-1234-0123456", "pr")
+        with open(os.path.join(self.pr_dir, "lf-install.json"), "w") as f:
+            json.dump({"tag": "PR #1234", "channel": "pr", "pr": 1234, "installed_at": 1}, f)
+        open(os.path.join(self.pr_dir, "llama-bench.exe"), "w").close()
+        router = os.path.join(self.tmp, "router")
+        os.makedirs(router)
+        open(os.path.join(router, "llama-bench.exe"), "w").close()
+        self.sections = {"*": {"flash-attn": "on"},
+                         "qwen": {"model": "Q.gguf", "n-gpu-layers": "99"}}
+        mock.patch.object(config, "read_sections", lambda: self.sections).start()
+        self.ran, self.events = [], []
+        self.ab = prbench.ABRunner(os.path.join(self.tmp, "ab.json"), run=self.bench,
+                                   lease=routes._ab_lease)
+        mock.patch.object(routes, "PRBENCH", self.ab).start()
+        mock.patch.object(routes, "_game_loaded", lambda: ["gemma"]).start()
+        mock.patch.object(routes, "post_unload_all",
+                          lambda req: (self.events.append("unload"), (200, {}))[1]).start()
+        mock.patch.object(routes, "_game_load",
+                          lambda mid: (self.events.append("load " + mid), True)[1]).start()
+
+    def bench(self, argv):
+        self.ran.append(argv)
+        self.events.append("bench")
+        ts = 100.0 if "router" in argv[0] else 110.0
+        return 0, json.dumps([{"n_prompt": 512, "n_gen": 0, "avg_ts": 5000.0, "stddev_ts": 10.0},
+                              {"n_prompt": 0, "n_gen": 128, "avg_ts": ts, "stddev_ts": 0.5}]), ""
+
+    def test_both_builds_same_model_same_flags(self):
+        code, out = routes.post_prtry_ab(Req(body={"model": "qwen", "install": "pr-1234-0123456"}))
+        self.assertEqual(code, 200)
+        self.ab.join(5)
+        st = routes.get_prtry(Req())[1]["ab"]
+        self.assertEqual(st["phase"], "done", st)
+        self.assertEqual(st["delta"]["tg"]["pct"], 10.0)
+        self.assertEqual((st["pr"], st["model"]), (1234, "qwen"))
+        base, pr = self.ran
+        self.assertEqual(base[0], os.path.join(self.tmp, "router", "llama-bench.exe"))
+        self.assertEqual(pr[0], os.path.join(self.pr_dir, "llama-bench.exe"))
+        self.assertEqual(base[1:], pr[1:])
+        self.assertIn("-fa", base)          # the "*" defaults apply too
+        # the GPUs are cleared first, and what was loaded comes back after
+        self.assertEqual(self.events, ["unload", "bench", "bench", "load gemma"])
+
+    def test_refusals(self):
+        def refused(body, code):
+            with self.assertRaises(ApiError, msg=body) as e:
+                routes.post_prtry_ab(Req(body=body))
+            self.assertEqual(e.exception.status, code, body)
+        refused({"model": "qwen", "install": "nope"}, 404)
+        refused({"model": "ghost", "install": "pr-1234-0123456"}, 404)
+        os.remove(os.path.join(self.pr_dir, "llama-bench.exe"))
+        refused({"model": "qwen", "install": "pr-1234-0123456"}, 400)
+        open(os.path.join(self.pr_dir, "llama-bench.exe"), "w").close()
+        with mock.patch.object(self.pr, "status", lambda: {"running": True}):
+            refused({"model": "qwen", "install": "pr-1234-0123456"}, 409)
+        with mock.patch.object(routes, "_active_server_bin", lambda c=None: ""):
+            refused({"model": "qwen", "install": "pr-1234-0123456"}, 400)
+        with mock.patch.object(self.ab, "status", lambda: {"running": True}):
+            refused({"model": "qwen", "install": "pr-1234-0123456"}, 409)
+        self.assertEqual(self.ran, [])
 
 
 if __name__ == "__main__":
