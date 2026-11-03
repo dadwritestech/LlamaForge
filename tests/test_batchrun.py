@@ -73,6 +73,12 @@ class StoreTests(Base):
         with self.assertRaisesRegex(ValueError, "files"):
             small.add_file("y.jsonl", "batch", b"y")
 
+    def test_nothing_on_disk_until_the_first_write(self):
+        root = os.path.join(self.dir, "later")
+        st = batchrun.Store(root)
+        self.assertEqual((st.files(), st.batches()), ([], []))
+        self.assertFalse(os.path.exists(root))
+
     def test_remove_file(self):
         f = self.upload(jsonl("a"))
         self.assertTrue(self.store.remove_file(f["id"]))

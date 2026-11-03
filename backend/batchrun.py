@@ -28,8 +28,7 @@ MAX_FILES = 200
 class Store:
     def __init__(self, root, max_bytes=MAX_FILE_BYTES, max_files=MAX_FILES):
         self.root, self.max_bytes, self.max_files = root, max_bytes, max_files
-        self.fdir = os.path.join(root, "files")
-        os.makedirs(self.fdir, exist_ok=True)
+        self.fdir = os.path.join(root, "files")    # made on first write, not on import
 
     # ---- files
     def _fpath(self, fid, ext):
@@ -45,6 +44,7 @@ class Store:
         return self._put(filename, purpose, data)
 
     def _put(self, filename, purpose, data):
+        os.makedirs(self.fdir, exist_ok=True)
         fid = batchapi.new_id("file")
         with open(self._fpath(fid, ".jsonl"), "wb") as f:
             f.write(data)
@@ -91,6 +91,7 @@ class Store:
 
     def new_result_file(self, name):
         """An empty result file; its meta is written when the batch ends."""
+        os.makedirs(self.fdir, exist_ok=True)
         fid = batchapi.new_id("file")
         open(self._fpath(fid, ".jsonl"), "wb").close()
         return fid
@@ -113,6 +114,7 @@ class Store:
         return os.path.join(self.root, bid + ".json")
 
     def save_batch(self, b):
+        os.makedirs(self.root, exist_ok=True)
         atomicio.write_json(self._bpath(b["id"]), b)
 
     def batch(self, bid):

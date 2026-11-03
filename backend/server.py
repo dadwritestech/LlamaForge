@@ -48,10 +48,23 @@ LINGER_MAX_BYTES = 1024 * 1024
 EMBERS_SCHED = None        # the panel's ember scheduler, started by main() only
 
 
+def _sdk_upload(path, ctype, origin):
+    """The one non-JSON POST: an OpenAI SDK's multipart file upload to /v1/files.
+    Only without an Origin (SDKs and curl send none; a browser always does on a
+    cross-site POST), so a web page still can't forge it. Even then it can only
+    store a file: starting a batch takes JSON."""
+    return path == "/v1/files" and ctype == "multipart/form-data" and not origin
+
+
 def _post_body_limit(path):
-    if path in ("/v1/messages", "/v1/chat/completions"):
+    if path in ("/v1/messages", "/v1/chat/completions", "/v1/files"):
         return MAX_PROXY_JSON_BODY_BYTES
     return MAX_MANAGEMENT_JSON_BODY_BYTES
+
+
+def _prefix(table, path):
+    """Routes with an id in the path (/v1/batches/<id>): the handler checks the rest."""
+    return next((h for pre, h in table.items() if path.startswith(pre) and len(path) > len(pre)), None)
 
 
 def _host_ok(host_header, port):
@@ -168,6 +181,9 @@ class H(BaseHTTPRequestHandler):
         self._body_read = True
         if len(data) != size:
             return self._body_error(400, "incomplete request body")
+        ctype = self.headers.get("Content-Type") or ""
+        if _sdk_upload(path, ctype.split(";")[0].strip().lower(), self.headers.get("Origin", "")):
+            return {"_multipart": data, "_ctype": ctype}
         try:
             body = json.loads(data or b"{}")
         except (UnicodeDecodeError, ValueError):
@@ -195,7 +211,8 @@ class H(BaseHTTPRequestHandler):
             # A cross-site <form> can only send urlencoded/multipart/text-plain.
             # Requiring JSON means a forged post needs a preflight it can't pass.
             ctype = (self.headers.get("Content-Type") or "").split(";")[0].strip().lower()
-            if ctype and ctype != "application/json":
+            if ctype and ctype != "application/json" and not _sdk_upload(
+                    self.path.split("?")[0], ctype, self.headers.get("Origin", "")):
                 self.close_connection = True
                 self._send(415, {"error": "Content-Type must be application/json"})
                 return True
@@ -244,7 +261,7 @@ class H(BaseHTTPRequestHandler):
         if p.startswith("/docs/img/"):
             return self._docs_image(p[len("/docs/img/"):])
 
-        handler = routes.GET_ROUTES.get(p)
+        handler = routes.GET_ROUTES.get(p) or _prefix(routes.GET_PREFIX_ROUTES, p)
         if not handler:
             return self._send(404, {"error": "not found"})
         return self._run(handler, Req(qs=qs, headers=self._headers_lower(), path=p))
@@ -284,7 +301,7 @@ class H(BaseHTTPRequestHandler):
             status, data = routes._router_openai(fwd, stream=False)
             return self._send(status, data)
 
-        handler = routes.POST_ROUTES.get(p)
+        handler = routes.POST_ROUTES.get(p) or _prefix(routes.POST_PREFIX_ROUTES, p)
         if not handler:
             return self._send(404, {"error": "not found"})
         return self._run(handler, Req(body=body, headers=headers, path=p))
@@ -445,6 +462,7 @@ def main():
         pass
     stats.TRACKER.start()   # background usage poller
     routes.TONIGHT.start()  # checked tasks overnight, if the user set a time
+    routes.BATCHES.start()  # local Batch API: /v1/batches run one at a time, idle-aware
     import logfiles         # rotate router/vLLM/model logs past 50 MB while they run (#26)
     logfiles.start_trimmer(routes.LOGDIR)
     chatproxy.serve(routes.cfg)   # Chat tab: llama.cpp's web UI on its own origin

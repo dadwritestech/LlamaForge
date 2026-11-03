@@ -27,7 +27,7 @@ import vram_predict, gpuprobe
 import wsl, vllm_ctl, vllm_registry, vllm_setup, vllm_job, vllm_hub, vllm_download
 import gguf, diag, backends, prebuilt, version, slots, slotctl, slotproc, builds, compat
 import idle, reclaim, tmpldoctor, samplers, reupload, mcp_server, ollama, piinstall, tts, logfiles, loadprog, gamemode, footprint, elastic, slotkeep
-import claudelaunch, rigcard, watchdog, phone, arena, proving, prtry, prbench
+import claudelaunch, rigcard, watchdog, phone, arena, proving, prtry, prbench, batchapi, batchrun
 from builder import BuildManager
 from embers import panel as embers_panel
 import forge_panel
@@ -3910,3 +3910,136 @@ GET_ROUTES["/api/proving"] = get_proving
 POST_ROUTES["/api/proving/run"] = post_proving_run
 POST_ROUTES["/api/proving/cancel"] = post_proving_cancel
 POST_ROUTES["/api/proving/schedule"] = post_proving_schedule
+
+
+# ---------------------------------------------------------------- local Batch API
+# OpenAI's /v1/files + /v1/batches, run against the router one request at a time
+# (see batchrun). Same auth as /v1/chat/completions. Nothing records who asked.
+BATCH_DIR = os.path.join(ROOT, "batches")
+
+
+def _batch_busy():
+    """Another run holds the GPUs: a batch waits rather than fight it."""
+    forge = globals().get("FORGE")
+    return bool(PROVING.status().get("running") or PRBENCH.status().get("running")
+                or PRTRY.status().get("running") or (forge is not None and forge.runner.running()))
+
+
+def _batch_send(body):
+    code, res = _router_openai(body, base=_model_base(body.get("model") or ""))
+    if code == 599:                     # never reached the router
+        raise OSError(_router_error(res, "router unreachable"))
+    return code, res
+
+
+def _batch_ensure(mid):
+    if mid:
+        _ensure_loaded(mid)
+
+
+BATCHES = batchrun.Runner(batchrun.Store(BATCH_DIR), _batch_send, _batch_ensure,
+                          _batch_busy, _last_activity)
+
+
+def _batch_auth(req):
+    if not _shim_auth_ok(req.headers):
+        raise ApiError(401, "invalid key")
+
+
+def _oai(fn):
+    """OpenAI-shaped errors ({error: {message, type}}) for the /v1 batch routes."""
+    def wrapped(req):
+        try:
+            _batch_auth(req)
+            return fn(req)
+        except ApiError as e:
+            kind = "authentication_error" if e.status == 401 else "invalid_request_error"
+            return _openai_err(e.status, e.message, kind)
+        except LookupError as e:
+            return _openai_err(404, str(e).strip("'\""), "invalid_request_error")
+        except ValueError as e:
+            return _openai_err(400, str(e), "invalid_request_error")
+    return wrapped
+
+
+def _tail_id(req, prefix, kind, suffix=""):
+    """/v1/files/<id>[suffix] -> id, or 404."""
+    rest = req.path[len(prefix):]
+    if suffix:
+        if not rest.endswith(suffix):
+            raise ApiError(404, "not found")
+        rest = rest[:-len(suffix)]
+    if not batchapi.valid_id(rest, kind):
+        raise ApiError(404, "not found")
+    return rest
+
+
+@_oai
+def post_v1_files(req):
+    b = req.body
+    if "_multipart" in b:               # an SDK upload (server.py lets only this path through)
+        up = batchapi.parse_multipart(b.get("_ctype"), b["_multipart"])
+        name, purpose, data = up["filename"], up["purpose"], up["content"]
+    else:                               # the panel's own page posts JSON
+        if not isinstance(b.get("content"), str):
+            raise ValueError("content must be the file's text")
+        name = os.path.basename(str(b.get("filename") or "upload.jsonl").replace("\\", "/")) or "upload.jsonl"
+        purpose, data = b.get("purpose"), b["content"].encode("utf-8")
+    return 200, BATCHES.store.add_file(name, purpose, data)
+
+
+@_oai
+def get_v1_files(req):
+    return 200, {"object": "list", "data": BATCHES.store.files(), "has_more": False}
+
+
+@_oai
+def get_v1_file_item(req):
+    if req.path.endswith("/content"):
+        fid = _tail_id(req, "/v1/files/", "file", "/content")
+        data = BATCHES.store.content(fid)
+        if data is None:
+            raise LookupError(f"no such file: {fid}")
+        return 200, data, "application/jsonl"
+    fid = _tail_id(req, "/v1/files/", "file")
+    f = BATCHES.store.file(fid)
+    if not f:
+        raise LookupError(f"no such file: {fid}")
+    return 200, f
+
+
+@_oai
+def post_v1_batches(req):
+    b = req.body
+    batch = BATCHES.create(b.get("input_file_id"), b.get("endpoint"), b.get("completion_window"),
+                           metadata=b.get("metadata"), when=b.get("when") or "now")
+    return 200, batchapi.batch_object(batch)
+
+
+@_oai
+def get_v1_batches(req):
+    return 200, {"object": "list", "data": [batchapi.batch_object(b) for b in BATCHES.store.batches()],
+                 "has_more": False}
+
+
+@_oai
+def get_v1_batch_item(req):
+    bid = _tail_id(req, "/v1/batches/", "batch")
+    b = BATCHES.store.batch(bid)
+    if not b:
+        raise LookupError(f"no such batch: {bid}")
+    return 200, batchapi.batch_object(b)
+
+
+@_oai
+def post_v1_batch_cancel(req):
+    return 200, BATCHES.cancel(_tail_id(req, "/v1/batches/", "batch", "/cancel"))
+
+
+GET_ROUTES["/v1/files"] = get_v1_files
+GET_ROUTES["/v1/batches"] = get_v1_batches
+POST_ROUTES["/v1/files"] = post_v1_files
+POST_ROUTES["/v1/batches"] = post_v1_batches
+# /v1/files/<id>[/content], /v1/batches/<id>[/cancel]: matched by prefix in server.py
+GET_PREFIX_ROUTES = {"/v1/files/": get_v1_file_item, "/v1/batches/": get_v1_batch_item}
+POST_PREFIX_ROUTES = {"/v1/batches/": post_v1_batch_cancel}

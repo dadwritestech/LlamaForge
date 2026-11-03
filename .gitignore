@@ -13,6 +13,8 @@ wiki/
 # pi installed on request (piinstall)
 /agents/
 logs/
+# local Batch API files and results (batchrun)
+/batches/
 # Elastic VRAM's conversation snapshots (deleted after each resize)
 slot-saves/
 __pycache__/
