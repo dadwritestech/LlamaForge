@@ -264,6 +264,30 @@ class Routes(unittest.TestCase):
         self.assertEqual(out["scores"], {})
         self.assertEqual(out["driver"], "qwen")
 
+    def test_schedule_round_trip(self):
+        r = self.routes
+        self.assertIsNone(r.get_proving(r.Req())[1]["schedule"])
+        code, out = r.post_proving_schedule(r.Req(body={"at": "01:30", "models": ["qwen"]}))
+        self.assertEqual(code, 200)
+        self.assertEqual(out["schedule"]["at"], "01:30")
+        got = r.get_proving(r.Req())[1]
+        self.assertEqual(got["schedule"]["models"], ["qwen"])
+        self.assertEqual(got["until"], proving.UNTIL)
+        for bad in ({"at": "1:30"}, {"at": "01:30", "models": ["nomic"]}, {"at": "01:30", "models": "qwen"}):
+            with self.assertRaises(r.ApiError) as e:
+                r.post_proving_schedule(r.Req(body=bad))
+            self.assertEqual(e.exception.status, 400)
+        r.post_proving_schedule(r.Req(body={"at": None}))
+        self.assertIsNone(r.get_proving(r.Req())[1]["schedule"])
+
+    def test_last_activity_is_the_latest_use_of_any_model(self):
+        from unittest import mock
+        with mock.patch.object(self.routes.stats.TRACKER, "data",
+                               {"models": {"a": {"last_used": 100}, "b": {"last_used": 250}, "c": {}}}):
+            self.assertEqual(self.routes._last_activity(), 250)
+        with mock.patch.object(self.routes.stats.TRACKER, "data", {}):
+            self.assertEqual(self.routes._last_activity(), 0)
+
     def test_gpu_names_for_the_share_card(self):
         from unittest import mock
         with mock.patch.object(self.routes._GPU_TELEMETRY, "get",
@@ -320,3 +344,80 @@ class Routes(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Tonight(unittest.TestCase):
+    """The overnight schedule: a time, a quiet check, once per night."""
+    def setUp(self):
+        from datetime import datetime
+        self.dt = datetime
+        fd, self.path = tempfile.mkstemp(suffix=".json")
+        os.close(fd)
+        os.remove(self.path)
+        self.addCleanup(lambda: os.path.exists(self.path) and os.remove(self.path))
+        self.started = []
+        self.running = False
+        self.last = 0.0
+        outer = self
+
+        class FakeRunner:
+            def status(self):
+                return {"running": outer.running}
+
+            def start(self, models):
+                outer.started.append(list(models))
+                return True
+        self.sched = proving.Scheduler(FakeRunner(), lambda: ["gemma", "qwen"], lambda: self.last,
+                                       path=self.path)
+
+    def at(self, h, m, day=2):
+        return self.dt(2026, 11, day, h, m)
+
+    def test_window_runs_from_the_set_time_to_six(self):
+        n = proving.window_night
+        self.assertEqual(n(self.at(1, 0), "01:00"), "2026-11-02")
+        self.assertEqual(n(self.at(5, 59), "01:00"), "2026-11-02")
+        self.assertIsNone(n(self.at(6, 0), "01:00"))
+        self.assertIsNone(n(self.at(0, 59), "01:00"))
+        # past midnight: 23:00 tonight belongs to the night that started today
+        self.assertEqual(n(self.at(23, 30), "23:00"), "2026-11-02")
+        self.assertEqual(n(self.at(2, 0, day=3), "23:00"), "2026-11-02")
+        self.assertIsNone(n(self.at(22, 59), "23:00"))
+        self.assertIsNone(n(self.at(12, 0), "bad"))
+
+    def test_set_and_clear(self):
+        self.assertEqual(proving.set_schedule(self.path, "01:30", ["qwen"])["at"], "01:30")
+        self.assertEqual(proving.load(self.path)["schedule"], {"at": "01:30", "models": ["qwen"], "last_night": None})
+        with self.assertRaises(ValueError):
+            proving.set_schedule(self.path, "25:00", None)
+        proving.set_schedule(self.path, None, None)
+        self.assertIsNone(proving.load(self.path).get("schedule"))
+
+    def test_starts_once_a_night_when_quiet(self):
+        proving.set_schedule(self.path, "01:00", None)
+        now = self.at(1, 5)
+        self.last = now.timestamp() - 3600
+        self.assertEqual(self.sched.tick(now), "started")
+        self.assertEqual(self.started, [["gemma", "qwen"]])
+        self.assertEqual(proving.load(self.path)["schedule"]["last_night"], "2026-11-02")
+        self.assertIsNone(self.sched.tick(self.at(2, 0)))          # same night: done
+        self.assertEqual(len(self.started), 1)
+        self.assertEqual(self.sched.tick(self.at(1, 5, day=3)), "started")  # next night
+
+    def test_waits_while_someone_is_using_the_router(self):
+        proving.set_schedule(self.path, "01:00", ["qwen", "gone"])
+        now = self.at(1, 5)
+        self.last = now.timestamp() - 60
+        self.assertEqual(self.sched.tick(now), "busy")
+        self.assertEqual(self.started, [])
+        self.last = now.timestamp() - proving.QUIET_SECS - 1
+        self.assertEqual(self.sched.tick(now), "started")
+        self.assertEqual(self.started, [["qwen"]])                   # models that are gone are skipped
+
+    def test_nothing_outside_the_window_or_while_a_run_is_going(self):
+        self.assertIsNone(self.sched.tick(self.at(1, 5)))            # no schedule
+        proving.set_schedule(self.path, "01:00", None)
+        self.assertIsNone(self.sched.tick(self.at(12, 0)))
+        self.running = True
+        self.assertIsNone(self.sched.tick(self.at(1, 5)))
+        self.assertEqual(self.started, [])

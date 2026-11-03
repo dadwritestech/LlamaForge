@@ -1,7 +1,7 @@
 // Proving ground view helpers: board order, progress line, what a model got wrong.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { boardRows, progressLine, failures, CAT_LABELS } from "../web/js/provingview.js";
+import { boardRows, progressLine, failures, tonightLine, CAT_LABELS } from "../web/js/provingview.js";
 
 const cats = ["extract", "math", "json", "follow", "reason"];
 const d = {
@@ -50,4 +50,13 @@ test("failures list the missed tasks in task order with the answer and cut flag"
 
 test("every category has a label", () => {
   for (const c of cats) assert.ok(CAT_LABELS[c]);
+});
+
+test("the nightly line says when, the quiet rule, which models and the last night", () => {
+  assert.equal(tonightLine(null), "");
+  assert.equal(tonightLine({at: "01:30", models: null, last_night: null}, "06:00"),
+    "Runs every night from 01:30 to 06:00, once nobody has used a model for 20 minutes. All chat models.");
+  assert.equal(tonightLine({at: "23:00", models: ["qwen", "gemma"], last_night: "2026-11-02"}, "06:00"),
+    "Runs every night from 23:00 to 06:00, once nobody has used a model for 20 minutes. 2 models. Last started the night of 2026-11-02.");
+  assert.equal(tonightLine({at: "23:00", models: ["qwen"], last_night: null}, "06:00").includes("1 model."), true);
 });

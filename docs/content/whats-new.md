@@ -8,6 +8,10 @@ order: 1
 
 This page summarizes the most recent additions to LlamaForge. Each entry links to the full reference for that capability. For the longer-term direction, see the project's `ROADMAP.md`.
 
+## v0.18.25: Checked tasks overnight
+
+Checked tasks can now run themselves. Pick a time under **Every night at** and press **Schedule**: once nobody has used a model for 20 minutes, LlamaForge runs your ticked models through the 15 tasks before 06:00, and the table is up to date when you sit down. See [Blind Arena](arena.md#checked-tasks).
+
 ## v0.18.24: Share your checked tasks
 
 **Share image** in Checked tasks turns the table into a 1200x630 card: one square per task, green for right, plus each model's score and speed. If your fastest model isn't the one that gets the most right, the card says so: "Fastest: ministral-3-3b, 228 tok/s, 8 of 15 right." See [Blind Arena](arena.md#checked-tasks).

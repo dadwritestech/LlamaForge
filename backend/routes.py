@@ -3712,7 +3712,8 @@ def get_proving(req):
                  "tasks": [{"id": t["id"], "cat": t["cat"]} for t in proving.TASKS],
                  "categories": list(proving.CATEGORIES), "driver": driver,
                  "scores": scores, "results": results, "verdicts": verdicts,
-                 "gpus": _gpu_short_names()}
+                 "gpus": _gpu_short_names(), "schedule": proving.load().get("schedule"),
+                 "until": proving.UNTIL}
 
 
 def post_proving_run(req):
@@ -3732,6 +3733,27 @@ def post_proving_cancel(req):
     return 200, {"status": PROVING.status()}
 
 
+def _last_activity():
+    """When any model last generated, from the stats poller (epoch, 0 if never)."""
+    models = (stats.TRACKER.data or {}).get("models") or {}
+    return max((m.get("last_used") or 0 for m in models.values() if isinstance(m, dict)), default=0)
+
+
+TONIGHT = proving.Scheduler(PROVING, _arena_models, _last_activity)
+
+
+def post_proving_schedule(req):
+    """{at: "HH:MM" | null, models?: [...]}: run the checks tonight, or stop doing so."""
+    at, models = req.body.get("at"), req.body.get("models")
+    if models is not None and (not isinstance(models, list) or any(m not in _arena_models() for m in models)):
+        raise ApiError(400, "pick chat models from this panel")
+    try:
+        sched = proving.set_schedule(None, at, models)
+    except ValueError as e:
+        raise ApiError(400, str(e))
+    return 200, {"schedule": sched, "until": proving.UNTIL}
+
+
 GET_ROUTES["/api/arena"] = get_arena
 POST_ROUTES["/api/arena/pair"] = post_arena_pair
 POST_ROUTES["/api/arena/answer"] = post_arena_answer
@@ -3740,3 +3762,4 @@ POST_ROUTES["/api/arena/reset"] = post_arena_reset
 GET_ROUTES["/api/proving"] = get_proving
 POST_ROUTES["/api/proving/run"] = post_proving_run
 POST_ROUTES["/api/proving/cancel"] = post_proving_cancel
+POST_ROUTES["/api/proving/schedule"] = post_proving_schedule

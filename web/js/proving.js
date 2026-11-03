@@ -2,7 +2,7 @@
 // right or wrong. Fifteen short tasks with known answers (backend/proving.py);
 // a script marks every reply. Model answers are plain text through esc().
 import { $, esc, setHTML, api, toast } from "./core.js";
-import { boardRows, progressLine, failures, CAT_LABELS } from "./provingview.js";
+import { boardRows, progressLine, failures, tonightLine, CAT_LABELS } from "./provingview.js";
 import { showModal } from "./models.js";
 import { drawProving } from "./provingcard.js";
 
@@ -33,13 +33,14 @@ function render(el, d) {
       <p class="note" style="margin-top:0">${esc(d.tasks ? d.tasks.length : 15)} short tasks with one right answer each:
         pulling facts out of text, arithmetic, JSON, following instructions, simple reasoning. A script marks every reply,
         one try each, so read it as a smoke test, not a benchmark. Models load one at a time and the ones you had up stay up.
-        A run takes a few minutes per model; it's a good thing to start before bed.</p>
+        A run takes a few minutes per model, so let it run overnight.</p>
       ${pick}
       <div class="actions">${st.running ? `<button type="button" class="ghost" id="pv-cancel">Cancel</button>`
         : `<button type="button" id="pv-run"${models.length ? "" : " disabled"}>Run checks</button>`}
         ${Object.keys(d.scores || {}).length ? `<button type="button" class="ghost" id="pv-card">Share image</button>` : ""}
         <span class="note" style="margin:0" aria-live="polite">${esc(prog)}</span></div>
       ${bar}${errs}
+      ${tonight(d, models.length)}
       ${table(d)}
     </div>`);
   el.querySelectorAll(".pv-pick input").forEach(cb => cb.onchange = () => {
@@ -49,12 +50,39 @@ function render(el, d) {
   if (run) run.onclick = start;
   const card = $("#pv-card", el);
   if (card) card.onclick = () => openCard(d);
+  const set = $("#pv-sched", el);
+  if (set) set.onclick = () => schedule($("#pv-at", el).value);
+  const off = $("#pv-off", el);
+  if (off) off.onclick = () => schedule(null);
   const cancel = $("#pv-cancel", el);
   if (cancel) cancel.onclick = async () => {
     cancel.disabled = true;
     await api("/api/proving/cancel", {}).catch(() => null);
     loadProving();
   };
+}
+
+// Overnight: the panel starts a run at the set time once the router is quiet
+// (backend proving.Scheduler). Only while LlamaForge is running.
+function tonight(d, n) {
+  const s = d.schedule;
+  return `<div class="pv-tonight"><label>Every night at <input type="time" id="pv-at" value="${esc((s && s.at) || "01:00")}"></label>
+      <button type="button" class="ghost" id="pv-sched"${n ? "" : " disabled"}>${s ? "Change" : "Schedule"}</button>
+      ${s ? `<button type="button" class="ghost" id="pv-off">Turn off</button>` : ""}
+      <span class="note" style="margin:0">${esc(s ? tonightLine(s, d.until) : "Uses the models ticked above. LlamaForge has to be running.")}</span></div>`;
+}
+
+async function schedule(at) {
+  if (at !== null && !/^\d\d:\d\d$/.test(at || "")) { toast("Pick a time", "err"); return; }
+  const el = $("#proving");
+  const all = [...el.querySelectorAll(".pv-pick input")];
+  const ticked = all.filter(x => x.checked).map(x => x.value);
+  if (at !== null && !ticked.length) { toast("Tick at least one model", "err"); return; }
+  const body = {at, models: at === null || ticked.length === all.length ? null : ticked};
+  const r = await api("/api/proving/schedule", body).catch(e => ({error: String(e.message || e)}));
+  if (!r || r.error) { toast((r && r.error) || "couldn't save", "err"); return; }
+  toast(at === null ? "Nightly checks off" : `Checks will run every night from ${at}`, "ok");
+  loadProving();
 }
 
 function table(d) {

@@ -32,3 +32,11 @@ export function failures(d, model) {
     .filter(t => res[t.id] && !res[t.id].pass)
     .map(t => ({id: t.id, cat: t.cat, answer: res[t.id].answer || "", cut: !!res[t.id].cut}));
 }
+
+export function tonightLine(s, until = "06:00") {
+  if (!s || !s.at) return "";
+  const n = Array.isArray(s.models) ? s.models.length : 0;
+  const which = n ? `${n} model${n === 1 ? "" : "s"}.` : "All chat models.";
+  const last = s.last_night ? ` Last started the night of ${s.last_night}.` : "";
+  return `Runs every night from ${s.at} to ${until}, once nobody has used a model for 20 minutes. ${which}${last}`;
+}

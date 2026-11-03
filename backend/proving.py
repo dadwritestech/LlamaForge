@@ -12,6 +12,7 @@ import re
 import statistics
 import threading
 import time
+from datetime import datetime, timedelta
 
 import atomicio
 
@@ -19,6 +20,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PROVING_FILE = os.path.join(ROOT, "proving.json")
 MAX_TOKENS = 4096  # per answer; runs are overnight, so thinking models get room to finish
 MAX_KEEP = 300  # characters of each answer kept, so the user can see why it failed
+UNTIL = "06:00"  # an overnight run may start from the set time until this
+QUIET_SECS = 20 * 60  # ...once nobody has used the router for this long
 _FILE_LOCK = threading.Lock()
 
 CATEGORIES = ("extract", "math", "json", "follow", "reason")
@@ -282,3 +285,88 @@ class Runner:
                 self._release()
             finally:
                 self._bump(running=False, model=None, cancelled=self._cancel.is_set())
+
+
+# ---------- "tonight": the overnight schedule ----------
+
+_HHMM = re.compile(r"^([01]\d|2[0-3]):([0-5]\d)$")
+
+
+def _hm(text):
+    m = _HHMM.match(text or "") if isinstance(text, str) else None
+    return (int(m.group(1)), int(m.group(2))) if m else None
+
+
+def window_night(now, at, until=UNTIL):
+    """The night `now` falls in, as the date the window opened ("2026-11-02"),
+    when it is between `at` and `until` (which may be past midnight); else None."""
+    a, u = _hm(at), _hm(until)
+    if not a or not u:
+        return None
+    for back in (0, 1):
+        day = (now - timedelta(days=back)).date()
+        start = datetime(day.year, day.month, day.day, *a)
+        end = datetime(day.year, day.month, day.day, *u)
+        if end <= start:
+            end += timedelta(days=1)
+        if start <= now < end:
+            return day.isoformat()
+    return None
+
+
+def set_schedule(path, at, models):
+    """Run tonight at `at` ("HH:MM"), or turn it off with None. models None = every chat model."""
+    if at is not None and not _hm(at):
+        raise ValueError("pick a time as HH:MM")
+    with _FILE_LOCK:
+        data = load(path)
+        if at is None:
+            data.pop("schedule", None)
+        else:
+            old = data.get("schedule") or {}
+            data["schedule"] = {"at": at, "models": list(models) if models else None,
+                                "last_night": old.get("last_night")}
+        atomicio.write_json(path or PROVING_FILE, data)
+        return data.get("schedule")
+
+
+class Scheduler:
+    """Starts the Runner once a night: from the set time until UNTIL, as soon as
+    the router has been quiet for QUIET_SECS. The panel process ticks it; no OS
+    scheduler, so it only runs while LlamaForge is running."""
+
+    def __init__(self, runner, models, last_activity, path=None):
+        self._runner, self._models, self._last = runner, models, last_activity
+        self.path = path
+
+    def tick(self, now=None):
+        now = now or datetime.now()
+        sched = load(self.path).get("schedule")
+        if not isinstance(sched, dict):
+            return None
+        night = window_night(now, sched.get("at"))
+        if not night or sched.get("last_night") == night or self._runner.status().get("running"):
+            return None
+        if now.timestamp() - (self._last() or 0) < QUIET_SECS:
+            return "busy"
+        have = self._models()
+        want = [m for m in (sched.get("models") or have) if m in have]
+        if not want or not self._runner.start(want):
+            return None
+        with _FILE_LOCK:
+            data = load(self.path)
+            if isinstance(data.get("schedule"), dict):
+                data["schedule"]["last_night"] = night
+                atomicio.write_json(self.path or PROVING_FILE, data)
+        return "started"
+
+    def run_forever(self, every=60):
+        while True:
+            try:
+                self.tick()
+            except Exception:  # noqa: BLE001 - never kill the panel over a schedule
+                pass
+            time.sleep(every)
+
+    def start(self):
+        threading.Thread(target=self.run_forever, daemon=True, name="proving-tonight").start()

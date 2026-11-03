@@ -53,6 +53,8 @@ Fifteen tasks with one try each is a smoke test, not a benchmark: a small model 
 
 **Share image** makes a 1200x630 picture of the table: one square per task (green right, dark wrong), passed count, speed and your GPU names. When your fastest model isn't the one that gets most right, the card says so in two lines. It holds no answers, prompts, paths or hosts.
 
+**Every night at** runs the checks overnight on its own. Pick a time and press **Schedule**: from then until 06:00, once nobody has used a model for 20 minutes, LlamaForge runs the models that were ticked when you scheduled it (or every chat model if all were ticked). It runs once a night, only while LlamaForge is running, and the results are waiting in the table in the morning. **Turn off** stops it.
+
 ## API
 
 | Route | What it does |
@@ -65,3 +67,4 @@ Fifteen tasks with one try each is a smoke test, not a benchmark: a small model 
 | `GET /api/proving` | Checked tasks: `status` (`running`, `model`, `done`, `total`, `errors`, `cancelled`), the models, the tasks, `scores` and `results` per model, `driver` (the main slot's model) and `verdicts`. |
 | `POST /api/proving/run` | `{models?}` starts a run on those chat models (all of them if left out). 409 while one is going. |
 | `POST /api/proving/cancel` | Stops the run after the current answer. |
+| `POST /api/proving/schedule` | `{at, models?}` runs the checks every night from `at` (`HH:MM`) to 06:00 once the models have been idle 20 minutes; `models` left out or `null` means every chat model. `{at: null}` turns it off. |
