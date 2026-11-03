@@ -239,10 +239,12 @@ def list_installs(root, active_bin=None):
 
 def prune_installs(root, keep=KEEP_INSTALLS, active_bin=None, protect=()):
     """Delete all but the newest `keep` installs, never the active one or a
-    `protect`ed dir (builds a launch profile pins)."""
+    `protect`ed dir (builds a launch profile pins). "Try a PR" builds
+    (channel "pr") are the user's to remove and don't count toward `keep`."""
     removed = []
     spare = {os.path.normcase(os.path.abspath(d)) for d in protect}
-    for i, inst in enumerate(list_installs(root, active_bin)):
+    released = [i for i in list_installs(root, active_bin) if i.get("channel") != "pr"]
+    for i, inst in enumerate(released):
         if i < keep or inst["active"] or os.path.normcase(os.path.abspath(inst["dir"])) in spare:
             continue
         shutil.rmtree(inst["dir"], ignore_errors=True)

@@ -224,6 +224,17 @@ class InstallsTest(unittest.TestCase):
         left = [i["dir"] for i in prebuilt.list_installs(self.root)]
         self.assertEqual(sorted(left), sorted([dirs[0], dirs[3], dirs[4]]))
 
+    def test_prune_leaves_pr_builds_alone(self):
+        # a "Try a PR" build is removed by the user, never by the updater, and
+        # doesn't take one of the `keep` places
+        pr = self._install("pr-1234-0123456", 9)
+        with open(os.path.join(pr, prebuilt.MANIFEST), "w") as f:
+            json.dump({"tag": "PR #1234", "channel": "pr", "installed_at": 9}, f)
+        dirs = [self._install(f"b{i}-vulkan", i) for i in range(1, 4)]
+        removed = prebuilt.prune_installs(self.root, keep=2)
+        self.assertEqual(removed, [dirs[0]])
+        self.assertTrue(os.path.isdir(pr))
+
 
 class ResolveTest(unittest.TestCase):
     def test_stable_follows_nightly_tag_pointer(self):
