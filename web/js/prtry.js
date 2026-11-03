@@ -4,7 +4,8 @@
 // llama-bench on both builds for one model. GET /api/prtry.
 import { $, $$, esc, setHTML, api, toast, askYes, fmtAgo } from "./core.js";
 import { models } from "./state.js";
-import { lookCard, phaseLine, pinChoices, abView } from "./prview.js";
+import { lookCard, phaseLine, pinChoices } from "./prview.js";
+import { abHTML, abTick, wireAb, abAsk, abIsPr } from "./abbox.js";
 
 let poll = null;
 let looked = null;     // the PR the user looked up, pinned to its SHA
@@ -19,37 +20,16 @@ export async function mountPrTry(el) {
       if (!el.isConnected) return clearInterval(poll);
       const n = await api("/api/prtry");
       if (n.status && n.status.running) return tick(el, n);
-      if (n.ab && n.ab.running) return abTick(el, n.ab);
+      if (n.ab && n.ab.running && abIsPr(n.ab)) return abTick(el, n.ab);
       clearInterval(poll);
       if (d.status && d.status.running && n.status && n.status.phase === "done") toast(`PR #${n.status.pr} built`, "ok");
-      if (d.ab && d.ab.running && n.ab && n.ab.phase === "done") toast("Comparison done", "ok");
+      if (d.ab && d.ab.running && abIsPr(d.ab) && n.ab && n.ab.phase === "done") toast("Comparison done", "ok");
       draw(el, n);
     }, 2000);
   }
 }
 
-const busy = d => !!((d.status && d.status.running) || (d.ab && d.ab.running));
-
-function abTick(el, ab) {
-  const m = $("#pr-ab-phase", el);
-  if (m) m.textContent = abView(ab).phase;
-}
-
-function abHTML(ab) {
-  const v = abView(ab);
-  if (!v.phase && !v.rows.length) return "";
-  const cls = ab.running ? "work" : ab.phase === "failed" ? "err" : "";
-  const row = r => `<tr><td>${esc(r.label)}</td><td>${esc(r.base)}</td><td>${esc(r.pr)}</td>
-    <td>${esc(r.change)}${r.noise ? ` <span class="dim">(within noise)</span>` : ""}</td></tr>`;
-  return `<div class="pr-ab">
-    ${v.heading ? `<div class="pr-look-h">${esc(v.heading)}</div>` : ""}
-    ${v.phase ? `<span class="msg ${cls}" id="pr-ab-phase">${esc(v.phase)}</span>` : ""}
-    ${v.rows.length ? `<table class="pr-ab-t"><thead><tr><th>llama-bench, tok/s</th><th>your build</th>
-      <th>PR #${esc(ab.pr)}</th><th>change</th></tr></thead><tbody>${v.rows.map(row).join("")}</tbody></table>
-      <div class="actions" style="margin-top:4px"><button class="ghost" id="pr-ab-md">Copy as markdown</button>
-      <span class="note" style="margin:0">Same model file and GPU settings on both builds, every other model unloaded.</span></div>` : ""}
-  </div>`;
-}
+const busy = d => !!((d.status && d.status.running) || (d.ab && d.ab.running && abIsPr(d.ab)));
 
 function tick(el, d) {
   const m = $("#pr-phase", el), log = $("#pr-log", el);
@@ -106,7 +86,7 @@ function draw(el, d) {
       ${st.running ? `<button class="ghost" id="pr-cancel">Cancel</button>` : ""}</div>` : ""}
     ${showLog ? `<div class="log" id="pr-log">${esc(d.log || "")}</div>` : ""}
     ${installs.length ? `<div style="margin-top:8px">${installs.map(installHTML).join("")}</div>` : ""}
-    ${abHTML(d.ab || {})}
+    ${abIsPr(d.ab) ? abHTML(d.ab) : ""}
     <div class="note">Fetches only that PR's commit from github.com/ggml-org/llama.cpp and builds it with your
       Build Flags (needs the same git, CMake and compiler as building from source). The commit is pinned when
       you look it up, so a push in between stops the build.</div>
@@ -136,18 +116,14 @@ function wire(el, d) {
   for (const b of $$(".pr-ab-go", el)) b.onclick = async () => {
     const sel = $(`.pr-pick[data-build="${CSS.escape(b.dataset.build)}"]`, el);
     if (!sel || !sel.value) return toast("pick a model first", "err");
-    const ok = await askYes(`Run llama-bench on ${sel.value} with your build, then with PR #${b.dataset.pr}? `
-      + "Every loaded model is unloaded for a few minutes and loaded back afterwards.",
-      {title: "Compare speed", ok: "Compare"});
+    const ok = await askYes(abAsk(sel.value, `PR #${b.dataset.pr}`), {title: "Compare speed", ok: "Compare"});
     if (!ok) return;
     b.disabled = true;
     const r = await api("/api/prtry/ab", {model: sel.value, install: b.dataset.build});
     if (r.error) { b.disabled = false; return toast(r.error, "err"); }
     mountPrTry(el);
   };
-  const md = $("#pr-ab-md", el);
-  if (md) md.onclick = () => navigator.clipboard.writeText(abView(d.ab).markdown)
-    .then(() => toast("Markdown copied", "ok"), () => toast("Couldn't copy", "err"));
+  wireAb(el, d.ab);
   for (const b of $$(".pr-pin", el)) b.onclick = async () => {
     const sel = $(`.pr-pick[data-build="${CSS.escape(b.dataset.build)}"]`, el);
     if (!sel || !sel.value) return toast("pick a model first", "err");

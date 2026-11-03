@@ -128,7 +128,7 @@ class Runner(unittest.TestCase):
         r.join(5)
         st = r.status()
         self.assertEqual(st["phase"], "failed")
-        self.assertIn("PR build", st["error"])
+        self.assertIn("llama-bench on PR #1 failed", st["error"])
         self.assertIn("unknown argument", st["error"])
         self.assertEqual(self.leased, ["in", "out"])
 

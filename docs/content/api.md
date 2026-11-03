@@ -77,7 +77,7 @@ These are the endpoints external coding agents (Claude Code, Codex, etc.) talk t
 | POST | `/api/prtry/build` | Build that PR. Body: `pr`, `sha` (from look; 409 if the PR has moved since). One build at a time, never beside a source build. |
 | POST | `/api/prtry/cancel` | Cancel the running PR build. |
 | POST | `/api/prtry/remove` | Delete a PR build. Body: `name`. Unloads and unpins the models on it first. |
-| POST | `/api/prtry/ab` | Compare speed: `llama-bench` on one model with your build, then with a PR build, with every model unloaded meanwhile. Body: `model`, `install` (a PR build's name). 409 while a PR build, another comparison or Auto-Forge runs. Poll `GET /api/prtry` for `ab`. |
+| POST | `/api/prtry/ab` | Compare speed: `llama-bench` on one model with your build, then with another installed build (a PR build or an official release), with every model unloaded meanwhile. Body: `model`, `install` (the build's folder name under `engines/llama.cpp`). 400 if that build is the one the router runs. `ab.label` names the other build (`PR #N` or the release tag). 409 while a PR build, another comparison or Auto-Forge runs. Poll `GET /api/prtry` for `ab`. |
 | GET | `/api/starters` | Starter-model suggestions sized to your total VRAM. |
 | GET | `/api/feed` | "New this week": architectures llama.cpp just merged, marked against your engine build, plus whether a newer LlamaForge release is out. |
 | GET | `/api/app/update` | Progress of a LlamaForge self-update. |

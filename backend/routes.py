@@ -2895,23 +2895,27 @@ PRBENCH = prbench.ABRunner(os.path.join(LOGDIR, "prtry-ab.json"), lease=_ab_leas
 
 
 def post_prtry_ab(req):
-    """{model, install}: llama-bench that model on your build, then on the PR
-    build, same flags, with the GPUs cleared. Results in GET /api/prtry "ab"."""
+    """{model, install}: llama-bench that model on your build, then on another
+    installed build (a PR build or a release), same flags, with the GPUs
+    cleared. Results in GET /api/prtry "ab"."""
     name, mid = req.body.get("install"), req.body.get("model")
-    inst = next((i for i in prebuilt.list_installs(ENGINES_DIR)
-                 if prtry.is_pr(i) and os.path.basename(i["dir"]) == name), None)
+    active = _active_server_bin(cfg())
+    inst = next((i for i in prebuilt.list_installs(ENGINES_DIR, active)
+                 if os.path.basename(i["dir"]) == name), None)
     if not inst:
-        raise ApiError(404, "no such PR build")
+        raise ApiError(404, "no such build")
+    if inst.get("active"):
+        raise ApiError(400, "that's already your build; pick another one to compare")
     secs = config.read_sections()
     if not mid or mid == "*" or mid not in secs:
         raise ApiError(404, f"unknown model: {mid}")
-    base_bench = prbench.bench_bin(_active_server_bin(cfg()))
+    base_bench = prbench.bench_bin(active)
     if not base_bench:
         raise ApiError(400, "your build has no llama-bench next to llama-server; "
                             "build from source in Build / Update to get one")
     pr_bench = prbench.bench_bin(inst.get("server_bin") or os.path.join(inst["dir"], "llama-server.exe"))
     if not pr_bench:
-        raise ApiError(400, "that PR build has no llama-bench; build it again")
+        raise ApiError(400, "that build has no llama-bench next to llama-server")
     if PRTRY.status().get("running"):
         raise ApiError(409, "a PR build is running; compare when it's done")
     if PRBENCH.status().get("running"):
@@ -2925,7 +2929,9 @@ def post_prtry_ab(req):
         pr_argv = prbench.argv(pr_bench, settings)
     except ValueError as e:
         raise ApiError(400, str(e))
-    PRBENCH.start({"pr": inst.get("pr"), "install": name, "model": mid}, base_argv, pr_argv)
+    label = f"PR #{inst['pr']}" if prtry.is_pr(inst) else (inst.get("tag") or name)
+    PRBENCH.start({"pr": inst.get("pr"), "install": name, "model": mid, "label": label},
+                  base_argv, pr_argv)
     return 200, {"started": True, "ab": PRBENCH.status()}
 
 

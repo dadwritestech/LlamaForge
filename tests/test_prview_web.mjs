@@ -68,3 +68,12 @@ test("A/B done: both rows, the change, and noise said out loud", () => {
   assert.match(v.markdown, /\| pp512 \| .* \| \+0\.6% \(within noise\) \|/);
   assert.equal(abView({...AB, delta: {pp: {pct: -3.2, noise: false}, tg: {pct: 0, noise: true}}}).rows[0].change, "-3.2%");
 });
+
+test("A/B of a release build says its tag, not a PR number", () => {
+  const rel = {...AB, pr: null, label: "b7123"};
+  assert.equal(abView(rel).heading, "b7123 vs your build, qwen");
+  assert.match(abView(rel).markdown, /^\*\*llama\.cpp b7123 vs my build\*\*/);
+  assert.match(abView(rel).markdown, /\| test \| my build \| b7123 \| change \|/);
+  assert.match(abView({running: true, phase: "pr", model: "qwen", pr: null, label: "b7123"}).phase,
+               /^Benchmarking qwen on b7123 /);
+});

@@ -2,7 +2,10 @@
 // llama.cpp builds, no compiler needed. Mounted at the top of the Build tab
 // and inside the first-run wizard, so it owns its own polling and imports
 // neither view.
-import { $, esc, setHTML, api, toast, meter, fmtAgo } from "./core.js";
+import { $, esc, setHTML, api, toast, askYes, meter, fmtAgo } from "./core.js";
+import { models } from "./state.js";
+import { pinChoices } from "./prview.js";
+import { abHTML, abTick, wireAb, abAsk, abIsPr } from "./abbox.js";
 
 const PHASES = {
   resolving: "finding the right build", downloading: "downloading",
@@ -16,8 +19,10 @@ export async function mountEngineCard(el, opts = {}) {
   const force = !!opts.force;
   const prev = el.dataset.channel;
   const q = `?${force ? "force=1&" : ""}${prev ? "channel=" + encodeURIComponent(prev) : ""}`;
-  const [info, st] = await Promise.all([api("/api/engine/prebuilt" + q),
-                                        api("/api/engine/prebuilt/status")]);
+  const [info, st, pr] = await Promise.all([api("/api/engine/prebuilt" + q),
+                                            api("/api/engine/prebuilt/status"),
+                                            opts.compact ? {} : api("/api/prtry")]);
+  const ab = pr.ab && !abIsPr(pr.ab) ? pr.ab : null;
   const L = info.latest || {};
   // "Try a PR" builds have their own card and never become the router's build
   const installs = (info.installs || []).filter(i => i.channel !== "pr");
@@ -67,6 +72,7 @@ export async function mountEngineCard(el, opts = {}) {
         <span class="v">${esc(i.channel || "")} &middot; installed ${esc(fmtAgo(i.installed_at))}
         ${i.active ? `<strong class="ok">active</strong>`
                    : `<button class="ghost" data-use="${esc(i.dir)}" style="padding:2px 8px">Use</button>`}</span></div>`).join("")}</div>` : ""}
+    ${opts.compact ? "" : compareHTML(installs, ab)}
     ${opts.compact ? "" : `<div class="log" id="eng-log" style="display:none"></div>`}
   </div>`);
 
@@ -87,7 +93,49 @@ export async function mountEngineCard(el, opts = {}) {
     toast(r.ok ? "Switched engine build" : (r.error || "switch failed"), r.ok ? "ok" : "err");
     mountEngineCard(el, opts);
   });
+  if (!opts.compact) wireCompare(el, opts, ab);
   if (st.running) poll(el, opts);
+}
+
+// Update canary: llama-bench one model on the router's build and on another
+// installed one, before you switch to it.
+function compareHTML(installs, ab) {
+  const others = installs.filter(i => !i.active);
+  const ids = pinChoices(models(), null);
+  const opt = (v, t) => `<option value="${esc(v)}">${esc(t)}</option>`;
+  const row = others.length && ids.length ? `<div class="actions" style="margin-top:6px">
+      <span class="k">compare speed</span>
+      <select id="eng-ab-build" aria-label="build to compare">${others.map(i =>
+        opt(i.dir.split(/[\\/]/).pop(), `${i.tag} · ${i.variant}`)).join("")}</select>
+      <select id="eng-ab-model" aria-label="model to benchmark"><option value="">pick a model...</option>${
+        ids.map(m => opt(m.id, m.id)).join("")}</select>
+      <button class="ghost" id="eng-ab-go" ${ab && ab.running ? "disabled" : ""}>Compare with your build</button>
+    </div>` : "";
+  return row + (ab ? abHTML(ab) : "");
+}
+
+function wireCompare(el, opts, ab) {
+  wireAb(el, ab);
+  const go = $("#eng-ab-go", el);
+  if (go) go.onclick = async () => {
+    const build = $("#eng-ab-build", el), model = $("#eng-ab-model", el).value;
+    if (!model) return toast("pick a model first", "err");
+    const other = build.options[build.selectedIndex].textContent.split(" · ")[0];
+    if (!await askYes(abAsk(model, other), {title: "Compare speed", ok: "Compare"})) return;
+    go.disabled = true;
+    const r = await api("/api/prtry/ab", {model, install: build.value});
+    if (r.error) { go.disabled = false; return toast(r.error, "err"); }
+    mountEngineCard(el, opts);
+  };
+  clearInterval(el._abPoll);
+  if (ab && ab.running) el._abPoll = setInterval(async () => {
+    if (!el.isConnected) return clearInterval(el._abPoll);
+    const n = (await api("/api/prtry")).ab || {};
+    if (n.running) return abTick(el, n);
+    clearInterval(el._abPoll);
+    if (n.phase === "done") toast("Comparison done", "ok");
+    mountEngineCard(el, opts);
+  }, 2000);
 }
 
 function poll(el, opts) {

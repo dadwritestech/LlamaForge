@@ -139,12 +139,13 @@ class ABRunner:
             return dict(self._st)
 
     def start(self, what, base_argv, pr_argv):
-        """what = {pr, install, model}. False if one is already running."""
+        """what = {pr, install, model, label}. False if one is already running."""
         with self._lock:
             if self._st.get("running"):
                 return False
             self._st = {"running": True, "phase": "base", "pr": what.get("pr"),
                         "install": what.get("install"), "model": what.get("model"),
+                        "label": what.get("label") or (f"PR #{what['pr']}" if what.get("pr") else "the other build"),
                         "started": self._clock(), "error": ""}
         self._thread = threading.Thread(target=self._go, args=(base_argv, pr_argv), daemon=True)
         self._thread.start()
@@ -173,7 +174,7 @@ class ABRunner:
             with self._lease():
                 base = self._one(base_argv, "your build")
                 self._set(phase="pr", base=base)
-                pr = self._one(pr_argv, "the PR build")
+                pr = self._one(pr_argv, self.status().get("label") or "the other build")
             self._set(running=False, phase="done", pr_result=pr, delta=compare(base, pr),
                       finished=self._clock())
         except Exception as e:  # noqa: BLE001 - shown in the card

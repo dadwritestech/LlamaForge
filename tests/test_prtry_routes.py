@@ -175,7 +175,7 @@ class AB(Base):
         st = routes.get_prtry(Req())[1]["ab"]
         self.assertEqual(st["phase"], "done", st)
         self.assertEqual(st["delta"]["tg"]["pct"], 10.0)
-        self.assertEqual((st["pr"], st["model"]), (1234, "qwen"))
+        self.assertEqual((st["pr"], st["model"], st["label"]), (1234, "qwen", "PR #1234"))
         base, pr = self.ran
         self.assertEqual(base[0], os.path.join(self.tmp, "router", "llama-bench.exe"))
         self.assertEqual(pr[0], os.path.join(self.pr_dir, "llama-bench.exe"))
@@ -201,6 +201,34 @@ class AB(Base):
         with mock.patch.object(self.ab, "status", lambda: {"running": True}):
             refused({"model": "qwen", "install": "pr-1234-0123456"}, 409)
         self.assertEqual(self.ran, [])
+
+    def release(self, name="b7123-cuda", tag="b7123"):
+        d = self.install(name, "nightly")
+        with open(os.path.join(d, "lf-install.json"), "w") as f:
+            json.dump({"tag": tag, "channel": "nightly", "variant": "cuda-12.4", "installed_at": 2}, f)
+        open(os.path.join(d, "llama-bench.exe"), "w").close()
+        return d
+
+    def test_a_release_build_compares_too(self):
+        # the update canary: any installed build, not only PR builds
+        d = self.release()
+        code, _ = routes.post_prtry_ab(Req(body={"model": "qwen", "install": "b7123-cuda"}))
+        self.assertEqual(code, 200)
+        self.ab.join(5)
+        st = routes.get_prtry(Req())[1]["ab"]
+        self.assertEqual(st["phase"], "done", st)
+        self.assertEqual((st["pr"], st["label"], st["install"]), (None, "b7123", "b7123-cuda"))
+        self.assertEqual(self.ran[1][0], os.path.join(d, "llama-bench.exe"))
+
+    def test_the_build_the_router_runs_is_refused(self):
+        d = self.release()
+        cfg = config.load()
+        cfg["server_bin"] = os.path.join(d, "llama-server.exe")
+        config.save(cfg)
+        with self.assertRaises(ApiError) as e:
+            routes.post_prtry_ab(Req(body={"model": "qwen", "install": "b7123-cuda"}))
+        self.assertEqual(e.exception.status, 400)
+        self.assertIn("already", str(e.exception))
 
 
 if __name__ == "__main__":

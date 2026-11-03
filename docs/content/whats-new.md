@@ -8,6 +8,10 @@ order: 1
 
 This page summarizes the most recent additions to LlamaForge. Each entry links to the full reference for that capability. For the longer-term direction, see the project's `ROADMAP.md`.
 
+## v0.18.28: Is the update faster?
+
+**Compare speed** now works on official builds too, not only PR builds. Got a new nightly but still running the old one? The Engine card's **compare speed** row runs `llama-bench` on your model with the build you're on and with the one you picked, and shows the change before you press **Use**. A regression on your GPU shows up as a minus sign in a table, not as a slow evening. See [Build & Update](build.md#what-it-does).
+
 ## v0.18.27: Is the PR faster?
 
 A PR build now has a **Compare speed** button. Pick a model and LlamaForge runs `llama-bench` on it with your build and then with the PR, same model file and GPU settings, and shows both speeds side by side with the change in percent. A change inside the runs' own spread says *within noise*, so you don't mistake jitter for a speedup. **Copy as markdown** puts the table on your clipboard for the PR's thread. See [Build & Update](build.md#is-the-pr-actually-faster).

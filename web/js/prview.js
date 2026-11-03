@@ -40,15 +40,17 @@ export function pinChoices(models, inst) {
     .sort((a, b) => a.id.localeCompare(b.id));
 }
 
-// The A/B card: llama-bench pp512 / tg128 on your build vs the PR build.
+// The A/B card: llama-bench pp512 / tg128 on your build vs another build
+// (a PR build or an installed release); `label` names the other one.
 const fmtTs = r => r ? `${Number(r.ts).toFixed(1)} ± ${Number(r.sd).toFixed(1)}` : "";
 const fmtPct = d => d ? `${d.pct > 0 ? "+" : ""}${Number(d.pct).toFixed(1)}%` : "";
 
 export function abView(ab) {
   const a = ab || {};
   const out = {phase: "", heading: "", rows: [], markdown: ""};
+  const other = a.label || (a.pr ? `PR #${a.pr}` : "the other build");
   if (a.running) {
-    out.phase = `Benchmarking ${a.model} on ${a.phase === "pr" ? `PR #${a.pr}` : "your build"} `
+    out.phase = `Benchmarking ${a.model} on ${a.phase === "pr" ? other : "your build"} `
       + "(pp512 and tg128, 3 runs). Your models come back when it's done.";
     return out;
   }
@@ -57,12 +59,12 @@ export function abView(ab) {
     return out;
   }
   if (a.phase !== "done" || !a.base || !a.pr_result || !a.delta) return out;
-  out.heading = `PR #${a.pr} vs your build, ${a.model}`;
+  out.heading = `${other} vs your build, ${a.model}`;
   const tests = [["pp", "Prompt (pp512)", "pp512"], ["tg", "Generation (tg128)", "tg128"]];
   out.rows = tests.map(([k, label]) => ({label, base: fmtTs(a.base[k]), pr: fmtTs(a.pr_result[k]),
                                         change: fmtPct(a.delta[k]), noise: !!(a.delta[k] || {}).noise}));
-  out.markdown = [`**llama.cpp PR #${a.pr} vs my build**, ${a.model}, llama-bench pp512 / tg128, 3 runs each (tok/s)`,
-    "", `| test | my build | PR #${a.pr} | change |`, "|---|---|---|---|",
+  out.markdown = [`**llama.cpp ${other} vs my build**, ${a.model}, llama-bench pp512 / tg128, 3 runs each (tok/s)`,
+    "", `| test | my build | ${other} | change |`, "|---|---|---|---|",
     ...tests.map(([k, , short], i) => `| ${short} | ${out.rows[i].base} | ${out.rows[i].pr} | `
       + `${out.rows[i].change}${out.rows[i].noise ? " (within noise)" : ""} |`)].join("\n");
   return out;
