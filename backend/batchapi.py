@@ -18,7 +18,7 @@ DONE = ("completed", "failed", "cancelled", "expired")
 
 _PREFIX = {"file": "file-", "batch": "batch_", "batch_req": "batch_req_"}
 _MOVES = {
-    "validating": ("in_progress", "failed", "cancelling"),
+    "validating": ("in_progress", "failed", "cancelling", "expired"),
     "in_progress": ("finalizing", "failed", "cancelling", "expired"),
     "finalizing": ("completed", "failed"),
     "cancelling": ("cancelled",),
