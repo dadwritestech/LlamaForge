@@ -9,6 +9,26 @@ import logfiles
 UPDATE_TTL      = 900   # seconds a successful upstream check stays cached
 UPDATE_TTL_FAIL = 60    # failed fetches retry sooner, but never per-click
 
+
+def toolset_args(flags, env, os_name, isdir=os.path.isdir):
+    """["-T", "cuda=<CUDA_PATH>", "-DCUDAToolkit_ROOT=<CUDA_PATH>"] for a CUDA build with a Visual Studio
+    generator (CMake's default on Windows). With two CUDA toolkits installed,
+    a fresh build dir got nvcc from PATH but MSBuild's CUDA targets from the
+    other one, mixed their headers, and failed. -T pins nvcc; CUDAToolkit_ROOT
+    pins the headers ggml finds before CUDA is enabled. Used for PR builds and for
+    a source build into a dir with no CMake cache yet."""
+    gen = (env.get("CMAKE_GENERATOR") or "").strip()
+    cuda = (env.get("CUDA_PATH") or "").strip()
+    if (os_name != "nt" or str((flags or {}).get("GGML_CUDA", "")).upper() != "ON"
+            or (gen and not gen.startswith("Visual Studio")) or not cuda or not isdir(cuda)):
+        return []
+    return ["-T", f"cuda={cuda}", f"-DCUDAToolkit_ROOT={cuda}"]
+
+
+def _toolset(flags):
+    return toolset_args(flags, os.environ, os.name)
+
+
 class BuildManager:
     def __init__(self, log_dir, log_name="build", on_built=None):
         # on_built(path) fires once, after a successful build, with the located
@@ -200,6 +220,9 @@ class BuildManager:
                    "-DCMAKE_BUILD_TYPE=Release"]
             for k, v in (flags or {}).items():
                 cfg.append(f"-D{k}={v}")
+            # a cached dir keeps its toolset: CMake refuses to switch it
+            if not os.path.isfile(os.path.join(build_dir, "CMakeCache.txt")):
+                cfg += _toolset(flags)
             rc = self._stream(cfg)
             if rc != 0:
                 raise RuntimeError("cmake configure failed")

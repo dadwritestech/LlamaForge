@@ -19,7 +19,7 @@ import urllib.request
 
 import logfiles
 import prebuilt
-from builder import BuildManager
+from builder import BuildManager, toolset_args  # noqa: F401 - prtry.toolset_args
 
 REPO = "https://github.com/ggml-org/llama.cpp"
 API = "https://api.github.com/repos/ggml-org/llama.cpp/pulls/"
@@ -64,21 +64,6 @@ def pr_info(d):
 
 def install_name(n, sha):
     return f"pr-{int(n)}-{sha[:7]}"
-
-
-def toolset_args(flags, env, os_name, isdir=os.path.isdir):
-    """["-T", "cuda=<CUDA_PATH>", "-DCUDAToolkit_ROOT=<CUDA_PATH>"] for a CUDA build with a Visual Studio
-    generator (CMake's default on Windows). With two CUDA toolkits installed,
-    a fresh build dir got nvcc from PATH but MSBuild's CUDA targets from the
-    other one, mixed their headers, and failed. -T pins nvcc; CUDAToolkit_ROOT
-    pins the headers ggml finds before CUDA is enabled. The user's own build never
-    hits it: its dir was configured once and keeps its cache."""
-    gen = (env.get("CMAKE_GENERATOR") or "").strip()
-    cuda = (env.get("CUDA_PATH") or "").strip()
-    if (os_name != "nt" or str((flags or {}).get("GGML_CUDA", "")).upper() != "ON"
-            or (gen and not gen.startswith("Visual Studio")) or not cuda or not isdir(cuda)):
-        return []
-    return ["-T", f"cuda={cuda}", f"-DCUDAToolkit_ROOT={cuda}"]
 
 
 def commands(n, sha, work, build_dir, flags, jobs=8, toolset=()):
