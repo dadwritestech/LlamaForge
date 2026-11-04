@@ -46,6 +46,17 @@ def _params(header):
 
 def parse_multipart(ctype, raw):
     """The fields of an SDK upload -> {purpose, filename, content bytes}."""
+    fields = multipart_fields(ctype, raw)
+    if "file" not in fields:
+        raise ValueError("the upload has no 'file' field")
+    content, filename = fields["file"]
+    purpose = fields.get("purpose", (b"", None))[0].decode("utf-8", "replace").strip()
+    name = os.path.basename((filename or "upload.jsonl").replace("\\", "/")) or "upload.jsonl"
+    return {"purpose": purpose, "filename": name, "content": content}
+
+
+def multipart_fields(ctype, raw):
+    """A multipart/form-data body -> {name: (value bytes, filename or None)}."""
     boundary = _params(ctype or "").get("boundary")
     if not boundary:
         raise ValueError("multipart upload without a boundary")
@@ -65,12 +76,7 @@ def parse_multipart(ctype, raw):
         p = _params(disp)
         if p.get("name"):
             fields[p["name"]] = (value, p.get("filename"))
-    if "file" not in fields:
-        raise ValueError("the upload has no 'file' field")
-    content, filename = fields["file"]
-    purpose = fields.get("purpose", (b"", None))[0].decode("utf-8", "replace").strip()
-    name = os.path.basename((filename or "upload.jsonl").replace("\\", "/")) or "upload.jsonl"
-    return {"purpose": purpose, "filename": name, "content": content}
+    return fields
 
 
 # ---------------------------------------------------------------- input file

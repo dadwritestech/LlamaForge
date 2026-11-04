@@ -361,6 +361,27 @@ def projector_info(path):
     return {"projection_dim": int(dim)} if dim else {}
 
 
+def projector_modalities(path):
+    """{"vision": bool, "audio": bool} for an mmproj (clip) file, or None if the
+    file is unreadable or not a projector. Older converters wrote only the
+    projection widths, so a width counts as an encoder too."""
+    try:
+        with open(path, "rb") as f:
+            if _rd(f, 4) != b"GGUF" or _u32(f) < 2:
+                return None
+            _u64(f)
+            n_kv = _u64(f)
+            if n_kv > 1_000_000:
+                return None
+            kv = _read_header_kv(f, n_kv)
+    except Exception:
+        return None
+    if kv.get("general.architecture") != "clip":
+        return None
+    return {k: bool(kv.get(f"clip.has_{k}_encoder") or kv.get(f"clip.{k}.projection_dim"))
+            for k in ("vision", "audio")}
+
+
 # Per-architecture header facts the memory footprint depends on (see footprint.py).
 _LAYOUT_KEYS = ("block_count", "embedding_length", "context_length", "expert_count",
                 "attention.head_count", "attention.head_count_kv", "attention.key_length",
