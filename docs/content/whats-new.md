@@ -8,6 +8,10 @@ order: 1
 
 This page summarizes the most recent additions to LlamaForge. Each entry links to the full reference for that capability. For the longer-term direction, see the project's `ROADMAP.md`.
 
+## v0.18.42: Can I run it? on 42 cards, laptops included
+
+[Can I run it?](can-i-run.html) now covers 42 graphics cards, up from 19: laptop GeForce cards from the RTX 3060 Laptop (6 GB) to the RTX 5090 Laptop (24 GB), the RTX 2080 Ti, 3050, 3080 Ti, 4060 Ti 8GB, 4070 Ti, 4080 Super and 5060, more Radeons, and Intel Arc A770 and B580. The index groups them into Desktop GeForce, Laptop GeForce, and Radeon and Intel Arc. Every page has the same verdict and llama.cpp line, worked out from the real GGUF headers.
+
 ## v0.18.41: The llama.cpp line on every "Can I run it?" page
 
 Each [Can I run it?](can-i-run.html) page now ends its verdict with the command that runs the pick, such as `llama-server -hf unsloth/Qwen3.6-35B-A3B-GGUF:UD-Q4_K_M -ngl 41 --n-cpu-moe 22 -c 8192 --no-mmproj` on a 12 GB card, and the table gives the flags for every quant. Same memory math as the verdict, worked out from the real GGUF headers by the page generator.

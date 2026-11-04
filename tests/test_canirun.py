@@ -153,6 +153,22 @@ class Pages(unittest.TestCase):
         for g in canirun.GPUS:
             self.assertIn(f"can-i-run-tiny-8b-on-{g['slug']}.html", idx["html"])
 
+    def test_index_groups_cards_into_one_table_each(self):
+        idx = canirun.index_page(self.data)["html"]
+        groups = [g["group"] for g in canirun.GPUS]
+        for name in dict.fromkeys(groups):
+            self.assertIn(f"<h2>{name}</h2>", idx)
+        self.assertEqual(idx.count("<table>"), len(set(groups)))
+        self.assertEqual(groups, sorted(groups, key=list(dict.fromkeys(groups)).index))  # grouped in order
+
+    def test_cards_include_laptops_and_intel_with_unique_slugs(self):
+        slugs = [g["slug"] for g in canirun.GPUS]
+        self.assertEqual(len(slugs), len(set(slugs)))
+        self.assertEqual(canirun.GPU_BY_SLUG["rtx-4060-laptop"]["gb"], 8)
+        self.assertEqual(canirun.GPU_BY_SLUG["arc-b580"]["gb"], 12)
+        self.assertIn("Can I run Tiny 8B on an Intel Arc B580 (12 GB)?",
+                      canirun.pair_page(model(), canirun.GPU_BY_SLUG["arc-b580"])["title"])
+
     def test_build_writes_every_pair(self):
         out = tempfile.mkdtemp()
         pages = canirun.build_pages(self.data)

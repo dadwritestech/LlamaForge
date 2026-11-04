@@ -30,18 +30,32 @@ _SLUG = re.compile(r"^[a-z0-9][a-z0-9.-]*$")
 _EXPS = re.compile(footprint._EXPS)
 PANEL = "http://127.0.0.1:8090/"
 
-# (slug, name, VRAM GB, article). Nominal VRAM: what the box says.
-GPUS = [dict(slug=s, name=n, gb=g, a=a) for s, n, g, a in (
-    ("rtx-3060", "RTX 3060", 12, "an"), ("rtx-3060-ti", "RTX 3060 Ti", 8, "an"),
-    ("rtx-3070", "RTX 3070", 8, "an"), ("rtx-3080", "RTX 3080", 10, "an"),
-    ("rtx-3090", "RTX 3090", 24, "an"), ("rtx-4060", "RTX 4060", 8, "an"),
-    ("rtx-4060-ti-16gb", "RTX 4060 Ti 16GB", 16, "an"), ("rtx-4070", "RTX 4070", 12, "an"),
-    ("rtx-4070-super", "RTX 4070 Super", 12, "an"), ("rtx-4070-ti-super", "RTX 4070 Ti Super", 16, "an"),
-    ("rtx-4080", "RTX 4080", 16, "an"), ("rtx-4090", "RTX 4090", 24, "an"),
-    ("rtx-5060-ti-16gb", "RTX 5060 Ti 16GB", 16, "an"), ("rtx-5070", "RTX 5070", 12, "an"),
-    ("rtx-5070-ti", "RTX 5070 Ti", 16, "an"), ("rtx-5080", "RTX 5080", 16, "an"),
-    ("rtx-5090", "RTX 5090", 32, "an"), ("rx-7900-xtx", "Radeon RX 7900 XTX", 24, "a"),
-    ("rx-9070-xt", "Radeon RX 9070 XT", 16, "a"))]
+# (slug, name, VRAM GB, article), by group. Nominal VRAM: what the box (or the
+# laptop maker's spec sheet) says. Slugs are page URLs: never rename one.
+_D, _L, _A = "Desktop GeForce", "Laptop GeForce", "Radeon and Intel Arc"
+GPUS = [dict(slug=s, name=n, gb=g, a=a, group=grp) for grp, s, n, g, a in (
+    (_D, "rtx-2080-ti", "RTX 2080 Ti", 11, "an"), (_D, "rtx-3050", "RTX 3050 8GB", 8, "an"),
+    (_D, "rtx-3060", "RTX 3060", 12, "an"), (_D, "rtx-3060-ti", "RTX 3060 Ti", 8, "an"),
+    (_D, "rtx-3070", "RTX 3070", 8, "an"), (_D, "rtx-3080", "RTX 3080", 10, "an"),
+    (_D, "rtx-3080-ti", "RTX 3080 Ti", 12, "an"), (_D, "rtx-3090", "RTX 3090", 24, "an"),
+    (_D, "rtx-4060", "RTX 4060", 8, "an"), (_D, "rtx-4060-ti", "RTX 4060 Ti 8GB", 8, "an"),
+    (_D, "rtx-4060-ti-16gb", "RTX 4060 Ti 16GB", 16, "an"), (_D, "rtx-4070", "RTX 4070", 12, "an"),
+    (_D, "rtx-4070-super", "RTX 4070 Super", 12, "an"), (_D, "rtx-4070-ti", "RTX 4070 Ti", 12, "an"),
+    (_D, "rtx-4070-ti-super", "RTX 4070 Ti Super", 16, "an"), (_D, "rtx-4080", "RTX 4080", 16, "an"),
+    (_D, "rtx-4080-super", "RTX 4080 Super", 16, "an"), (_D, "rtx-4090", "RTX 4090", 24, "an"),
+    (_D, "rtx-5060", "RTX 5060", 8, "an"), (_D, "rtx-5060-ti-16gb", "RTX 5060 Ti 16GB", 16, "an"),
+    (_D, "rtx-5070", "RTX 5070", 12, "an"), (_D, "rtx-5070-ti", "RTX 5070 Ti", 16, "an"),
+    (_D, "rtx-5080", "RTX 5080", 16, "an"), (_D, "rtx-5090", "RTX 5090", 32, "an"),
+    (_L, "rtx-3060-laptop", "RTX 3060 Laptop", 6, "an"), (_L, "rtx-4060-laptop", "RTX 4060 Laptop", 8, "an"),
+    (_L, "rtx-4070-laptop", "RTX 4070 Laptop", 8, "an"), (_L, "rtx-4080-laptop", "RTX 4080 Laptop", 12, "an"),
+    (_L, "rtx-4090-laptop", "RTX 4090 Laptop", 16, "an"), (_L, "rtx-5070-laptop", "RTX 5070 Laptop", 8, "an"),
+    (_L, "rtx-5070-ti-laptop", "RTX 5070 Ti Laptop", 12, "an"),
+    (_L, "rtx-5080-laptop", "RTX 5080 Laptop", 16, "an"), (_L, "rtx-5090-laptop", "RTX 5090 Laptop", 24, "an"),
+    (_A, "rx-6800-xt", "Radeon RX 6800 XT", 16, "a"), (_A, "rx-7600", "Radeon RX 7600", 8, "a"),
+    (_A, "rx-7800-xt", "Radeon RX 7800 XT", 16, "a"), (_A, "rx-7900-xt", "Radeon RX 7900 XT", 20, "a"),
+    (_A, "rx-7900-xtx", "Radeon RX 7900 XTX", 24, "a"), (_A, "rx-9070", "Radeon RX 9070", 16, "a"),
+    (_A, "rx-9070-xt", "Radeon RX 9070 XT", 16, "a"), (_A, "arc-a770", "Intel Arc A770 16GB", 16, "an"),
+    (_A, "arc-b580", "Intel Arc B580", 12, "an"))]
 GPU_BY_SLUG = {g["slug"]: g for g in GPUS}
 
 
@@ -289,16 +303,22 @@ def _cell(model, gpu):
 
 def index_page(data):
     models = valid_models(data)
-    head = "".join(f"<th>{html.escape(g['name'])}<br>{g['gb']} GB</th>" for g in GPUS)
-    rows = "".join(f"<tr><th>{html.escape(m['name'])}</th>{''.join(_cell(m, g) for g in GPUS)}</tr>"
-                   for m in models)
+    tables = []
+    for group in dict.fromkeys(g["group"] for g in GPUS):
+        cards = [g for g in GPUS if g["group"] == group]
+        head = "".join(f"<th>{html.escape(g['name'])}<br>{g['gb']} GB</th>" for g in cards)
+        rows = "".join(f"<tr><th>{html.escape(m['name'])}</th>{''.join(_cell(m, g) for g in cards)}</tr>"
+                       for m in models)
+        tables.append(f"<h2>{html.escape(group)}</h2>"
+                      f'<div style="overflow:auto"><table><tr><th>Model</th>{head}</tr>{rows}</table></div>')
     body = ("<h1>Can I run it?</h1>"
             "<p>Which quant of a popular model fits on your graphics card, predicted from the real GGUF "
             "files with the memory math LlamaForge runs before every load. Each cell is the biggest quant "
             "that fits fully on the card with at least 16K of context; \"+ RAM\" means a mixture-of-experts "
             "model with some expert weights in system RAM. Click a cell for every quant and the "
-            "llama.cpp line that runs it (<code>-ngl</code>, <code>--n-cpu-moe</code>, <code>-c</code>).</p>"
-            f'<div style="overflow:auto"><table><tr><th>Model</th>{head}</tr>{rows}</table></div>'
+            "llama.cpp line that runs it (<code>-ngl</code>, <code>--n-cpu-moe</code>, <code>-c</code>). "
+            "Laptop cards use the maker's VRAM spec; check yours, since some laptops ship a smaller one.</p>"
+            + "".join(tables) +
             "<p>Predictions, not benchmarks. Once a model is loaded, LlamaForge measures the real "
             'footprint and speed on your machine. <a href="install.html">Install it</a>.</p>')
     return {"slug": "can-i-run", "title": "Can I run it? Models vs graphics cards",
