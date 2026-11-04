@@ -4009,6 +4009,19 @@ def get_v1_file_item(req):
 
 
 @_oai
+def delete_v1_file(req):
+    fid = _tail_id(req, "/v1/files/", "file")
+    if not BATCHES.store.file(fid):
+        raise LookupError(f"no such file: {fid}")
+    reader = next((b["id"] for b in BATCHES.store.batches()
+                   if b["input_file_id"] == fid and not batchapi.is_done(b)), None)
+    if reader:
+        raise ValueError(f"{reader} is still reading this file; cancel it first")
+    BATCHES.store.remove_file(fid)
+    return 200, {"id": fid, "object": "file", "deleted": True}
+
+
+@_oai
 def post_v1_batches(req):
     b = req.body
     batch = BATCHES.create(b.get("input_file_id"), b.get("endpoint"), b.get("completion_window"),
@@ -4036,6 +4049,74 @@ def post_v1_batch_cancel(req):
     return 200, BATCHES.cancel(_tail_id(req, "/v1/batches/", "batch", "/cancel"))
 
 
+# ---- the Batches card on Stats. Panel-guarded like every /api route, so the
+# page needs no router key even when /v1 is exposed with one.
+def _panel_batch(fn):
+    def wrapped(req):
+        try:
+            return fn(req)
+        except LookupError as e:
+            raise ApiError(404, str(e).strip("'\""))
+        except ValueError as e:
+            raise ApiError(400, str(e))
+    return wrapped
+
+
+@_panel_batch
+def get_batch_state(req):
+    names = {f["id"]: f["filename"] for f in BATCHES.store.files()}
+    out = []
+    for b in BATCHES.store.batches():
+        o = batchapi.batch_object(b)
+        o.update(when=b.get("when", "now"), input_filename=names.get(b["input_file_id"], ""))
+        out.append(o)
+    return 200, {"batches": out, "files": BATCHES.store.files(),
+                 "quiet_minutes": batchrun.QUIET_SECS // 60}
+
+
+@_panel_batch
+def post_batch_run(req):
+    """Upload a .jsonl and start a batch on it, in one go."""
+    b = req.body
+    if not isinstance(b.get("content"), str):
+        raise ValueError("content must be the file's text")
+    name = os.path.basename(str(b.get("filename") or "batch.jsonl").replace("\\", "/")) or "batch.jsonl"
+    f = BATCHES.store.add_file(name, "batch", b["content"].encode("utf-8"))
+    try:
+        batch = BATCHES.create(f["id"], "/v1/chat/completions", "24h", when=b.get("when") or "now")
+    except (LookupError, ValueError):
+        BATCHES.store.remove_file(f["id"])          # don't keep a file nothing will read
+        raise
+    o = batchapi.batch_object(batch)
+    o.update(when=batch["when"], input_filename=name)
+    return 200, o
+
+
+@_panel_batch
+def post_batch_cancel(req):
+    return 200, BATCHES.cancel(str(req.body.get("id") or ""))
+
+
+@_panel_batch
+def post_batch_remove(req):
+    BATCHES.remove(str(req.body.get("id") or ""))
+    return 200, {"ok": True}
+
+
+@_panel_batch
+def get_batch_file(req):
+    fid = req.qs.get("id", "")
+    data = BATCHES.store.content(fid)
+    if data is None:
+        raise LookupError(f"no such file: {fid}")
+    return 200, data, "application/jsonl"
+
+
+GET_ROUTES["/api/batch/state"] = get_batch_state
+GET_ROUTES["/api/batch/file"] = get_batch_file
+POST_ROUTES["/api/batch/run"] = post_batch_run
+POST_ROUTES["/api/batch/cancel"] = post_batch_cancel
+POST_ROUTES["/api/batch/remove"] = post_batch_remove
 GET_ROUTES["/v1/files"] = get_v1_files
 GET_ROUTES["/v1/batches"] = get_v1_batches
 POST_ROUTES["/v1/files"] = post_v1_files
@@ -4043,3 +4124,4 @@ POST_ROUTES["/v1/batches"] = post_v1_batches
 # /v1/files/<id>[/content], /v1/batches/<id>[/cancel]: matched by prefix in server.py
 GET_PREFIX_ROUTES = {"/v1/files/": get_v1_file_item, "/v1/batches/": get_v1_batch_item}
 POST_PREFIX_ROUTES = {"/v1/batches/": post_v1_batch_cancel}
+DELETE_PREFIX_ROUTES = {"/v1/files/": delete_v1_file}       # the only DELETE the panel has

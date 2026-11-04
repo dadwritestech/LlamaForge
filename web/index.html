@@ -234,6 +234,14 @@ body.app{display:grid;grid-template-columns:var(--nav-w) 1fr;min-height:100vh;ma
 .stats-vram .stats{display:flex;justify-content:space-between;gap:12px;margin-top:5px;color:var(--dim);font-size:9px}
 .stats-vram .stats b{color:var(--cyan-text);font-weight:500}
 .stats-vram-empty{grid-column:1/-1;color:var(--dim);font-size:9px;letter-spacing:.12em}
+.batch-new{margin-left:auto;display:flex;gap:6px;text-transform:none;letter-spacing:0;font-family:var(--mono,inherit)}
+.batch-bar{display:flex;height:6px;background:var(--inset);border:1px solid var(--hair);border-radius:var(--r-xs);overflow:hidden;margin:8px 0 6px}
+.batch-bar i{background:var(--amber)}.batch-bar b{background:var(--red)}
+.batch-foot{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:6px 12px;font-size:11px;color:var(--dim)}
+.batch-acts{display:flex;gap:6px;align-items:center}
+.batch-acts .chip{text-decoration:none}
+.batch-py{margin-top:14px}.batch-py summary{cursor:pointer;color:var(--dim);font-size:11px}
+.batch-py pre{white-space:pre;overflow-x:auto;font-size:11px;background:var(--inset);border:1px solid var(--hair);border-radius:var(--r-xs);padding:10px;margin:8px 0}
 @media(max-width:620px){.token-scale-label{display:none}.token-scale{gap:7px}.stats-vram{grid-template-columns:1fr}}
 .tbl-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
 .tbl-head h2{font-family:var(--disp);font-weight:600;letter-spacing:.18em;font-size:12px;color:var(--ink-hi);text-transform:uppercase;margin:0;

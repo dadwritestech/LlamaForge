@@ -130,6 +130,12 @@ class Store:
         out = [self.batch(os.path.basename(p)[:-5]) for p in glob.glob(os.path.join(self.root, "batch_*.json"))]
         return sorted((b for b in out if b), key=lambda b: (b["created_at"], b["id"]), reverse=True)
 
+    def remove_batch(self, bid):
+        try:
+            os.remove(self._bpath(bid))
+        except OSError:
+            pass
+
 
 class Runner:
     """send(body) -> (status, json) or raises; ensure(model) loads it or raises;
@@ -170,6 +176,22 @@ class Runner:
                 self._close(b, "cancelled")
             self.store.save_batch(b)
             return batchapi.batch_object(b)
+
+    def remove(self, bid):
+        """Forget a finished batch: its record, its result files, and its input
+        file unless another batch reads it too."""
+        with self._lock:
+            b = self.store.batch(bid)
+            if not b:
+                raise LookupError(f"no such batch: {bid}")
+            if not batchapi.is_done(b):
+                raise ValueError(f"the batch is still {b['status']}; cancel it first")
+            self.store.remove_batch(bid)
+            for fid in (b.get("output_file_id"), b.get("error_file_id")):
+                if fid:
+                    self.store.remove_file(fid)
+            if not any(o["input_file_id"] == b["input_file_id"] for o in self.store.batches()):
+                self.store.remove_file(b["input_file_id"])
 
     # ---- running
     def _next(self):

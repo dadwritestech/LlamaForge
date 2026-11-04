@@ -13,10 +13,14 @@ async function loadStatsModule() {
   const baysSource = (await readFile(new URL("../web/js/bays.js", import.meta.url), "utf8"))
     .replace('"./core.js"', `"${coreUrl}"`);
   const baysUrl = `data:text/javascript;base64,${Buffer.from(baysSource).toString("base64")}`;
+  const batchesSource = (await readFile(new URL("../web/js/batches.js", import.meta.url), "utf8"))
+    .replace('"./core.js"', `"${coreUrl}"`);
+  const batchesUrl = `data:text/javascript;base64,${Buffer.from(batchesSource).toString("base64")}`;
   const statsSource = (await readFile(new URL("../web/js/stats.js", import.meta.url), "utf8"))
     .replace('"./core.js"', `"${coreUrl}"`)
     .replace('"./stats-facts.js"', `"${factsUrl}"`)
-    .replace('"./bays.js"', `"${baysUrl}"`);
+    .replace('"./bays.js"', `"${baysUrl}"`)
+    .replace('"./batches.js"', `"${batchesUrl}"`);
   return import(`data:text/javascript;base64,${Buffer.from(statsSource).toString("base64")}#${++moduleSerial}`);
 }
 

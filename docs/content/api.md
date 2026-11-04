@@ -259,6 +259,27 @@ llama.cpp GGUF and a vLLM safetensors repo. The body takes an optional
 
 The engine-specific paths (`/api/load`, `/api/vllm/load`, …) remain as aliases.
 
+## Batches
+
+The local Batch API ([Batches](batch.md)). The `/v1` routes have OpenAI's shapes and errors and the same conditional `_shim_auth_ok` as `/v1/chat/completions`; the `/api/batch/*` routes are what the Stats card uses, under the panel's usual guards and with no key.
+
+| Method | Path | Purpose |
+|---|---|---|
+| POST | `/v1/files` | Upload a batch input file: an SDK's `multipart/form-data` (`purpose`, `file`), or JSON `{filename, purpose, content}`. `purpose` must be `batch`. 64 MB limit. |
+| GET | `/v1/files` | List stored files, newest first. |
+| GET | `/v1/files/{id}` | One file object. |
+| GET | `/v1/files/{id}/content` | The file's bytes, `application/jsonl` (inputs and results alike). |
+| DELETE | `/v1/files/{id}` | Delete a file. **400** while an open batch reads it. |
+| POST | `/v1/batches` | Start a batch: `{input_file_id, endpoint: "/v1/chat/completions", completion_window: "24h", metadata?}`, plus LlamaForge's `when`: `now` (default) or `idle` (wait for 20 quiet minutes). The whole file is checked first; a bad line is a **400** naming it. |
+| GET | `/v1/batches` | List batches, newest first. |
+| GET | `/v1/batches/{id}` | One batch object, with `request_counts` and, once done, `output_file_id` / `error_file_id`. |
+| POST | `/v1/batches/{id}/cancel` | Cancel. A running batch finishes the request in flight, then ends `cancelled` with its results so far. |
+| GET | `/api/batch/state` | The card's view: `batches` (each with `when` and `input_filename`), `files`, `quiet_minutes`. |
+| POST | `/api/batch/run` | Upload and start in one go: `{filename, content, when?}`. A file that fails the check is not kept. |
+| POST | `/api/batch/cancel` | `{id}`: as `/v1/batches/{id}/cancel`. |
+| POST | `/api/batch/remove` | `{id}` of a finished batch: deletes it, its results, and its input unless another batch reads it. |
+| GET | `/api/batch/file?id=` | A file's bytes, for the card's download links. |
+
 ## Request requirements
 
 The dashboard binds `127.0.0.1`, which keeps it off your network but leaves it
@@ -269,12 +290,16 @@ reachable by any page in your browser. Every request is therefore checked:
   DNS rebinding.
 - When a POST declares `Content-Type`, it must be `application/json`; declared
   form or other non-JSON content types get **415**, helping block a cross-site
-  `<form>`. This guard currently permits an absent `Content-Type`.
+  `<form>`. This guard currently permits an absent `Content-Type`. The one
+  exception is an SDK's `multipart/form-data` upload to `/v1/files` with no
+  `Origin` header (a browser always sends one cross-site).
+- The only `DELETE` is `/v1/files/{id}`. It is not a simple method, so a
+  cross-site page needs a preflight it can't pass.
 - Every POST requires exactly one ASCII-decimal `Content-Length`. Missing length
   is **411**. Malformed, duplicate, or transfer-encoded framing is **400**; a
   short body is also **400**. Rejected framing closes the connection.
-- Management POSTs are limited to 4 MiB. `/v1/messages` and
-  `/v1/chat/completions` use a 64 MiB inference-proxy limit. A body over its
+- Management POSTs are limited to 4 MiB. `/v1/messages`,
+  `/v1/chat/completions` and `/v1/files` use a 64 MiB limit. A body over its
   route-class limit is **413** before it is read or dispatched.
 - `POST /api/config` only accepts an allowlist of user-facing keys (the list is in [config.json Reference](config.md)). See
   [Security](https://github.com/dadwritestech/LlamaForge/blob/master/SECURITY.md).

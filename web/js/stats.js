@@ -2,6 +2,7 @@
 import { $, $$, esc, setHTML, api, toast, fmtNum, fmtDur, fmtAgo, meter, motionOK, askYes } from "./core.js";
 import { createFactRotator, normalizeVram } from "./stats-facts.js";
 import { bayPlans, bayInputs, cargoHue } from "./bays.js";
+import { initBatches, refreshBatches, batchesCached } from "./batches.js";
 
 let statsSort = "tokens", statsRange = 14, statsRequest = 0;
 let gpuRequest = null, lastGpuPayload, hasGpuPayload = false;
@@ -39,6 +40,7 @@ export function initStats(openRig = () => {}) {
     if (e.target.closest("[data-statsreset]")) resetStats();
     if (e.target.closest("[data-rigshare]")) openRig();
   });
+  initBatches(view);
   // a skin switch redraws from what we have, unless Stowage needs a fuller payload
   document.addEventListener("lf-skin", () => {
     if (!$("#stats-vram") || !hasGpuPayload) return;
@@ -174,6 +176,7 @@ export async function loadStats(silent) {
   const oldSummary = $(".token-scale-details summary", v);
   const restoreDetailsFocus = !!oldSummary && document.activeElement === oldSummary;
   const detailsOpen = !!$(".token-scale-details", v)?.open;
+  const batchPyOpen = !!$(".batch-py", v)?.open;
   setHTML(v, `
     <div class="stats-body${silent ? "" : " intro"}">
     ${renderTokenScale(t.generated, fact, detailsOpen)}
@@ -228,7 +231,9 @@ export async function loadStats(silent) {
         <button data-rigshare title="an image of your GPUs, top models and their measured speed, to post">Share my rig&hellip;</button>
         <button class="danger" data-statsreset title="zero all usage statistics">Reset stats&hellip;</button></div>`
       :`<div class="note">No models have logged usage yet.</div>`}
-    </div></div>`);
+    </div>
+    ${batchesCached(batchPyOpen)}</div>`);
+  refreshBatches();
   if (!silent) countUp(v);
   if (restoreDetailsFocus) $(".token-scale-details summary", v)?.focus({preventScroll: true});
 }

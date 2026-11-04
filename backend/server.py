@@ -306,6 +306,19 @@ class H(BaseHTTPRequestHandler):
             return self._send(404, {"error": "not found"})
         return self._run(handler, Req(body=body, headers=headers, path=p))
 
+    def do_DELETE(self):
+        # Not a "simple" method: a cross-site page needs a preflight it can't
+        # pass, and the browser sends an Origin the guard checks anyway.
+        if self._guard("DELETE"):
+            return
+        if self.headers.get("Transfer-Encoding") or (self.headers.get("Content-Length") or "0") != "0":
+            self.close_connection = True         # no body expected; don't read one
+        p = self.path.split("?")[0]
+        handler = _prefix(routes.DELETE_PREFIX_ROUTES, p)
+        if not handler:
+            return self._send(404, {"error": "not found"})
+        return self._run(handler, Req(headers=self._headers_lower(), path=p))
+
     # ------------------------------------------------------- static payloads
     _MODULE_TYPES = {".js": "application/javascript; charset=utf-8",
                      ".css": "text/css; charset=utf-8",

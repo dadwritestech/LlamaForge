@@ -86,6 +86,29 @@ class StoreTests(Base):
         self.assertFalse(self.store.remove_file(f["id"]))
 
 
+class RemoveTests(Base):
+    def test_remove_a_finished_batch_with_its_files(self):
+        f = self.upload(jsonl("a"))
+        b = self.run.create(f["id"], "/v1/chat/completions", "24h")
+        with self.assertRaisesRegex(ValueError, "still"):
+            self.run.remove(b["id"])
+        self.run.step()
+        out = self.store.batch(b["id"])["output_file_id"]
+        self.run.remove(b["id"])
+        self.assertIsNone(self.store.batch(b["id"]))
+        self.assertEqual((self.store.file(f["id"]), self.store.file(out)), (None, None))
+        with self.assertRaisesRegex(LookupError, "no such batch"):
+            self.run.remove(b["id"])
+
+    def test_an_input_another_batch_shares_stays(self):
+        f = self.upload(jsonl("a"))
+        b1 = self.run.create(f["id"], "/v1/chat/completions", "24h")
+        self.run.step()
+        self.run.create(f["id"], "/v1/chat/completions", "24h")
+        self.run.remove(b1["id"])
+        self.assertIsNotNone(self.store.file(f["id"]))
+
+
 class CreateTests(Base):
     def test_create_validates_the_input_file(self):
         f = self.upload(jsonl("a", "b"))

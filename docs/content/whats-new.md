@@ -8,6 +8,10 @@ order: 1
 
 This page summarizes the most recent additions to LlamaForge. Each entry links to the full reference for that capability. For the longer-term direction, see the project's `ROADMAP.md`.
 
+## v0.18.30: OpenAI's Batch API, on your GPU
+
+Got a thousand documents to summarise? **Stats → Batches** takes a `.jsonl` of chat requests in OpenAI's batch format and works through them into a results file: **now**, or **tonight** once nobody has used the router for 20 minutes. Scripts written for OpenAI's `/v1/files` and `/v1/batches` work unchanged: point the `openai` SDK at the panel. A batch survives a restart, pauses while a speed comparison or Auto-Forge needs the GPUs, and a bad request fails one line, not the file. See [Batches](batch.md).
+
 ## v0.18.29: Asked right after the update
 
 When an update finishes, the Engine card now asks: *you're on b7123 now, is it as fast as b7080 was on your models?* The build you were on is already picked in the **compare speed** row, so it's one model and one click. The old build stays installed, so **Use** takes you back if the answer is no. See [Build & Update](build.md#what-it-does).

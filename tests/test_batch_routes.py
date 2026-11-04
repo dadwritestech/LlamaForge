@@ -100,6 +100,30 @@ class Files(Live):
         self.assertEqual(self.req("/v1/files/file-0123abcd")[0], 404)
         self.assertEqual(self.req("/v1/files/..%2F..%2Fx")[0], 404)
 
+    def test_delete(self):
+        fid = self.upload()[1]["id"]
+        code, got = self.req(f"/v1/files/{fid}", "DELETE")
+        self.assertEqual((code, got), (200, {"id": fid, "object": "file", "deleted": True}))
+        self.assertEqual(self.req(f"/v1/files/{fid}")[0], 404)
+        self.assertEqual(self.req(f"/v1/files/{fid}", "DELETE")[0], 404)
+        self.assertEqual(self.req("/v1/files/..%2Fx", "DELETE")[0], 404)
+        self.assertEqual(self.req("/api/config", "DELETE")[0], 404)       # only /v1/files has a DELETE
+
+    def test_delete_refuses_a_file_an_open_batch_reads(self):
+        fid = self.upload()[1]["id"]
+        b = self.req("/v1/batches", "POST", {"input_file_id": fid, "endpoint": "/v1/chat/completions",
+                                              "completion_window": "24h"})[1]
+        code, err = self.req(f"/v1/files/{fid}", "DELETE")
+        self.assertEqual(code, 400)
+        self.assertIn(b["id"], err["error"]["message"])
+        self.runner.step()                                                 # done: now it may go
+        self.assertEqual(self.req(f"/v1/files/{fid}", "DELETE")[0], 200)
+
+    def test_delete_from_a_foreign_page_is_refused(self):
+        fid = self.upload()[1]["id"]
+        self.assertEqual(self.req(f"/v1/files/{fid}", "DELETE", headers={"Origin": "http://evil.example"})[0], 403)
+        self.assertEqual(self.req(f"/v1/files/{fid}")[0], 200)
+
     def test_exposed_router_needs_the_key(self):
         self.conf.update(router_host="0.0.0.0", router_api_key="k")
         self.assertEqual(self.upload()[0], 401)
@@ -141,6 +165,51 @@ class Batches(Live):
         self.assertEqual(self.req(f"/v1/batches/{b['id']}/cancel", "POST", {})[0], 400)
         self.assertEqual(self.req("/v1/batches/batch_0123abcd/cancel", "POST", {})[0], 404)
         self.assertEqual(self.req("/v1/batches/batch_0123abcd")[0], 404)
+
+
+class PanelCard(Live):
+    """/api/batch/*: the Batches card on Stats. Panel-guarded, so no router key."""
+
+    def setUp(self):
+        super().setUp()
+        self.conf.update(router_host="0.0.0.0", router_api_key="k")    # /v1 would say 401
+
+    def test_run_a_file_then_watch_cancel_and_download(self):
+        code, b = self.req("/api/batch/run", "POST", {"filename": "q.jsonl", "content": LINE, "when": "idle"})
+        self.assertEqual(code, 200, b)
+        self.assertEqual((b["status"], b["when"], b["model"], b["request_counts"]["total"]),
+                         ("validating", "idle", "qwen", 1))
+        st = self.req("/api/batch/state")[1]
+        self.assertEqual([x["id"] for x in st["batches"]], [b["id"]])
+        self.assertEqual(st["batches"][0]["input_filename"], "q.jsonl")
+        self.assertEqual(st["quiet_minutes"], 20)
+        code, got = self.req("/api/batch/cancel", "POST", {"id": b["id"]})
+        self.assertEqual((code, got["status"]), (200, "cancelled"))
+
+        b2 = self.req("/api/batch/run", "POST", {"filename": "q.jsonl", "content": LINE})[1]
+        self.assertEqual(b2["when"], "now")
+        self.runner.step()
+        done = next(x for x in self.req("/api/batch/state")[1]["batches"] if x["id"] == b2["id"])
+        self.assertEqual(done["status"], "completed")
+        code, raw = self.req(f"/api/batch/file?id={done['output_file_id']}")
+        self.assertEqual(code, 200)
+        self.assertEqual(json.loads(raw.decode().splitlines()[0])["custom_id"], "a")
+
+    def test_bad_input_says_which_line(self):
+        code, err = self.req("/api/batch/run", "POST", {"filename": "q.jsonl", "content": LINE + "nope\n"})
+        self.assertEqual(code, 400)
+        self.assertIn("line 2", err["error"])
+        self.assertEqual(self.req("/api/batch/state")[1]["files"], [])    # no orphan upload left
+
+    def test_remove_a_finished_batch_and_its_files(self):
+        b = self.req("/api/batch/run", "POST", {"filename": "q.jsonl", "content": LINE})[1]
+        self.assertEqual(self.req("/api/batch/remove", "POST", {"id": b["id"]})[0], 400)   # still open
+        self.runner.step()
+        self.assertEqual(self.req("/api/batch/remove", "POST", {"id": b["id"]})[0], 200)
+        st = self.req("/api/batch/state")[1]
+        self.assertEqual((st["batches"], st["files"]), ([], []))
+        self.assertEqual(self.req("/api/batch/remove", "POST", {"id": b["id"]})[0], 404)
+        self.assertEqual(self.req("/api/batch/file?id=nope")[0], 404)
 
 
 class Wiring(unittest.TestCase):
