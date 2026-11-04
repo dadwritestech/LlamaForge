@@ -922,8 +922,12 @@ def get_gpus(req):
 def _phone_view(c):
     on = bool(c.get("phone_enabled")) and bool(c.get("phone_token"))
     port = c.get("phone_port", 8092)
-    return {"enabled": on, "running": phone.running(), "port": port,
-            "urls": phone.urls(port, c["phone_token"], router_ctl.lan_ip(), phone.tailnet_ips()) if on else []}
+    if not on:
+        return {"enabled": False, "running": phone.running(), "port": port, "urls": []}
+    host = phone.tailscale_host()       # a phone's mic needs HTTPS: tailscale serve gives it
+    return {"enabled": True, "running": phone.running(), "port": port,
+            "urls": phone.urls(port, c["phone_token"], router_ctl.lan_ip(), phone.tailnet_ips(), host),
+            "https_cmd": f"tailscale serve --bg {port}" if host else ""}
 
 
 def get_phone(req):
@@ -3106,6 +3110,27 @@ def post_stt_talk(req):
         raise ApiError(e.status, str(e))
     return 200, {"heard": heard, "reply": reply, "model": m,
                  "hear_s": round(t1 - t0, 2), "think_s": round(time.monotonic() - t1, 2)}
+
+
+def phone_talk(body):
+    """The phone remote's Talk (phone.py, body already sanitized) -> (status, dict).
+    Same as the panel's, and the answer is spoken here too when Speak is set up:
+    the phone gets base64 WAV in `speech`, or `speech_error` and the text."""
+    try:
+        _, out = post_stt_talk(Req(body=body))
+    except ApiError as e:
+        return e.status, {"error": e.message}
+    if not out.get("reply") or not tts.status(cfg()).get("ready"):
+        return 200, out
+    t0 = time.monotonic()
+    try:
+        audio = TTS.speak(cfg(), tts.parse_request({"input": out["reply"][:tts.MAX_CHARS]}))
+    except (ValueError, tts.TtsError) as e:
+        out["speech_error"] = str(e).splitlines()[0]
+        return 200, out
+    out["speech"] = base64.b64encode(audio).decode()
+    out["speak_s"] = round(time.monotonic() - t0, 2)
+    return 200, out
 
 
 def get_stt_status(req):

@@ -86,6 +86,8 @@ Tick **Hands-free** and the mic opens again after each answer and stops by itsel
 
 On an RTX 5080, Gemma 4 E4B heard each question in about 0.2 s and answered in 0.2 to 0.45 s, and kept the thread: after "What is the tallest mountain?", "how long does it take to climb it" was about Everest when the 12B heard it. Thinking is switched off for these turns (Gemma 4 and Qwen3 otherwise spend the reply's budget thinking), and markdown is stripped so the speech engine doesn't read out asterisks. Without Speak set up, the answers show as text.
 
+Talk works from your phone too: the [phone remote](phone.md#talk-from-your-phone) has a Talk button, and the answer is spoken on the PC and played on the phone.
+
 The panel route behind it is `POST /api/stt/talk` with `{"audio": <base64 WAV>, "history": [...], "model": ...}`, returning `{heard, reply, model, hear_s, think_s}`.
 
 From code, the panel answers OpenAI's transcription endpoint:

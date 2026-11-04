@@ -6,6 +6,8 @@ Off by default. When the user turns it on in the panel, this listener binds
 * GET  /             a self-contained chat page (no data in it)
 * GET  /api/status   models (id, loaded) and GPUs (name, memory, load)
 * POST /api/chat     a plain chat, streamed from the router
+* POST /api/talk     a recording in, what it heard and the answer out (spoken
+                     on the PC by the Voice tab's engine when that is set up)
 
 The panel itself stays loopback-only: it can rebuild llama.cpp and install
 packages, which is not something a phone link should reach. The two endpoints
@@ -15,19 +17,25 @@ moves it into localStorage. Rotating the token in the panel locks out every
 phone that has the old one. The router key is added server-side, as the Chat
 tab's proxy does, and the chat body is rebuilt from an allowlist: model,
 plain-text messages, stream.
+
+A phone browser hands a page the mic only over HTTPS. The listener stays plain
+HTTP; `tailscale serve --bg <port>` puts the tailnet's own certificate in front
+of it, and the dialog offers that https://<name>.ts.net link when this PC is on
+a tailnet.
 """
-import hmac, ipaddress, json, os, secrets, socket, threading
+import hmac, ipaddress, json, os, re, secrets, shutil, socket, subprocess, threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import chatproxy
 
 PAGE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "web", "phone.html")
 MAX_BODY_BYTES = 512 * 1024
+TALK_MAX_BYTES = 12 * 1024 * 1024     # base64 WAV: about 6 minutes at 16 kHz, far past a turn
 MAX_MESSAGES = 200
 ROLES = ("system", "user", "assistant")
 TAILNET = ipaddress.ip_network("100.64.0.0/10")   # Tailscale's CGNAT range
 CSP = ("default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; "
-       "connect-src 'self'; img-src data:; base-uri 'none'; form-action 'none'; "
+       "connect-src 'self'; img-src data:; media-src blob:; base-uri 'none'; form-action 'none'; "
        "frame-ancestors 'none'")
 
 
@@ -60,6 +68,21 @@ def sanitize_chat(body):
             "stream_options": {"include_usage": True}}
 
 
+def sanitize_talk(body):
+    """{audio, model, history} for routes.phone_talk, or None. The history keeps
+    only plain user/assistant text; the audio itself is checked further on."""
+    if not isinstance(body, dict):
+        return None
+    audio, model, hist = body.get("audio"), body.get("model", ""), body.get("history", [])
+    if (not isinstance(audio, str) or not audio or not isinstance(model, str)
+            or len(model) > 256 or not isinstance(hist, list)):
+        return None
+    keep = [{"role": m["role"], "content": m["content"]} for m in hist[-MAX_MESSAGES:]
+            if isinstance(m, dict) and m.get("role") in ("user", "assistant")
+            and isinstance(m.get("content"), str)]
+    return {"audio": audio, "model": model, "history": keep}
+
+
 def status(code, models, gpus):
     rows = models.get("data", []) if code == 200 and isinstance(models, dict) else []
     return {"models": [{"id": m.get("id"), "loaded": (m.get("status") or {}).get("value") == "loaded"}
@@ -83,9 +106,45 @@ def tailnet_ips():
     return sorted({i[4][0] for i in infos if is_tailnet(i[4][0])})
 
 
-def urls(port, token, lan, tailnet):
+_DNS = re.compile(r"^[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$")
+
+
+def ts_host(status_json):
+    """This PC's MagicDNS name from `tailscale status --json`, or ""."""
+    try:
+        st = json.loads(status_json)
+        name = (st.get("Self") or {}).get("DNSName") or ""
+    except (ValueError, AttributeError, TypeError):
+        return ""
+    name = name.rstrip(".") if isinstance(name, str) else ""
+    return name if st.get("BackendState") == "Running" and _DNS.match(name) else ""
+
+
+def _find_tailscale():
+    for c in (shutil.which("tailscale"), r"C:\Program Files\Tailscale\tailscale.exe",
+              "/Applications/Tailscale.app/Contents/MacOS/Tailscale"):
+        if c and os.path.isfile(c):
+            return c
+    return ""
+
+
+def tailscale_host(run=subprocess.run, find=_find_tailscale):
+    """Ask the Tailscale CLI, when there is one, for this PC's tailnet name."""
+    exe = find()
+    if not exe:
+        return ""
+    try:
+        r = run([exe, "status", "--json"], capture_output=True, text=True, timeout=4,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    return ts_host(r.stdout) if r.returncode == 0 else ""
+
+
+def urls(port, token, lan, tailnet, https_host=""):
     out = [{"kind": "lan", "url": f"http://{lan}:{port}/#k={token}"}] if lan else []
-    return out + [{"kind": "tailnet", "url": f"http://{ip}:{port}/#k={token}"} for ip in tailnet]
+    out += [{"kind": "tailnet", "url": f"http://{ip}:{port}/#k={token}"} for ip in tailnet]
+    return out + ([{"kind": "https", "url": f"https://{https_host}/#k={token}"}] if https_host else [])
 
 
 # ------------------------------------------------------------------ listener
@@ -104,6 +163,10 @@ class RouterDeps:
     def chat(self, body):
         import routes
         return routes._router_openai(body, stream=True)
+
+    def talk(self, body):
+        import routes
+        return routes.phone_talk(body)
 
 
 def make_handler(get_cfg, deps):
@@ -158,7 +221,8 @@ def make_handler(get_cfg, deps):
 
         def do_POST(self):
             c = get_cfg()
-            if not c.get("phone_enabled") or self.path.split("?", 1)[0] != "/api/chat":
+            path = self.path.split("?", 1)[0]
+            if not c.get("phone_enabled") or path not in ("/api/chat", "/api/talk"):
                 self.close_connection = True
                 return self._send(404, {"error": "not found"})
             if not self._authed(c):
@@ -170,13 +234,21 @@ def make_handler(get_cfg, deps):
                 return self._send(415, {"error": "Content-Type must be application/json"})
             raw = self.headers.get("Content-Length") or ""
             if (self.headers.get("Transfer-Encoding") is not None or not raw.isascii()
-                    or not raw.isdecimal() or int(raw) > MAX_BODY_BYTES):
+                    or not raw.isdecimal()
+                    or int(raw) > (TALK_MAX_BYTES if path == "/api/talk" else MAX_BODY_BYTES)):
                 self.close_connection = True
                 return self._send(400, {"error": "bad request body"})
             try:
-                body = sanitize_chat(json.loads(self.rfile.read(int(raw)) or b"null"))
+                got = json.loads(self.rfile.read(int(raw)) or b"null")
             except ValueError:
-                body = None
+                got = None
+            if path == "/api/talk":
+                body = sanitize_talk(got)
+                if body is None:
+                    return self._send(400, {"error": "send a recording"})
+                code, out = deps.talk(body)
+                return self._send(code, out)
+            body = sanitize_chat(got)
             if body is None:
                 return self._send(400, {"error": "send a model and at least one message"})
             code, resp = deps.chat(body)

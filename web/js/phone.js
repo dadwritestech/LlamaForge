@@ -7,6 +7,20 @@ import { qrSVG } from "./qr.js";
 
 let pick = 0;           // which link the QR shows: LAN first, then any tailnet
 
+export const linkLabel = kind =>
+  ({lan: "Wi-Fi / LAN", tailnet: "Tailscale", https: "Tailscale HTTPS (Talk)"})[kind] || kind;
+
+/** What the chosen link reaches, and whether the phone's mic works on it
+ *  (browsers give a page the mic only over HTTPS). */
+export function linkNote(u, httpsCmd) {
+  if (u.kind === "https") return `over Tailscale with HTTPS, so <b>Talk</b> can use the phone's mic.
+    Run <code>${esc(httpsCmd)}</code> once on this PC first (HTTPS has to be on for your tailnet).`;
+  const where = u.kind === "tailnet" ? "over Tailscale, from anywhere your phone is on your tailnet."
+                                     : "on the same Wi-Fi as this PC.";
+  return `${where} Chat works here; Talk's mic needs HTTPS: ${httpsCmd
+    ? "use the <b>Tailscale HTTPS</b> link." : "see the Tailscale HTTPS link in the docs."}`;
+}
+
 export async function openPhone() {
   show(await api("/api/phone").catch(e => ({error: String(e.message || e)})));
 }
@@ -43,11 +57,11 @@ function show(d) {
   const u = urls[pick];
   const bare = u.url.split("#")[0];
   const tabs = urls.length > 1 ? `<div class="af-act">${urls.map((x, i) =>
-    `<button type="button" class="qbtn${i === pick ? " load" : ""}" data-phone-pick="${i}">${x.kind === "tailnet" ? "Tailscale" : "Wi-Fi / LAN"}</button>`).join("")}</div>` : "";
+    `<button type="button" class="qbtn${i === pick ? " load" : ""}" data-phone-pick="${i}">${esc(linkLabel(x.kind))}</button>`).join("")}</div>` : "";
   showModal("Chat from your phone", `${tabs}
     <div class="phone-qr">${qrSVG(u.url, 240)}</div>
     <p class="af-q">Scan with your phone's camera. It opens <code>${esc(bare)}</code>
-      ${u.kind === "tailnet" ? "over Tailscale, from anywhere your phone is on your tailnet." : "on the same Wi-Fi as this PC."}</p>
+      ${linkNote(u, d.https_cmd || "")}</p>
     <p class="af-q">${d.running ? "" : "<b>The listener isn't running:</b> turn it off and on again. "}Anyone with this link
       can chat with your models. <b>New link</b> unpairs every phone that has the old one.</p>
     <div class="af-act"><button type="button" class="qbtn" data-phone-copy>Copy link</button>

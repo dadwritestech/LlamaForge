@@ -6,8 +6,9 @@
 <meta name="referrer" content="no-referrer">
 <title>LlamaForge</title>
 <!-- The phone remote (backend/phone.py). Self-contained: the listener serves
-     this page and two token-guarded endpoints, nothing else. Every model or
-     server string goes in through textContent. -->
+     this page and three token-guarded endpoints, nothing else. Every model or
+     server string goes in through textContent. Talk records the mic here, as
+     16 kHz WAV, and a phone only allows that on an HTTPS page. -->
 <style>
 :root{--navy:#13243f;--deep:#0b1628;--ink:#e8eef6;--dim:#8a9bb3;--amber:#ffc21a;--hair:#24385a;--red:#ff6b5e}
 *{box-sizing:border-box}
@@ -37,13 +38,16 @@ textarea{flex:1;resize:none;background:var(--deep);color:var(--ink);border:1px s
   padding:9px 10px;font:inherit;font-size:16px;max-height:30vh;border-radius:0}
 button{background:var(--amber);color:var(--navy);border:0;padding:0 16px;font:600 15px 'Barlow Condensed','Arial Narrow',sans-serif;border-radius:0}
 button:disabled{opacity:.45}
+#talk{background:none;color:var(--amber);border:1px solid var(--amber)}
+#talk.on{background:var(--red);color:var(--deep);border-color:var(--red)}
+.play{background:none;color:var(--amber);border:1px solid var(--hair);padding:2px 8px;font-size:12px;margin-left:8px}
 #new{background:none;color:var(--dim);border:1px solid var(--hair);padding:6px 9px;font-size:13px}
 </style></head>
 <body>
 <header><b>LLAMAFORGE</b><select id="model" aria-label="Model"></select><button id="new" type="button">New</button></header>
 <div id="gpu">connecting…</div>
 <main id="log"><div class="empty" id="empty"><b>PHONE REMOTE</b><span id="hint">Chat with the models on your own GPUs.</span></div></main>
-<form id="f"><textarea id="q" rows="1" placeholder="Message" aria-label="Message"></textarea><button id="send">Send</button></form>
+<form id="f"><textarea id="q" rows="1" placeholder="Message" aria-label="Message"></textarea><button id="talk" type="button">Talk</button><button id="send">Send</button></form>
 <script>
 (function () {
   "use strict";
@@ -180,6 +184,147 @@ button:disabled{opacity:.45}
     var h = el("span", null, "New chat."); h.id = "hint"; e.appendChild(h);
     log.appendChild(e);
   });
+  // ---- Talk: record, the PC hears and answers, the answer plays here
+  var RATE = 16000, LOUD = 0.02, QUIET_S = 1.2, MAX_S = 60;
+  var talkBtn = $("talk"), rec = null, player = null, actx = null;
+
+  function wav(samples) {                     // float mono -> 16-bit WAV bytes
+    var n = samples.length, buf = new ArrayBuffer(44 + n * 2), v = new DataView(buf);
+    function str(o, x) { for (var i = 0; i < x.length; i++) v.setUint8(o + i, x.charCodeAt(i)); }
+    str(0, "RIFF"); v.setUint32(4, 36 + n * 2, true); str(8, "WAVE"); str(12, "fmt ");
+    v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+    v.setUint32(24, RATE, true); v.setUint32(28, RATE * 2, true); v.setUint16(32, 2, true);
+    v.setUint16(34, 16, true); str(36, "data"); v.setUint32(40, n * 2, true);
+    for (var i = 0; i < n; i++) {
+      var x = Math.max(-1, Math.min(1, samples[i]));
+      v.setInt16(44 + i * 2, x < 0 ? x * 0x8000 : x * 0x7fff, true);
+    }
+    return new Uint8Array(buf);
+  }
+  function b64(bytes) {
+    var s = "";
+    for (var i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+    return btoa(s);
+  }
+  function unb64(text) {
+    var s = atob(text), out = new Uint8Array(s.length);
+    for (var i = 0; i < s.length; i++) out[i] = s.charCodeAt(i);
+    return out;
+  }
+  function downsample(chunks, rate) {         // average down to 16 kHz
+    var len = 0; chunks.forEach(function (c) { len += c.length; });
+    var all = new Float32Array(len), o = 0;
+    chunks.forEach(function (c) { all.set(c, o); o += c.length; });
+    var step = rate / RATE, out = new Float32Array(Math.floor(len / step));
+    for (var i = 0; i < out.length; i++) {
+      var a = Math.floor(i * step), b = Math.min(len, Math.floor((i + 1) * step)), sum = 0;
+      for (var j = a; j < b; j++) sum += all[j];
+      out[i] = b > a ? sum / (b - a) : all[a] || 0;
+    }
+    return out;
+  }
+  function note(text) {
+    var b = bubble("bot");
+    b.appendChild(el("div", "meta", text));
+  }
+  function play(bytes) {
+    if (!player) return;
+    if (player.src) URL.revokeObjectURL(player.src);
+    player.src = URL.createObjectURL(new Blob([bytes], {type: "audio/wav"}));
+    talkBtn.textContent = "Stop";
+    player.onended = function () { talkBtn.textContent = "Talk"; };
+    player.play().catch(function () { talkBtn.textContent = "Talk"; });
+  }
+
+  function listen() {
+    if (!window.isSecureContext || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      note("Your phone only lets a page use the mic over HTTPS, and this link is plain HTTP. " +
+           "In LlamaForge on your PC, open Phone and scan the Tailscale HTTPS code. Typing works here as it is.");
+      return;
+    }
+    var AC = window.AudioContext || window.webkitAudioContext;
+    actx = actx || new AC();                    // made inside the tap, so iOS lets it run
+    actx.resume();
+    if (!player) {                              // unlock playback inside the tap too
+      player = new Audio();
+      player.src = URL.createObjectURL(new Blob([wav(new Float32Array(160))], {type: "audio/wav"}));
+      player.play().catch(function () {});
+    }
+    talkBtn.disabled = true;
+    navigator.mediaDevices.getUserMedia({audio: {echoCancellation: true, noiseSuppression: true}})
+    .then(function (stream) {
+      var src = actx.createMediaStreamSource(stream), proc = actx.createScriptProcessor(4096, 1, 1);
+      var chunks = [], spoke = false, quiet = 0, secs = 0;
+      proc.onaudioprocess = function (e) {
+        var d = e.inputBuffer.getChannelData(0), sum = 0;
+        chunks.push(new Float32Array(d));
+        for (var i = 0; i < d.length; i++) sum += d[i] * d[i];
+        var dt = d.length / actx.sampleRate;
+        secs += dt;
+        if (Math.sqrt(sum / d.length) > LOUD) { spoke = true; quiet = 0; } else if (spoke) quiet += dt;
+        if ((spoke && quiet >= QUIET_S) || secs >= MAX_S) stop();
+      };
+      src.connect(proc); proc.connect(actx.destination);
+      function stop() {
+        if (!rec) return;
+        rec = null;
+        proc.onaudioprocess = null;
+        proc.disconnect(); src.disconnect();
+        stream.getTracks().forEach(function (t) { t.stop(); });
+        talkBtn.classList.remove("on"); talkBtn.textContent = "Talk";
+        talk(downsample(chunks, actx.sampleRate));
+      }
+      rec = {stop: stop};
+      talkBtn.disabled = false; talkBtn.classList.add("on"); talkBtn.textContent = "Stop";
+    })
+    .catch(function (e) { talkBtn.disabled = false; note("No microphone: " + (e.message || e.name)); });
+  }
+
+  function talk(samples) {
+    if (samples.length < RATE / 2) { note("Didn't catch anything. Try again, a little closer."); return; }
+    var u = bubble("user", "…"), b = bubble("bot"), body = el("div"), meta = el("div", "meta", "hearing…");
+    b.appendChild(body); b.appendChild(meta);
+    busy = true; send.disabled = true; talkBtn.disabled = true;
+    var hist = history_.filter(function (m) { return m.role === "user" || m.role === "assistant"; });
+    api("/api/talk", {method: "POST", headers: {"Content-Type": "application/json"},
+                      body: JSON.stringify({audio: b64(wav(samples)), model: sel.value, history: hist})})
+    .then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (j) {
+        if (!r.ok) throw new Error(typeof j.error === "string" ? j.error : "error " + r.status);
+        return j;
+      });
+    })
+    .then(function (j) {
+      if (!j.heard) { u.remove(); b.remove(); note("Didn't catch any words. Try again."); return; }
+      u.textContent = j.heard;
+      body.textContent = j.reply;
+      history_.push({role: "user", content: j.heard}, {role: "assistant", content: j.reply});
+      var t = j.model + " · hear " + j.hear_s + " s · think " + j.think_s + " s";
+      if (j.speak_s != null) t += " · speak " + j.speak_s + " s";
+      meta.textContent = t;
+      if (j.speech) {
+        var bytes = unb64(j.speech), again = el("button", "play", "Play");
+        again.type = "button";
+        again.addEventListener("click", function () { play(bytes); });
+        meta.appendChild(again);
+        play(bytes);
+      } else if (j.speech_error) {
+        meta.appendChild(el("div", "err", "Not spoken: " + j.speech_error));
+      }
+      log.scrollTop = log.scrollHeight;
+    })
+    .catch(function (e) { u.remove(); meta.textContent = ""; body.className = "err"; body.textContent = e.message; })
+    .then(function () { busy = false; send.disabled = false; talkBtn.disabled = false; });
+  }
+
+  talkBtn.addEventListener("click", function () {
+    if (rec) return rec.stop();
+    if (player && !player.paused && talkBtn.textContent === "Stop") {
+      player.pause(); talkBtn.textContent = "Talk"; return;
+    }
+    if (!busy) listen();
+  });
+
   refresh();
   setInterval(function () { if (!busy && !document.hidden) refresh(); }, 5000);
 })();
