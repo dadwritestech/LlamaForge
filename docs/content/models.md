@@ -59,7 +59,7 @@ Because the flag count is entirely a function of your `llama-server` build, Llam
    - The chips rank the quant types by bytes. Mixed quants show up here: a block whose bar is longer than its neighbours was given a bigger type.
    - Drag the **GPU layers** slider to see what moves at another setting. It's a what-if only: nothing is saved, and **Back to N** returns to the model's own value.
    - **Compare with** lists the other quants in the model's Hugging Face repo. Pick one and LlamaForge reads only its GGUF header over an HTTP Range request (a few MB, none of the weights) and draws both stacks side by side, on one scale and under the same settings and GPU layers. The line above them says what the other quant costs: the weights, and how much more or less lands on the GPU and in system RAM. It needs the file to have come from Hugging Face, through LlamaForge or the HF cache.
-   - **Share image** turns the view on screen, slider included, into a 1200x630 card with the model's name, architecture, quant mix and GPU / RAM split, but no paths. **Download image** or **Copy image** it.
+   - **Share image** turns the view on screen, slider included, into a 1200x630 card with the model's name, architecture, quant mix and GPU / RAM split, but no paths. **Download image** or **Copy image** it. With **Compare with** on, it makes the two-up card instead: both quants side by side on one scale, with what the other one costs (weights, GPU, system RAM) as the headline.
 
      ![X-ray card: Gemma 4 26B at 10 GPU layers](docs/img/xray-card.png)
 

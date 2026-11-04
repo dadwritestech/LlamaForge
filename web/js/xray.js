@@ -176,19 +176,20 @@ export async function openXray(id) {
 // The view on screen (slider included) as a 1200x630 image (xraycard.js), loaded on
 // first use. Same dialog as the other share cards.
 async function shareXray(v, id) {
-  const { drawXray } = await import("./xraycard.js");
-  showModal(`Share X-ray: ${id}`, `<canvas class="af-card" width="1200" height="630" aria-label="Model X-ray card"></canvas>
+  const { drawXray, drawCompare } = await import("./xraycard.js");
+  showModal(v.vs ? `Share quant compare: ${id}` : `Share X-ray: ${id}`, `<canvas class="af-card" width="1200" height="630" aria-label="Model X-ray card"></canvas>
     <p class="af-q">Holds the model's name, architecture, layer sizes, quant types and the GPU / RAM split. No paths.</p>
     <div class="af-act"><button type="button" class="qbtn load" data-xc-png>Download image</button>
       <button type="button" class="qbtn" data-xc-copyimg>Copy image</button></div>`);
   const dlg = document.querySelector("#modal-root dialog");
   const canvas = dlg && dlg.querySelector("canvas.af-card");
   if (!canvas) return;
-  await drawXray(canvas, v, id);
+  await (v.vs ? drawCompare : drawXray)(canvas, v, id);
   const blob = () => new Promise(r => canvas.toBlob(r, "image/png"));
   dlg.querySelector("[data-xc-png]").onclick = async () => {
     const url = URL.createObjectURL(await blob());
-    const name = "llamaforge-xray-" + String(id).replace(/[^\w.-]+/g, "_") + ".png";
+    const name = "llamaforge-xray-" + String(id).replace(/[^\w.-]+/g, "_")
+      + (v.vs ? "-vs-" + quantName(v.vs.file).replace(/[^\w.-]+/g, "_") : "") + ".png";
     const a = Object.assign(document.createElement("a"), {href: url, download: name});
     a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
   };

@@ -65,6 +65,38 @@ test("a tied output's GPU copy is said, and a guess is marked", () => {
   assert.match(X.xrayCardText({...view, confident: true}, "m").note, /GGUF header/);
 });
 
+const other = {
+  ...view, file: "m-Q8_0.gguf", total: 6 * G, gpu: 4 * G, ram: 2 * G,
+  types: [{type: "Q8_0", bytes: 6 * G, share: 1}],
+  rows: view.rows.map(r => ({...r, gpu: r.gpu * 2, ram: r.ram * 2,
+    parts: Object.fromEntries(Object.entries(r.parts).map(([k, b]) => [k, b * 2])),
+    ram_parts: Object.fromEntries(Object.entries(r.ram_parts).map(([k, b]) => [k, b * 2]))})),
+};
+const pair = {...view, file: "m-Q4_K_M.gguf", vs: other};
+
+test("the two-up card leads with what the other quant costs", () => {
+  const t = X.compareCardText(pair, "gemma-4-26b");
+  assert.equal(t.kicker, "WHICH QUANT FITS?");
+  assert.equal(t.delta, "Q8_0 vs Q4_K_M: +3.00 GB of weights, +2.00 GB on GPU, +1.00 GB in system RAM");
+  assert.equal(t.sub, "gemma4  ·  2 blocks  ·  GPU layers: all 2 blocks + output");
+  assert.deepEqual(t.halves.map(h => h.name), ["Q4_K_M", "Q8_0"]);
+  assert.equal(t.halves[1].line, "6.00 GB  ·  4.00 GB GPU  ·  2.00 GB RAM");
+  assert.equal(t.halves[1].types, "Q8_0 100%");
+});
+
+test("both halves share one scale, so the bigger quant stands taller", () => {
+  const [a, b] = X.compareCardText(pair, "m").halves;
+  assert.deepEqual(a.cols.map(c => c.h), [0.25, 0.5, 0.5, 0.25]);
+  assert.deepEqual(b.cols.map(c => c.h), [0.5, 1, 1, 0.5]);
+});
+
+test("the two-up card marks a guess from either side and keeps no paths", () => {
+  assert.match(X.compareCardText({...pair, vs: {...other, confident: false}}, "m").note, /guess/);
+  assert.match(X.compareCardText(pair, "m").note, /Headers only, nothing downloaded/);
+  const t = X.compareCardText({...pair, model: "D:/secret/m.gguf", vs: {...other, file: "sub/m-Q8_0.gguf"}}, "m");
+  assert.doesNotMatch(JSON.stringify(t), /secret|sub\//);
+});
+
 test("every kind has a colour and the card keeps no paths", () => {
   for (const [k] of X.KIND_ORDER) assert.match(X.KIND_COLORS[k], /^#[0-9a-f]{6}$/i, k);
   const t = X.xrayCardText({...view, model: "D:/secret/m.gguf"}, "m");
