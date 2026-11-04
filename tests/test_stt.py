@@ -68,6 +68,15 @@ class AudioModels(unittest.TestCase):
         self.assertIn("audio", str(e.exception))
 
 
+class Offer(unittest.TestCase):
+    def test_voxtral_is_offered_with_its_projector(self):
+        o = stt.OFFER
+        self.assertEqual(o["repo"], "ggml-org/Voxtral-Mini-3B-2507-GGUF")
+        self.assertTrue(o["path"].endswith(".gguf") and o["mmproj"].startswith("mmproj-"))
+        self.assertEqual(o["bytes"], 2473001920 + 715714080)
+        self.assertEqual(o["license"], "Apache-2.0")
+
+
 class Formats(unittest.TestCase):
     def test_sniff(self):
         self.assertEqual(stt.sniff_format(WAV), "wav")
@@ -117,29 +126,39 @@ class ParseRequest(unittest.TestCase):
 
 
 class ChatBody(unittest.TestCase):
-    def test_audio_goes_in_as_input_audio(self):
+    # Shapes found against Voxtral Mini on a real router (2026-11-04): audio
+    # first, then "Repeat exactly what was said". A system prompt, the word
+    # "transcribe", or a language hint made it refuse or stop after a sentence.
+    def test_audio_first_then_the_ask(self):
         b = stt.chat_body("voxtral", WAV, "wav", language="de", prompt="GGUF", temperature=0.0)
-        self.assertEqual(b["model"], "voxtral")
-        self.assertEqual(b["temperature"], 0.0)
-        self.assertFalse(b["stream"])
-        parts = b["messages"][-1]["content"]
-        audio = [p for p in parts if p["type"] == "input_audio"][0]["input_audio"]
-        self.assertEqual(audio, {"data": base64.b64encode(WAV).decode(), "format": "wav"})
-        text = " ".join(p["text"] for p in parts if p["type"] == "text")
-        self.assertIn("Transcribe", text)
-        self.assertIn("de", text)
-        self.assertIn("GGUF", text)
+        self.assertEqual((b["model"], b["temperature"], b["stream"]), ("voxtral", 0.0, False))
+        self.assertEqual(len(b["messages"]), 1)
+        audio, ask = b["messages"][0]["content"]
+        self.assertEqual(audio["input_audio"], {"data": base64.b64encode(WAV).decode(), "format": "wav"})
+        self.assertIn("Repeat exactly what was said", ask["text"])
+        self.assertNotIn("ranscribe", ask["text"])
+        self.assertIn("GGUF", ask["text"])
+        self.assertNotIn("'de'", ask["text"])
 
-    def test_no_language_no_prompt(self):
+    def test_no_prompt(self):
         b = stt.chat_body("m", MP3, "mp3")
-        text = " ".join(p["text"] for p in b["messages"][-1]["content"] if p["type"] == "text")
-        self.assertNotIn("language", text.lower())
+        self.assertNotIn("Spell", b["messages"][0]["content"][1]["text"])
 
 
 class Transcript(unittest.TestCase):
     def test_text_from_reply(self):
         r = {"choices": [{"message": {"content": "  <think>hm</think>\nHello there.  "}}]}
         self.assertEqual(stt.transcript(r), "Hello there.")
+
+    def test_lead_in_and_quotes_are_dropped(self):
+        said = "The quick brown fox jumps over the lazy dog. LlamaForge runs speech-to-text on your own GPU."
+        got = "Here's the text you provided, repeated exactly as you said it:\n\n\"" + said + '"'
+        self.assertEqual(stt.transcript({"choices": [{"message": {"content": got}}]}), said)
+        self.assertEqual(stt.transcript({"choices": [{"message": {"content": '"Llama Forge runs."'}}]}),
+                         "Llama Forge runs.")
+        # a colon inside the speech itself stays
+        self.assertEqual(stt.transcript({"choices": [{"message": {"content": "Note: buy milk."}}]}),
+                         "Note: buy milk.")
 
     def test_bad_reply(self):
         with self.assertRaises(stt.SttError) as e:

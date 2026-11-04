@@ -21,6 +21,15 @@ import gguf
 MAX_BYTES = 25 * 1024 * 1024        # OpenAI's limit for one transcription upload
 FORMATS = ("json", "text")
 
+# The one-click model on the Voice tab: Mistral's Voxtral Mini, as ggml-org
+# packs it. It goes through the Discover download, which registers it in
+# models.ini with its audio mmproj beside it.
+OFFER = {"label": "Voxtral Mini 3B", "repo": "ggml-org/Voxtral-Mini-3B-2507-GGUF",
+         "path": "Voxtral-Mini-3B-2507-Q4_K_M.gguf",
+         "mmproj": "mmproj-Voxtral-Mini-3B-2507-Q8_0.gguf",
+         "bytes": 2473001920 + 715714080, "license": "Apache-2.0",
+         "note": "English and seven more languages; about 4.3 GB of VRAM at an 8k context."}
+
 
 class SttError(Exception):
     def __init__(self, message, status=400):
@@ -96,32 +105,42 @@ def parse_request(ctype, raw, max_bytes=MAX_BYTES):
 
 
 def chat_body(model, audio, fmt, language=None, prompt="", temperature=0.0):
-    """The router chat request that transcribes `audio`."""
-    ask = "Transcribe this audio word for word. Reply with the transcript only, no comments."
-    if language:
-        ask += f" The speech is in language '{language}'; write it in that language."
+    """The router chat request that transcribes `audio`.
+
+    The shape was found against Voxtral Mini on a real router: the audio part
+    first, then "Repeat exactly what was said". A system prompt or the word
+    "transcribe" made it answer "I can't transcribe audio", and a language hint
+    made it stop after the first sentence, so `language` is accepted (OpenAI's
+    SDK sends it) but left to the model, which detects the language itself."""
+    ask = "Repeat exactly what was said, word for word, with nothing else."
     if prompt:
-        ask += f" Context, for spelling names and terms: {prompt}"
+        ask += f" Spell names and terms as in: {prompt}"
     return {"model": model, "temperature": temperature, "stream": False,
             "messages": [{"role": "user", "content": [
-                {"type": "text", "text": ask},
                 {"type": "input_audio",
-                 "input_audio": {"data": base64.b64encode(audio).decode(), "format": fmt}}]}]}
+                 "input_audio": {"data": base64.b64encode(audio).decode(), "format": fmt}},
+                {"type": "text", "text": ask}]}]}
 
 
 _THINK = re.compile(r"<think>.*?</think>", re.S)
+# "Here's the text you provided, repeated exactly as you said it:" then a blank line
+_LEAD_IN = re.compile(r"\A[^\n]*:\s*\n\s*\n")
 
 
 def transcript(reply):
     """The words from the router's chat reply. Raises SttError (502) with the
-    router's own message when there are none."""
+    router's own message when there are none. A chatty lead-in line and the
+    quotes some models wrap the words in are dropped."""
     try:
         content = reply["choices"][0]["message"]["content"]
     except (KeyError, IndexError, TypeError):
         err = (reply or {}).get("error") if isinstance(reply, dict) else None
         msg = err.get("message") if isinstance(err, dict) else err
         raise SttError(f"the router gave no transcript: {msg or 'empty reply'}", 502)
-    return _THINK.sub("", content or "").strip()
+    text = _LEAD_IN.sub("", _THINK.sub("", content or "").strip()).strip()
+    if len(text) > 1 and text[0] == text[-1] == '"':
+        text = text[1:-1].strip()
+    return text
 
 
 def respond(text, response_format):

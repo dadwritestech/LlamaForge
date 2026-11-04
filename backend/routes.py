@@ -3081,7 +3081,7 @@ def post_stt_transcribe(req):
 
 
 def get_stt_status(req):
-    return 200, {"models": _stt_models()}
+    return 200, {"models": _stt_models(), "offer": stt.OFFER, "download": DOWNLOADS.progress()}
 
 
 def get_tts_status(req):

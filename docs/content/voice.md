@@ -64,7 +64,13 @@ Errors use the OpenAI shape (`{"error": {"message", "type"}}`): 400 for a bad re
 
 ## Speech to text
 
-The other direction needs no extra tool. llama.cpp's server takes audio in a chat request for models whose projector (`mmproj`) has an audio encoder, such as Voxtral, Qwen2.5-Omni and Ultravox. Add one to your models with its mmproj like any vision model, and the panel answers OpenAI's transcription endpoint with it:
+The other direction needs no extra tool. llama.cpp's server takes audio in a chat request for models whose projector (`mmproj`) has an audio encoder, such as Voxtral, Gemma 4, Qwen2.5-Omni and Ultravox.
+
+**On the Voice tab**, the **Speech to text** card has a **Record** button: talk, press **Stop**, and the words come back from your own GPU. **Speak it back** drops them into the Speak box. When nothing you have can hear yet, the card offers **Voxtral Mini 3B** (ggml-org's GGUF, about 3 GB, Apache-2.0) and adds it to your models with its mmproj in one click.
+
+Tested on an RTX 5080 with a clip spoken by Qwen3-TTS: Voxtral Mini Q4_K_M gave back both sentences word for word, 6.7 s of speech in 0.45 s through the `openai` SDK, using about 4.3 GB of VRAM at an 8k context.
+
+From code, the panel answers OpenAI's transcription endpoint:
 
 ```bash
 curl http://127.0.0.1:8090/v1/audio/transcriptions   -F file=@meeting.wav -F model=whisper-1
@@ -78,9 +84,10 @@ print(client.audio.transcriptions.create(model="whisper-1", file=open("meeting.w
 
 - `file` (required): WAV, MP3 or FLAC, up to 25 MB. llama.cpp decodes these itself; other formats (WebM, M4A) are a 400, so convert them first.
 - `model`: the name of a model that can hear. Anything else, like OpenAI's `whisper-1`, uses the first one. With none, the error says so.
-- `language` and `prompt`: passed to the model as hints (the language to write in; names and terms to spell right).
+- `prompt`: names and terms to spell right, passed to the model as a hint.
+- `language`: accepted, but left to the model, which detects the language itself. (Told the language, Voxtral stopped after the first sentence.)
 - `response_format`: `json` (the default, `{"text": ...}`) or `text`. `srt`, `vtt` and `verbose_json` are a 400: a chat model gives no timestamps, and LlamaForge won't invent them.
 - `temperature`: default 0.
 
-The model is a chat model listening, not a dedicated speech recognizer: it follows the instruction to transcribe word for word, and usually does. It loads on the router like any other request, so the first call waits for the load. The key rules are the same as for `/v1/audio/speech`.
+The model is a chat model listening, not a dedicated speech recognizer: it is asked to repeat exactly what was said, and usually does. A chatty lead-in ("Here's the text...") and wrapping quotes are trimmed off. It loads on the router like any other request, so the first call waits for the load. The key rules are the same as for `/v1/audio/speech`.
 

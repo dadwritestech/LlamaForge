@@ -78,7 +78,7 @@ class OpenAIRoute(Live):
         self.assertEqual((code, got), (200, {"text": "Hello from the GPU."}))
         sent = self.sent[0]
         self.assertEqual(sent["model"], "voxtral")
-        audio = sent["messages"][-1]["content"][-1]["input_audio"]
+        audio = [p for p in sent["messages"][-1]["content"] if p["type"] == "input_audio"][0]["input_audio"]
         self.assertEqual((audio["format"], base64.b64decode(audio["data"])), ("wav", WAV))
 
     def test_text_format(self):
@@ -119,7 +119,10 @@ class OpenAIRoute(Live):
 
 class PanelRoutes(Live):
     def test_status_lists_the_models_that_can_hear(self):
-        self.assertEqual(self.req("/api/stt/status"), (200, {"models": ["voxtral"]}))
+        code, got = self.req("/api/stt/status")
+        self.assertEqual((code, got["models"]), (200, ["voxtral"]))
+        self.assertEqual(got["offer"]["repo"], "ggml-org/Voxtral-Mini-3B-2507-GGUF")
+        self.assertIn("phase", got["download"])
 
     def test_mic_posts_base64_json(self):
         code, got = self.req("/api/stt/transcribe", "POST",

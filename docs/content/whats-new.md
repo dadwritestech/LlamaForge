@@ -8,6 +8,10 @@ order: 1
 
 This page summarizes the most recent additions to LlamaForge. Each entry links to the full reference for that capability. For the longer-term direction, see the project's `ROADMAP.md`.
 
+## v0.18.31: Talk to it
+
+The Voice tab now listens. **Speech to text** has a **Record** button: talk, press Stop, and the words come back from a model on your own GPU (Voxtral Mini turned 6.7 seconds of speech into text in under half a second on an RTX 5080). **Speak it back** hands them to Qwen3-TTS, so the whole voice loop runs on your machine. Nothing that can hear yet? One click gets Voxtral Mini 3B. Scripts get OpenAI's `/v1/audio/transcriptions`: the `openai` SDK works unchanged. See [Voice](voice.md#speech-to-text).
+
 ## v0.18.30: OpenAI's Batch API, on your GPU
 
 Got a thousand documents to summarise? **Stats → Batches** takes a `.jsonl` of chat requests in OpenAI's batch format and works through them into a results file: **now**, or **tonight** once nobody has used the router for 20 minutes. Scripts written for OpenAI's `/v1/files` and `/v1/batches` work unchanged: point the `openai` SDK at the panel. A batch survives a restart, pauses while a speed comparison or Auto-Forge needs the GPUs, and a bad request fails one line, not the file. See [Batches](batch.md).

@@ -7,6 +7,7 @@
 // stdlib backend never needs a codec. Every value interpolated goes through esc().
 import { $, $$, api, esc, setHTML, toast, askYes, askText } from "./core.js";
 import { encodeWav, wavPeaks, trimSilence, toBase64 } from "./wav.js";
+import { listenMarkup, wireListen } from "./listen.js";
 
 const RATE = 24000;             // what llama-tts writes and what clips are stored at
 const MAX_REC_S = 30;
@@ -19,8 +20,9 @@ const active = st => st.models.find(m => m.id === V.model) || st.models[0] || nu
 const secs = s => s < 60 ? s.toFixed(1) + " s" : Math.floor(s / 60) + " min " + Math.round(s % 60) + " s";
 
 export async function loadVoice() {
-  let st;
-  try { st = await api("/api/tts/status"); } catch (e) { st = null; }
+  let st, heard;
+  [st, heard] = await Promise.all([api("/api/tts/status").catch(() => null),
+                                   api("/api/stt/status").catch(() => null)]);
   const host = $("#view-voice");
   if (!host) return;
   if (!st || st.error) {
@@ -28,8 +30,11 @@ export async function loadVoice() {
     return;
   }
   V.st = st;
-  setHTML(host, setupCard(st) + speakCard(st) + voicesCard(st) + connectCard(st));
+  if (heard && heard.error) heard = null;
+  setHTML(host, setupCard(st) + speakCard(st) + listenMarkup(heard, location.origin)
+                + voicesCard(st) + connectCard(st));
   wire(host, st);
+  if (heard) wireListen(host, heard, { onSpeak: speakThis, reload: loadVoice });
   watchDownload(st);
 }
 
@@ -164,6 +169,16 @@ function wire(host, st) {
   const copy = $("#tts-copy", host);
   copy.onclick = () => navigator.clipboard.writeText(copy.nextSibling.textContent)
     .then(() => toast("Copied to clipboard", "ok"));
+}
+
+/** "Speak it back": a transcript into the Speak box. */
+function speakThis(text) {
+  const box = $("#tts-text");
+  if (!box) return;
+  box.value = text.slice(0, V.st.max_chars);
+  box.oninput && box.oninput();
+  box.scrollIntoView({ behavior: "smooth", block: "center" });
+  box.focus();
 }
 
 function dlText(d) {
