@@ -8,6 +8,10 @@ order: 1
 
 This page summarizes the most recent additions to LlamaForge. Each entry links to the full reference for that capability. For the longer-term direction, see the project's `ROADMAP.md`.
 
+## v0.18.41: The llama.cpp line on every "Can I run it?" page
+
+Each [Can I run it?](can-i-run.html) page now ends its verdict with the command that runs the pick, such as `llama-server -hf unsloth/Qwen3.6-35B-A3B-GGUF:UD-Q4_K_M -ngl 41 --n-cpu-moe 22 -c 8192 --no-mmproj` on a 12 GB card, and the table gives the flags for every quant. Same memory math as the verdict, worked out from the real GGUF headers by the page generator.
+
 ## v0.18.40: Keep the X-ray's flags
 
 The X-ray of a model you have now does what the one in Discover does, and saves the result: a line says whether the weights fit your VRAM, a MoE gets the **Experts on CPU** slider, and **Load it with** shows the flags. **Fit my VRAM** moves the sliders to where the most weight fits, and **Apply to this model** writes them into its settings after asking, comments and other settings untouched. See [Models](models.md).

@@ -137,6 +137,25 @@ def answer(model, quant, vram_gb):
     return out
 
 
+def flags(a):
+    """The llama-server flags for an answer: every layer offloaded (blocks + the
+    output layer) unless only some fit, the experts of cpu_moe blocks in RAM, and
+    the context it was judged at. "" when nothing fits."""
+    if a["status"] == "no":
+        return ""
+    ngl = a["gpu_layers"] if a["status"] == "partial" else a["layers"] + 1
+    moe = f" --n-cpu-moe {a['cpu_moe']}" if a["status"] == "experts" else ""
+    ctx = a["max_ctx"] if a["status"] == "fits" else a["ctx"]
+    return f"-ngl {ngl}{moe} -c {ctx}"
+
+
+def command(model, q, a):
+    """A copyable llama-server line that downloads the quant and loads it as answered.
+    --no-mmproj: -hf would also load a vision projector, which the math leaves out."""
+    f = flags(a)
+    return f"llama-server -hf {model['repo']}:{q['quant']} {f} --no-mmproj" if f else ""
+
+
 def valid_models(data):
     return [m for m in data.get("models") or [] if _SLUG.match(str(m.get("slug") or ""))]
 
@@ -194,8 +213,10 @@ def _row(q, a):
         how = f"{a['gpu_layers']}/{a['layers']} layers on GPU, rest on CPU"
     else:
         how = "doesn't fit"
+    f = flags(a)
     return (f"<tr><td>{html.escape(q['quant'])}</td><td>{_gb(q['bytes'] / MIB)} GB</td>"
-            f"<td>{a['need_gb']} GB</td><td>{how}</td></tr>")
+            f"<td>{a['need_gb']} GB</td><td>{how}</td>"
+            f"<td>{'<code>' + html.escape(f) + '</code>' if f else ''}</td></tr>")
 
 
 def _deep(model, q):
@@ -213,9 +234,17 @@ def pair_page(model, gpu, fetched=""):
     body = [
         f"<h1>Can I run {mname} on {gpu['a']} {gname} ({gpu['gb']} GB)?</h1>",
         f"<p>{_verdict(model, gpu, bq, ba)}</p>",
+        *([f"<p>Run it with llama.cpp:</p><pre><code>{html.escape(command(model, bq, ba))}</code></pre>",
+           "<p><code>-ngl</code> is how many layers go on the GPU"
+           + (", <code>--n-cpu-moe</code> how many of the first blocks keep their expert weights in "
+              "system RAM" if ba["status"] == "experts" else "")
+           + ", <code>-c</code> the context, and <code>--no-mmproj</code> skips the vision part, which "
+           "isn't counted here. Worked out with the same memory math as the table below, "
+           "so a long prompt or a busy desktop may need one step more toward the CPU.</p>"]
+          if flags(ba) else []),
         f"<h2>Every quant on {gname}</h2>",
         "<table><tr><th>Quant</th><th>Size</th><th>VRAM at "
-        f"{_ctx(ba['ctx'])} context</th><th>On this card</th></tr>",
+        f"{_ctx(ba['ctx'])} context</th><th>On this card</th><th>Flags</th></tr>",
         *[_row(q, a) for q, a in sorted(rows, key=lambda r: -r[0]["bytes"])],
         "</table>",
         "<h2>Try it</h2>",
@@ -239,6 +268,9 @@ def pair_page(model, gpu, fetched=""):
     if ba["status"] == "fits":
         desc = (f"Yes: {bq['quant']} of {model['name']} fits on {gpu['a']} {gpu['name']} "
                 f"with {_ctx(ba['max_ctx'])} context. Every quant's VRAM, predicted from the real GGUF files.")
+    elif ba["status"] == "experts":
+        desc = (f"Yes, with {flags(ba)}: {bq['quant']} of {model['name']} on {gpu['a']} {gpu['name']} "
+                f"keeps {ba['cpu_moe']} blocks' experts in RAM. Every quant's VRAM and llama.cpp flags.")
     else:
         desc = (f"{model['name']} on {gpu['a']} {gpu['name']} ({gpu['gb']} GB): which quant, how much "
                 "goes to system RAM, and every quant's VRAM, predicted from the real GGUF files.")
@@ -264,13 +296,14 @@ def index_page(data):
             "<p>Which quant of a popular model fits on your graphics card, predicted from the real GGUF "
             "files with the memory math LlamaForge runs before every load. Each cell is the biggest quant "
             "that fits fully on the card with at least 16K of context; \"+ RAM\" means a mixture-of-experts "
-            "model with some expert weights in system RAM. Click a cell for every quant and the details.</p>"
+            "model with some expert weights in system RAM. Click a cell for every quant and the "
+            "llama.cpp line that runs it (<code>-ngl</code>, <code>--n-cpu-moe</code>, <code>-c</code>).</p>"
             f'<div style="overflow:auto"><table><tr><th>Model</th>{head}</tr>{rows}</table></div>'
             "<p>Predictions, not benchmarks. Once a model is loaded, LlamaForge measures the real "
             'footprint and speed on your machine. <a href="install.html">Install it</a>.</p>')
     return {"slug": "can-i-run", "title": "Can I run it? Models vs graphics cards",
             "desc": "Which quant of Qwen, Gemma and gpt-oss fits on your RTX or Radeon card, with how much "
-                    "context: predicted from the real GGUF files.", "html": body}
+                    "context and the -ngl / --n-cpu-moe flags: predicted from the real GGUF files.", "html": body}
 
 
 def build_pages(data):

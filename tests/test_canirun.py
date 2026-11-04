@@ -95,6 +95,25 @@ class Answer(unittest.TestCase):
         self.assertEqual(a["status"], "no")
 
 
+class Flags(unittest.TestCase):
+    def test_fits_offloads_every_layer_at_the_room_it_has(self):
+        a = canirun.answer(model(), model()["quants"][0], vram_gb=8)
+        self.assertEqual(canirun.flags(a), "-ngl 5 -c 32768")
+
+    def test_moe_names_how_many_blocks_keep_experts_in_ram(self):
+        m = model(layout=moe_layout(), moe=True)
+        a = canirun.answer(m, m["quants"][0], vram_gb=16)
+        self.assertEqual(canirun.flags(a), f"-ngl 5 --n-cpu-moe {a['cpu_moe']} -c 8192")
+
+    def test_dense_partial_gives_the_gpu_layer_count(self):
+        m = model(layout=dense_layout(block_gib=5))
+        a = canirun.answer(m, m["quants"][0], vram_gb=12)
+        self.assertEqual(canirun.flags(a), f"-ngl {a['gpu_layers']} -c 8192")
+
+    def test_no_flags_when_nothing_fits(self):
+        self.assertEqual(canirun.flags(canirun.answer(model(), model()["quants"][0], vram_gb=1)), "")
+
+
 class Pages(unittest.TestCase):
     def setUp(self):
         big = model(slug="big-moe", name="Big <MoE>", layout=moe_layout(), moe=True)
@@ -109,6 +128,13 @@ class Pages(unittest.TestCase):
         self.assertIn("#discover?repo=someone%2FTiny-8B-GGUF&amp;file=Tiny-8B-Q4_K_M.gguf", p["html"])
         self.assertIn("huggingface.co/someone/Tiny-8B-GGUF", p["html"])
         self.assertNotRegex(p["html"], r"\d\s*tok/s")   # fit only, no speed guesses
+
+    def test_pair_page_prints_the_flags_for_the_pick_and_every_quant(self):
+        gpu = canirun.GPU_BY_SLUG["rtx-5080"]
+        p = canirun.pair_page(self.data["models"][1], gpu)
+        self.assertRegex(p["html"], r"<code>llama-server -hf someone/Tiny-8B-GGUF:Q4_K_M -ngl 5 --n-cpu-moe \d -c 8192 --no-mmproj</code>")
+        self.assertIn("<th>Flags</th>", p["html"])
+        self.assertIn("--n-cpu-moe", p["desc"])
 
     def test_names_are_escaped(self):
         gpu = canirun.GPU_BY_SLUG["rtx-4090"]
