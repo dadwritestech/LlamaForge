@@ -8,6 +8,21 @@ order: 1
 
 This page summarizes the most recent additions to LlamaForge. Each entry links to the full reference for that capability. For the longer-term direction, see the project's `ROADMAP.md`.
 
+## v0.19.0: See inside a model, talk to it, and leave it running
+
+Everything from the v0.18 line in one release, plus start at login on Windows. The short version:
+
+- **Model X-ray.** Every layer of a GGUF as a bar: what sits on the GPU and what spills to RAM at your `-ngl`, and for a MoE an **Experts on CPU** slider. **Fit my VRAM** finds the placement, **Load it with** shows the flags (`-ngl 41 --n-cpu-moe 22`), **Apply to this model** saves them. It works on a model before you download it too (it reads the header over HTTP), and compares quants side by side. See [Models](models.md).
+- **Can I run it?** pages for 42 GPUs, laptops and Radeon / Arc included, each with the llama.cpp line to start with. [Can I run it?](can-i-run.html)
+- **Talk to it.** Voice chat with any loaded model, hands-free. Chat from your phone on the same Wi-Fi, and talk from it too over the Tailscale HTTPS link the Phone dialog offers (phones only allow the mic on HTTPS).
+- **Compare honestly.** Blind Arena (answers side by side, vote, then see the names), checked tasks with right answers, and **Try a llama.cpp PR** to see whether a pull request or an update is faster on your card before you switch.
+- **OpenAI's Batch API** on your own GPU.
+- **Leave it running.** Several models at once that keep VRAM free on their own, idle models that sleep and wake, a router that comes back when it dies, a GPU box with no screen, and **start at login**: now on Windows too (Setup > Startup), next to Linux and macOS.
+- **Bring what you have.** Your Ollama models without a re-download, AMD and Intel GPUs detected, embedding and reranker models set up for RAG, paste-ready settings for Open WebUI / Continue and others.
+- **Housekeeping.** Free disk space (unused models, byte-identical duplicates), re-upload watch for quants that changed on Hugging Face, template doctor, recommended samplers per model.
+
+Each piece has its own entry below.
+
 ## v0.18.42: Can I run it? on 42 cards, laptops included
 
 [Can I run it?](can-i-run.html) now covers 42 graphics cards, up from 19: laptop GeForce cards from the RTX 3060 Laptop (6 GB) to the RTX 5090 Laptop (24 GB), the RTX 2080 Ti, 3050, 3080 Ti, 4060 Ti 8GB, 4070 Ti, 4080 Super and 5060, more Radeons, and Intel Arc A770 and B580. The index groups them into Desktop GeForce, Laptop GeForce, and Radeon and Intel Arc. Every page has the same verdict and llama.cpp line, worked out from the real GGUF headers.

@@ -27,6 +27,7 @@ import vram_predict, gpuprobe
 import wsl, vllm_ctl, vllm_registry, vllm_setup, vllm_job, vllm_hub, vllm_download
 import gguf, diag, backends, prebuilt, version, slots, slotctl, slotproc, builds, compat
 import idle, reclaim, tmpldoctor, samplers, reupload, mcp_server, ollama, piinstall, tts, logfiles, loadprog, gamemode, footprint, elastic, slotkeep
+import service
 import claudelaunch, rigcard, watchdog, phone, arena, proving, prtry, prbench, batchapi, batchrun, stt, xray
 import base64
 from builder import BuildManager
@@ -1037,6 +1038,27 @@ def _idle_supported():
 def get_idle(req):
     """Sleep idle models (idle.py): whether this build can, and the minutes set."""
     return 200, {"supported": _idle_supported(), "minutes": idle.minutes(config.read_sections())}
+
+
+def get_service(req):
+    """Start at login (service.py): set up or not, and whether this OS can."""
+    try:
+        return 200, {"supported": True, "on": service.status()}
+    except service.Unsupported as e:
+        return 200, {"supported": False, "on": False, "error": str(e)}
+
+
+def post_service(req):
+    """{on: bool}: write or remove the login entry for this install folder.
+    Nothing is started or stopped now; it takes effect at the next login."""
+    on = (req.body or {}).get("on")
+    if not isinstance(on, bool):
+        return 200, {"ok": False, "error": "on must be true or false"}
+    try:
+        msg = service.enable(ROOT) if on else service.disable()
+    except (service.Unsupported, ValueError, OSError) as e:
+        return 200, {"ok": False, "error": str(e)}
+    return 200, {"ok": True, "on": service.status(), "message": msg}
 
 
 def post_idle(req):
@@ -3361,6 +3383,7 @@ GET_ROUTES = {
     "/api/stats":             get_stats,
     "/api/rig":               get_rig,
     "/api/idle":              get_idle,
+    "/api/service":           get_service,
     "/api/reclaim":           get_reclaim,
     "/api/template/check":    get_template_check,
     "/api/samplers":          get_samplers,
@@ -3406,6 +3429,7 @@ GET_ROUTES = {
 
 POST_ROUTES = {
     "/api/idle":              post_idle,
+    "/api/service":           post_service,
     "/v1/audio/speech":         post_audio_speech,
     "/v1/audio/transcriptions": post_audio_transcriptions,
     "/api/stt/transcribe":      post_stt_transcribe,

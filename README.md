@@ -169,7 +169,8 @@ the models it spawned. It stops only processes LlamaForge started; any other
 llama-server you run is left alone.
 
 Want it running whenever you log in (say, an always-on box behind Open WebUI)?
-`llamaforge service on` on Linux (a systemd user unit) or macOS (a launch agent);
+`llamaforge service on` on Linux (a systemd user unit) or macOS (a launch agent), or
+**Setup > Startup** on any OS (Windows: a script in your Startup folder);
 `llamaforge service off` removes it. It's off unless you turn it on.
 
 **Requirements:** Windows 10/11, Linux, or macOS on Apple Silicon. Python 3.10+ (stdlib only;

@@ -48,6 +48,12 @@ if ($LASTEXITCODE -ne 0) {
   exit 1
 }
 
+# Start at login (Setup > Startup) would point at a folder about to go; only
+# remove it if it is this install's.
+$login = Join-Path ([Environment]::GetFolderPath("Startup")) "LlamaForge.vbs"
+if ((Test-Path $login) -and (Select-String -Path $login -SimpleMatch -Quiet "$hereun.ps1")) {
+  Remove-Item -Force $login -ErrorAction SilentlyContinue
+}
 foreach ($lnk in (Join-Path ([Environment]::GetFolderPath("Programs")) "LlamaForge.lnk"),
                  (Join-Path ([Environment]::GetFolderPath("Desktop")) "LlamaForge.lnk")) {
   Remove-Item -Force $lnk -ErrorAction SilentlyContinue

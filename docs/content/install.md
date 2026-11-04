@@ -48,9 +48,11 @@ Open **LlamaForge** from the Start menu or app menu, or run `llamaforge`. It sta
 
 To shut down the dashboard, the router and the models it spawned, run `llamaforge stop` (Linux/macOS) or `stop.ps1` in the install directory (Windows). Only processes LlamaForge started are stopped; any other `llama-server` you run is left alone. On Windows it also stops a `vllm serve` it started inside WSL.
 
-### Start at login (Linux, macOS)
+### Start at login
 
-Nothing starts on its own unless you ask. `llamaforge service on` (in a git checkout: `python3 backend/service.py on "$PWD"`) writes `~/.config/systemd/user/llamaforge.service` on Linux or `~/Library/LaunchAgents/io.github.dadwritestech.llamaforge.plist` on macOS. Either one runs `run.sh` with `LLAMAFORGE_NO_BROWSER=1` when you log in, so it starts the same router and dashboard the launcher does, and the dashboard still listens on `127.0.0.1` only. On Linux, `systemctl --user start llamaforge` starts it right away, and `loginctl enable-linger $USER` makes it start at boot before anyone logs in. `llamaforge service status` shows whether it's set up. `llamaforge service off` removes the file but leaves a running copy alone (stop that with `llamaforge stop`). `llamaforge uninstall` turns it off as well. Windows isn't covered yet.
+Nothing starts on its own unless you ask. `llamaforge service on` (in a git checkout: `python3 backend/service.py on "$PWD"`) writes `~/.config/systemd/user/llamaforge.service` on Linux or `~/Library/LaunchAgents/io.github.dadwritestech.llamaforge.plist` on macOS. Either one runs `run.sh` with `LLAMAFORGE_NO_BROWSER=1` when you log in, so it starts the same router and dashboard the launcher does, and the dashboard still listens on `127.0.0.1` only. On Linux, `systemctl --user start llamaforge` starts it right away, and `loginctl enable-linger $USER` makes it start at boot before anyone logs in. `llamaforge service status` shows whether it's set up. `llamaforge service off` removes the file but leaves a running copy alone (stop that with `llamaforge stop`). `llamaforge uninstall` turns it off as well.
+
+On Windows, tick **Setup > Startup > start LlamaForge when you log in** (the same switch works on Linux and macOS). It writes `LlamaForge.vbs` into your Startup folder (`%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup`), which runs `run.ps1` hidden with `LLAMAFORGE_NO_BROWSER=1` when you log in. No admin rights and no scheduled task. Untick it, or delete that file, to turn it off; a running copy keeps running until `stop.ps1`. The uninstaller removes it too. From a terminal: `python backend\service.py on|off|status .`
 
 ## Uninstall
 

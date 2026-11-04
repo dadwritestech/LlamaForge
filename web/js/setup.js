@@ -644,6 +644,27 @@ function wireElastic(generation) {
   };
 }
 
+// Start at login (service.py): a Startup-folder script on Windows, a systemd
+// user unit on Linux, a launch agent on macOS. Takes effect at the next login.
+async function wireLogin(generation) {
+  const d = await api("/api/service").catch(() => null);
+  const slot = $("#login-slot");
+  if (!setupViewActive(generation) || !slot || !d) return;
+  if (!d.supported) return setHTML(slot, `<div class="note">Start at login: ${esc(d.error || "not on this system")}.</div>`);
+  setHTML(slot, `<div class="kv"><label class="k" for="login-on">start LlamaForge when you log in</label><span class="v"><input type="checkbox" id="login-on" ${d.on ? "checked" : ""}> <span class="msg" id="login-msg"></span></span></div>
+      <div class="note">Starts the router and this dashboard in the background at login, without opening a browser; the dashboard still listens on this computer only. Turning it off doesn't stop a running copy.</div>`);
+  const box = $("#login-on");
+  box.onchange = async () => {
+    const m = $("#login-msg");
+    m.className = "msg work"; m.textContent = "saving...";
+    const r = await api("/api/service", {on: box.checked}).catch(() => null);
+    if (!setupViewActive(generation)) return;
+    if (!r || !r.ok) { box.checked = !box.checked; m.className = "msg err"; m.textContent = (r && r.error) || "save failed"; return; }
+    box.checked = r.on;
+    m.className = "msg ok"; m.textContent = r.on ? "on · from your next login" : "off";
+  };
+}
+
 async function wireIdle(generation) {
   const d = await api("/api/idle").catch(() => null);
   const slot = $("#idle-slot");
@@ -758,6 +779,7 @@ export async function loadSetup() {
           ${models().map(m=>`<option value="${esc(m.id)}" ${cfgOf().auto_load_model===m.id?"selected":""}>${esc(m.id)}</option>`).join("")}
         </select></span></div>
       <div class="note">The selected model loads automatically once the router is ready after launch &mdash; handy for always-on setups. An optional tray icon (loaded-model count, quick open) is available if you <b>pip install pystray pillow</b>; without them LlamaForge stays pure-stdlib.</div>
+      <div id="login-slot"></div>
     </div>
     ${slotsMarkup()}
     ${gameMarkup()}
@@ -797,6 +819,7 @@ export async function loadSetup() {
   wireGame(generation);
   wireElastic(generation);
   wireIdle(generation);
+  wireLogin(generation);
   const autoSel = $("#auto-load");
   if (autoSel) autoSel.onchange = async () => {
     await api("/api/config", {auto_load_model: autoSel.value});

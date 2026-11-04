@@ -7,6 +7,8 @@ from unittest import mock
 
 import service
 
+_REAL_FILE = service._file
+
 
 class ServiceFilesTest(unittest.TestCase):
     def setUp(self):
@@ -73,9 +75,94 @@ class ServiceFilesTest(unittest.TestCase):
         self.assertEqual(self.calls, [])
         self.assertIn("not set up", msg)
 
-    def test_windows_is_not_supported_yet(self):
+    def test_windows_vbs_runs_run_ps1_hidden_without_a_browser(self):
+        text = service.windows_vbs(r"C:\Users\me\Llama Forge")
+        self.assertIn('sh.Environment("Process")("LLAMAFORGE_NO_BROWSER") = "1"', text)
+        self.assertIn("-WindowStyle Hidden", text)
+        self.assertIn(r'-File ""C:\Users\me\Llama Forge\run.ps1""', text)
+        self.assertIn(", 0, False", text)   # hidden window, don't wait
+
+    def test_windows_unsafe_paths_are_refused(self):
+        for bad in ('C:\\a"b', "C:\\a\nb", "relative\\dir", "/opt/x"):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                service.windows_vbs(bad)
+
+    def test_enable_on_windows_writes_the_startup_script_without_getuid(self):
+        with mock.patch.object(service.os, "getuid", create=True, side_effect=AttributeError):
+            msg = service.enable(r"C:\LlamaForge", home=self.home, system="Windows", path="")
+        vbs = os.path.join(self.home, "AppData", "Roaming", "Microsoft", "Windows",
+                           "Start Menu", "Programs", "Startup", "LlamaForge.vbs")
+        self.assertTrue(os.path.isfile(vbs))
+        with open(vbs, encoding="utf-8") as f:
+            self.assertIn("run.ps1", f.read())
+        self.assertEqual(self.calls, [])
+        self.assertIn("starts when you log in", msg)
+
+    def test_disable_on_windows_removes_the_startup_script(self):
+        with mock.patch.object(service.os, "getuid", create=True, side_effect=AttributeError):
+            service.enable(r"C:\LlamaForge", home=self.home, system="Windows", path="")
+            self.assertTrue(service.status(home=self.home, system="Windows"))
+            service.disable(home=self.home, system="Windows")
+        self.assertFalse(service.status(home=self.home, system="Windows"))
+
+    def test_windows_uses_appdata_when_no_home_is_given(self):
+        with mock.patch.dict(service.os.environ, {"APPDATA": self.home}):
+            self.assertEqual(service._file(None, "Windows"),
+                             os.path.join(self.home, "Microsoft", "Windows", "Start Menu",
+                                          "Programs", "Startup", "LlamaForge.vbs"))
+
+    def test_other_systems_are_not_supported(self):
         with self.assertRaises(service.Unsupported):
-            service.enable(self.here, home=self.home, system="Windows", path="", uid=0)
+            service.enable(self.here, home=self.home, system="FreeBSD", path="", uid=0)
+
+
+
+class ServiceRouteTest(unittest.TestCase):
+    """Setup > Startup > start at login: the only way in on Windows, which has
+    no llamaforge command."""
+    def setUp(self):
+        import routes
+        self.routes = routes
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.target = os.path.join(self.tmp.name, "Startup", "LlamaForge.vbs")
+        for p in (mock.patch.object(service, "_file", return_value=self.target),
+                  mock.patch.object(service, "_run", return_value=0)):
+            p.start()
+        self.addCleanup(mock.patch.stopall)
+
+    def req(self, body=None):
+        return mock.Mock(body=body, query={})
+
+    def test_registered(self):
+        self.assertIn("/api/service", self.routes.GET_ROUTES)
+        self.assertIn("/api/service", self.routes.POST_ROUTES)
+
+    def test_get_reports_off_then_on(self):
+        st, out = self.routes.get_service(self.req())
+        self.assertEqual((st, out["on"]), (200, False))
+        with mock.patch.object(service.platform, "system", return_value="Windows"):
+            st, out = self.routes.post_service(self.req({"on": True}))
+            self.assertTrue(out["ok"])
+            self.assertTrue(os.path.isfile(self.target))
+            with open(self.target, encoding="utf-8") as f:
+                self.assertIn(os.path.join(self.routes.ROOT, "run.ps1"), f.read())
+            self.assertTrue(self.routes.get_service(self.req())[1]["on"])
+            st, out = self.routes.post_service(self.req({"on": False}))
+        self.assertTrue(out["ok"])
+        self.assertFalse(os.path.exists(self.target))
+
+    def test_unsupported_system_says_so(self):
+        with mock.patch.object(service.platform, "system", return_value="FreeBSD"),              mock.patch.object(service, "_file", _REAL_FILE):
+            st, out = self.routes.get_service(self.req())
+            self.assertFalse(out["supported"])
+            st, out = self.routes.post_service(self.req({"on": True}))
+        self.assertFalse(out["ok"])
+        self.assertIn("only for", out["error"])
+
+    def test_on_must_be_a_bool(self):
+        st, out = self.routes.post_service(self.req({"on": "yes"}))
+        self.assertFalse(out["ok"])
 
 
 if __name__ == "__main__":
