@@ -21,14 +21,16 @@ import gguf
 MAX_BYTES = 25 * 1024 * 1024        # OpenAI's limit for one transcription upload
 FORMATS = ("json", "text")
 
-# The one-click model on the Voice tab: Mistral's Voxtral Mini, as ggml-org
-# packs it. It goes through the Discover download, which registers it in
-# models.ini with its audio mmproj beside it.
-OFFER = {"label": "Voxtral Mini 3B", "repo": "ggml-org/Voxtral-Mini-3B-2507-GGUF",
-         "path": "Voxtral-Mini-3B-2507-Q4_K_M.gguf",
-         "mmproj": "mmproj-Voxtral-Mini-3B-2507-Q8_0.gguf",
-         "bytes": 2473001920 + 715714080, "license": "Apache-2.0",
-         "note": "English and seven more languages; about 4.3 GB of VRAM at an 8k context."}
+# The one-click model on the Voice tab: Google's Gemma 4 E4B with its audio
+# mmproj, as unsloth packs it. It goes through the Discover download, which
+# registers it in models.ini with the mmproj beside it. One model hears and
+# answers, so Talk never swaps. (Voxtral Mini, offered first, answered spoken
+# questions instead of writing them down: ggml-org's GGUF carries a Devstral
+# chat template. It still works for statements and dictation.)
+OFFER = {"label": "Gemma 4 E4B", "repo": "unsloth/gemma-4-E4B-it-GGUF",
+         "path": "gemma-4-E4B-it-Q4_K_M.gguf", "mmproj": "mmproj-F16.gguf",
+         "bytes": 4977171584 + 990372672, "license": "Apache-2.0",
+         "note": "Hears and answers on one model; about 4.7 GB of VRAM at an 8k context."}
 
 
 class SttError(Exception):
@@ -54,7 +56,7 @@ def pick_model(models, want=None):
     or nothing) the first one that can."""
     if not models:
         raise SttError("no model here can take audio: add one with an audio mmproj, "
-                       "for example Voxtral Mini (Voice tab)")
+                       "for example Gemma 4 E4B (Voice tab)")
     return want if want in models else models[0]
 
 
@@ -104,6 +106,19 @@ def parse_request(ctype, raw, max_bytes=MAX_BYTES):
             "prompt": text("prompt") or "", "response_format": rf, "temperature": temp}
 
 
+ASK = "Repeat exactly what was said, word for word, with nothing else."
+
+
+def _budget(audio, fmt):
+    """Tokens enough for the words in a WAV (~3 a second, generously), so a
+    model that runs on (Gemma 4 once read our ask back for 13 s) stops early."""
+    if fmt != "wav" or len(audio) < 44:
+        return 1024
+    rate = int.from_bytes(audio[28:32], "little")            # byte rate
+    secs = (len(audio) - 44) // rate if rate else 0
+    return 64 + 8 * min(secs, 600)
+
+
 def chat_body(model, audio, fmt, language=None, prompt="", temperature=0.0):
     """The router chat request that transcribes `audio`.
 
@@ -112,10 +127,12 @@ def chat_body(model, audio, fmt, language=None, prompt="", temperature=0.0):
     "transcribe" made it answer "I can't transcribe audio", and a language hint
     made it stop after the first sentence, so `language` is accepted (OpenAI's
     SDK sends it) but left to the model, which detects the language itself."""
-    ask = "Repeat exactly what was said, word for word, with nothing else."
+    ask = ASK
     if prompt:
         ask += f" Spell names and terms as in: {prompt}"
     return {"model": model, "temperature": temperature, "stream": False,
+            "max_tokens": _budget(audio, fmt),
+            "chat_template_kwargs": {"enable_thinking": False},
             "messages": [{"role": "user", "content": [
                 {"type": "input_audio",
                  "input_audio": {"data": base64.b64encode(audio).decode(), "format": fmt}},
@@ -138,8 +155,50 @@ def transcript(reply):
         msg = err.get("message") if isinstance(err, dict) else err
         raise SttError(f"the router gave no transcript: {msg or 'empty reply'}", 502)
     text = _LEAD_IN.sub("", _THINK.sub("", content or "").strip()).strip()
+    cut = text.find(ASK[:24])                     # a model reading our own ask back
+    if cut > 0:
+        text = text[:cut].strip()
     if len(text) > 1 and text[0] == text[-1] == '"':
         text = text[1:-1].strip()
+    return text
+
+
+# Talk mode: what was heard goes to the same model as a plain chat turn (one
+# model hears and answers, so models-max 1 never swaps), and the reply is
+# cleaned for the speech engine to read out.
+TALK_TURNS = 6                  # earlier exchanges kept as context
+TALK_SYSTEM = ("You are talking with the user out loud. Your reply will be spoken by a speech "
+               "engine, so answer in one to three short sentences of plain prose: no lists, "
+               "no markdown, no code.")
+_MD_LINK = re.compile(r"\[([^\]]*)\]\([^)]*\)")
+_MD_MARK = re.compile(r"(?m)^\s*(?:[-*+]|\d+[.)]|#+)\s+|[*_`#>]+")
+
+
+def talk_body(model, history, heard):
+    """A chat turn answering `heard`, with the last TALK_TURNS exchanges of a
+    client-kept history (anything but plain user/assistant text is dropped)."""
+    keep = [{"role": m["role"], "content": m["content"].strip()} for m in (history or [])
+            if isinstance(m, dict) and m.get("role") in ("user", "assistant")
+            and isinstance(m.get("content"), str) and m["content"].strip()]
+    msgs = [{"role": "system", "content": TALK_SYSTEM}] + keep[-2 * TALK_TURNS:]
+    return {"model": model, "stream": False, "max_tokens": 300,
+            # a thinking model (Gemma 4, Qwen3) otherwise spends the budget on thoughts
+            "chat_template_kwargs": {"enable_thinking": False},
+            "messages": msgs + [{"role": "user", "content": heard}]}
+
+
+def spoken(reply):
+    """The reply's text, fit to be read out: thoughts and markdown dropped."""
+    try:
+        content = reply["choices"][0]["message"]["content"]
+    except (KeyError, IndexError, TypeError):
+        err = (reply or {}).get("error") if isinstance(reply, dict) else None
+        msg = err.get("message") if isinstance(err, dict) else err
+        raise SttError(f"the router gave no answer: {msg or 'empty reply'}", 502)
+    text = _MD_MARK.sub("", _MD_LINK.sub(r"\1", _THINK.sub("", content or "")))
+    text = " ".join(text.split())
+    if not text:
+        raise SttError("the model answered with nothing to say", 502)
     return text
 
 

@@ -8,6 +8,10 @@ order: 1
 
 This page summarizes the most recent additions to LlamaForge. Each entry links to the full reference for that capability. For the longer-term direction, see the project's `ROADMAP.md`.
 
+## v0.18.32: Talk, hands-free
+
+The Voice tab holds a conversation now. Press **Talk**, ask, and a model on your GPU hears you, answers in a sentence or three, and Qwen3-TTS reads the answer out. Tick **Hands-free** and the mic reopens after each answer and stops when you pause, so you just keep talking. One model both hears and answers, so nothing swaps: on an RTX 5080, Gemma 4 E4B heard each question in about 0.2 s and answered in under half a second. The one-click model is now **Gemma 4 E4B**: Voxtral Mini turned out to *answer* spoken questions instead of writing them down. See [Talk](voice.md#talk).
+
 ## v0.18.31: Talk to it
 
 The Voice tab now listens. **Speech to text** has a **Record** button: talk, press Stop, and the words come back from a model on your own GPU (Voxtral Mini turned 6.7 seconds of speech into text in under half a second on an RTX 5080). **Speak it back** hands them to Qwen3-TTS, so the whole voice loop runs on your machine. Nothing that can hear yet? One click gets Voxtral Mini 3B. Scripts get OpenAI's `/v1/audio/transcriptions`: the `openai` SDK works unchanged. See [Voice](voice.md#speech-to-text).

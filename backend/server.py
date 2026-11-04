@@ -62,7 +62,7 @@ def _sdk_upload(path, ctype, origin):
 
 def _post_body_limit(path):
     if path in ("/v1/messages", "/v1/chat/completions", "/v1/files",
-                "/v1/audio/transcriptions", "/api/stt/transcribe"):
+                "/v1/audio/transcriptions", "/api/stt/transcribe", "/api/stt/talk"):
         return MAX_PROXY_JSON_BODY_BYTES
     return MAX_MANAGEMENT_JSON_BODY_BYTES
 

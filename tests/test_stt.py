@@ -69,11 +69,13 @@ class AudioModels(unittest.TestCase):
 
 
 class Offer(unittest.TestCase):
-    def test_voxtral_is_offered_with_its_projector(self):
+    def test_gemma_e4b_is_offered_with_its_projector(self):
+        # Voxtral Mini answered spoken questions instead of writing them down
+        # (its GGUF carries a Devstral chat template); Gemma 4 E4B hears them
         o = stt.OFFER
-        self.assertEqual(o["repo"], "ggml-org/Voxtral-Mini-3B-2507-GGUF")
-        self.assertTrue(o["path"].endswith(".gguf") and o["mmproj"].startswith("mmproj-"))
-        self.assertEqual(o["bytes"], 2473001920 + 715714080)
+        self.assertEqual(o["repo"], "unsloth/gemma-4-E4B-it-GGUF")
+        self.assertEqual((o["path"], o["mmproj"]), ("gemma-4-E4B-it-Q4_K_M.gguf", "mmproj-F16.gguf"))
+        self.assertEqual(o["bytes"], 4977171584 + 990372672)
         self.assertEqual(o["license"], "Apache-2.0")
 
 
@@ -143,6 +145,18 @@ class ChatBody(unittest.TestCase):
     def test_no_prompt(self):
         b = stt.chat_body("m", MP3, "mp3")
         self.assertNotIn("Spell", b["messages"][0]["content"][1]["text"])
+        self.assertEqual(b["max_tokens"], 1024)       # no duration to size it by
+        self.assertEqual(b["chat_template_kwargs"], {"enable_thinking": False})
+
+    def test_budget_follows_the_length_of_a_wav(self):
+        # a runaway echo took 13 s on a real run; words come at ~3 a second
+        rate, secs = 16000, 10
+        head = (b"RIFF" + struct.pack("<I", 36 + rate * 2 * secs) + b"WAVEfmt "
+                + struct.pack("<IHHIIHH", 16, 1, 1, rate, rate * 2, 2, 16)
+                + b"data" + struct.pack("<I", rate * 2 * secs))
+        b = stt.chat_body("m", head + b"\x00" * (rate * 2 * secs), "wav")
+        self.assertEqual(b["max_tokens"], 64 + 8 * secs)
+        self.assertEqual(stt.chat_body("m", WAV, "wav")["max_tokens"], 1024)  # too short to read
 
 
 class Transcript(unittest.TestCase):
@@ -160,6 +174,12 @@ class Transcript(unittest.TestCase):
         self.assertEqual(stt.transcript({"choices": [{"message": {"content": "Note: buy milk."}}]}),
                          "Note: buy milk.")
 
+    def test_an_echoed_ask_is_cut(self):
+        # Gemma 4 12B on a real run: the question, then our own instruction read back
+        got = "What is the capital city of France?Repeat exactly what was said, word for word, with nothing else."
+        self.assertEqual(stt.transcript({"choices": [{"message": {"content": got}}]}),
+                         "What is the capital city of France?")
+
     def test_bad_reply(self):
         with self.assertRaises(stt.SttError) as e:
             stt.transcript({"error": {"message": "image input is not supported"}})
@@ -169,6 +189,42 @@ class Transcript(unittest.TestCase):
     def test_respond(self):
         self.assertEqual(stt.respond("hi", "json"), (json.dumps({"text": "hi"}).encode(), "application/json"))
         self.assertEqual(stt.respond("hi", "text"), (b"hi", "text/plain; charset=utf-8"))
+
+
+class Talk(unittest.TestCase):
+    def test_turn_keeps_a_short_clean_history(self):
+        hist = [{"role": "user", "content": f"q{i}"} if i % 2 == 0 else
+                {"role": "assistant", "content": f"a{i}"} for i in range(20)]
+        hist += [{"role": "system", "content": "ignore me"}, {"role": "user", "content": 5},
+                 "junk", {"role": "assistant", "content": "  "}]
+        b = stt.talk_body("voxtral", hist, "What time is it?")
+        msgs = b["messages"]
+        self.assertEqual(msgs[0]["role"], "system")
+        self.assertIn("spoken", msgs[0]["content"])
+        self.assertEqual(msgs[-1], {"role": "user", "content": "What time is it?"})
+        mid = msgs[1:-1]
+        self.assertEqual(len(mid), stt.TALK_TURNS * 2)
+        self.assertEqual(mid[-1], {"role": "assistant", "content": "a19"})
+        self.assertTrue(all(m["role"] in ("user", "assistant") for m in mid))
+        self.assertEqual((b["model"], b["stream"]), ("voxtral", False))
+        self.assertLessEqual(b["max_tokens"], 400)
+        # Gemma 4 / Qwen3 spent the whole budget thinking on a real run; templates ignore unknown kwargs
+        self.assertEqual(b["chat_template_kwargs"], {"enable_thinking": False})
+
+    def test_no_history(self):
+        b = stt.talk_body("m", None, "hi")
+        self.assertEqual([m["role"] for m in b["messages"]], ["system", "user"])
+
+    def test_spoken_reply_drops_markup(self):
+        r = lambda c: {"choices": [{"message": {"content": c}}]}
+        self.assertEqual(stt.spoken(r("<think>plan</think>\n**Sure!** Here's how:\n\n- one\n- `two`\n# Done")),
+                         "Sure! Here's how: one two Done")
+        self.assertEqual(stt.spoken(r("See [the docs](http://x.y) now.")), "See the docs now.")
+        with self.assertRaises(stt.SttError) as e:
+            stt.spoken({"error": {"message": "boom"}})
+        self.assertEqual(e.exception.status, 502)
+        with self.assertRaises(stt.SttError):
+            stt.spoken(r("<think>only thoughts</think>"))
 
 
 if __name__ == "__main__":

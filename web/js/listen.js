@@ -1,6 +1,6 @@
 // Voice tab, "Speech to text" card: talk into the mic and get the words back,
-// transcribed on this machine by a model whose mmproj hears audio (Voxtral
-// and friends, through backend/stt.py). Offers Voxtral Mini when nothing here
+// transcribed on this machine by a model whose mmproj hears audio (Gemma 4
+// and friends, through backend/stt.py). Offers Gemma 4 E4B when nothing here
 // can hear yet; the download goes through the Discover downloader, which
 // registers it in models.ini with its mmproj.
 //
@@ -91,44 +91,63 @@ export function wireListen(host, st, { onSpeak, reload }) {
 
 function state(text) { const el = $("#stt-state"); if (el) el.textContent = text; }
 
+/** Start the mic. Returns {stop, done, stream}: done resolves to the recording
+ *  (a Blob) when stop() is called or maxS runs out; onTick(seconds) runs 4x a second. */
+export async function startMic(onTick, maxS = MAX_REC_S) {
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  const chunks = [], rec = new MediaRecorder(stream), started = Date.now();
+  rec.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
+  let tick;
+  const done = new Promise(res => {
+    rec.onstop = () => {
+      clearInterval(tick);
+      stream.getTracks().forEach(t => t.stop());
+      res(new Blob(chunks, { type: rec.mimeType }));
+    };
+  });
+  const stop = () => { if (rec.state === "recording") rec.stop(); return done; };
+  tick = setInterval(() => {
+    const s = (Date.now() - started) / 1000;
+    if (onTick) onTick(s);
+    if (s >= maxS) stop();
+  }, 250);
+  rec.start();
+  return { stop, done, stream };
+}
+
+/** A recording -> 16 kHz mono samples with the silent ends trimmed. */
+export async function toSamples(blob) {
+  const ctx = new AudioContext();
+  const src = await ctx.decodeAudioData(await blob.arrayBuffer());
+  ctx.close();
+  const off = new OfflineAudioContext(1, Math.ceil(src.duration * RATE), RATE);
+  const node = off.createBufferSource();
+  node.buffer = src; node.connect(off.destination); node.start();
+  return trimSilence((await off.startRendering()).getChannelData(0), RATE);
+}
+
+/** Samples -> the base64 WAV the /api/stt routes take. */
+export const wavB64 = samples => toBase64(encodeWav(samples, RATE));
+export { RATE };
+
 async function toggle() {
   const btn = $("#stt-rec");
   if (L.rec) { L.rec.stop(); return; }
-  let stream;
-  try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
+  try { L.rec = await startMic(s => state(`Listening... ${s.toFixed(0)} s`)); }
   catch (e) { toast("No microphone access: " + (e.message || e), "err"); return; }
-  const chunks = [], rec = new MediaRecorder(stream), started = Date.now();
-  L.rec = rec;
-  rec.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
-  const tick = setInterval(() => {
-    const s = (Date.now() - started) / 1000;
-    state(`Listening... ${s.toFixed(0)} s`);
-    if (s >= MAX_REC_S) rec.stop();
-  }, 250);
-  rec.onstop = () => {
-    clearInterval(tick);
-    stream.getTracks().forEach(t => t.stop());
-    L.rec = null;
-    btn.textContent = "Record";
-    transcribe(new Blob(chunks, { type: rec.mimeType }));
-  };
-  rec.start();
   btn.textContent = "Stop";
   state("Listening...");
+  const blob = await L.rec.done;
+  L.rec = null;
+  btn.textContent = "Record";
+  transcribe(blob);
 }
 
 async function transcribe(blob) {
   const btn = $("#stt-rec"), out = $("#stt-out");
   let samples;
-  try {
-    const ctx = new AudioContext();
-    const src = await ctx.decodeAudioData(await blob.arrayBuffer());
-    ctx.close();
-    const off = new OfflineAudioContext(1, Math.ceil(src.duration * RATE), RATE);
-    const node = off.createBufferSource();
-    node.buffer = src; node.connect(off.destination); node.start();
-    samples = trimSilence((await off.startRendering()).getChannelData(0), RATE);
-  } catch (e) {
+  try { samples = await toSamples(blob); }
+  catch (e) {
     state(""); toast("Could not read the recording: " + (e.message || e), "err"); return;
   }
   if (samples.length < RATE / 2) { state("That was silent. Try again, a little closer to the mic."); return; }
@@ -136,7 +155,7 @@ async function transcribe(blob) {
   state("Transcribing...");
   const t0 = performance.now();
   let r;
-  try { r = await api("/api/stt/transcribe", { audio: toBase64(encodeWav(samples, RATE)) }); }
+  try { r = await api("/api/stt/transcribe", { audio: wavB64(samples) }); }
   catch (e) { r = { error: e.message || String(e) }; }
   btn.disabled = false;
   if (r.error) { state(""); setHTML(out, `<div class="msg err">${esc(r.error)}</div>`); return; }

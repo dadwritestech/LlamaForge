@@ -3062,22 +3062,50 @@ def post_audio_transcriptions(req):
         return _openai_err(e.status, str(e), "server_error" if e.status >= 500 else "invalid_request_error")
 
 
+def _mic_audio(body):
+    """-> (audio bytes, format) from the panel's base64 recording; raises SttError."""
+    try:
+        audio = base64.b64decode(str(body.get("audio") or ""), validate=True)
+    except ValueError:
+        raise stt.SttError("audio must be base64")
+    fmt = stt.sniff_format(audio)
+    if not fmt:
+        raise stt.SttError("send WAV, MP3 or FLAC audio; llama.cpp decodes only those")
+    if len(audio) > stt.MAX_BYTES:
+        raise stt.SttError("the recording is too long", 413)
+    return audio, fmt
+
+
 def post_stt_transcribe(req):
     """The panel's mic: {audio: base64 WAV/MP3/FLAC, language?, model?} -> {text, model}."""
     try:
-        audio = base64.b64decode(str(req.body.get("audio") or ""), validate=True)
-    except ValueError:
-        raise ApiError(400, "audio must be base64")
-    fmt = stt.sniff_format(audio)
-    try:
-        if not fmt:
-            raise stt.SttError("send WAV, MP3 or FLAC audio; llama.cpp decodes only those")
-        if len(audio) > stt.MAX_BYTES:
-            raise stt.SttError("the recording is too long", 413)
+        audio, fmt = _mic_audio(req.body)
         m, text = _transcribe(audio, fmt, req.body.get("model"), req.body.get("language"))
     except stt.SttError as e:
         raise ApiError(e.status, str(e))
     return 200, {"text": text, "model": m}
+
+
+def post_stt_talk(req):
+    """Talk mode: {audio, history?, model?} -> {heard, reply, model, hear_s, think_s}.
+    The model that heard it answers too, so the router never swaps between the two."""
+    try:
+        audio, fmt = _mic_audio(req.body)
+        t0 = time.monotonic()
+        m, heard = _transcribe(audio, fmt, req.body.get("model"))
+        t1 = time.monotonic()
+        reply = ""
+        if heard:
+            status, out = _router_openai(stt.talk_body(m, req.body.get("history"), heard))
+            if status != 200:
+                err = out.get("error") if isinstance(out, dict) else None
+                msg = err.get("message") if isinstance(err, dict) else err
+                raise stt.SttError(f"{m} could not answer: {msg or f'router answered {status}'}", 502)
+            reply = stt.spoken(out)
+    except stt.SttError as e:
+        raise ApiError(e.status, str(e))
+    return 200, {"heard": heard, "reply": reply, "model": m,
+                 "hear_s": round(t1 - t0, 2), "think_s": round(time.monotonic() - t1, 2)}
 
 
 def get_stt_status(req):
@@ -3203,6 +3231,7 @@ POST_ROUTES = {
     "/v1/audio/speech":         post_audio_speech,
     "/v1/audio/transcriptions": post_audio_transcriptions,
     "/api/stt/transcribe":      post_stt_transcribe,
+    "/api/stt/talk":            post_stt_talk,
     "/api/tts/speak":           post_tts_speak,
     "/api/tts/get":             post_tts_get,
     "/api/tts/voice":           post_tts_voice,

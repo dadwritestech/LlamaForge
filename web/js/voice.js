@@ -8,6 +8,7 @@
 import { $, $$, api, esc, setHTML, toast, askYes, askText } from "./core.js";
 import { encodeWav, wavPeaks, trimSilence, toBase64 } from "./wav.js";
 import { listenMarkup, wireListen } from "./listen.js";
+import { talkMarkup, wireTalk } from "./talk.js";
 
 const RATE = 24000;             // what llama-tts writes and what clips are stored at
 const MAX_REC_S = 30;
@@ -31,12 +32,21 @@ export async function loadVoice() {
   }
   V.st = st;
   if (heard && heard.error) heard = null;
-  setHTML(host, setupCard(st) + speakCard(st) + listenMarkup(heard, location.origin)
-                + voicesCard(st) + connectCard(st));
+  setHTML(host, setupCard(st) + speakCard(st) + talkMarkup(heard, canSpeak(st))
+                + listenMarkup(heard, location.origin) + voicesCard(st) + connectCard(st));
   wire(host, st);
-  if (heard) wireListen(host, heard, { onSpeak: speakThis, reload: loadVoice });
+  if (heard) {
+    wireTalk(host, heard, { speak: ttsWav, canSpeak: canSpeak(st) });
+    wireListen(host, heard, { onSpeak: speakThis, reload: loadVoice });
+  }
   watchDownload(st);
 }
+
+/** Whether Speak can say something now (a model, and a clip when it needs one). */
+const canSpeak = st => {
+  const m = active(st);
+  return !!(st.ready && m && !(m.needs_voice && !st.voices.length));
+};
 
 /* ---------- cards ---------- */
 function setupCard(st) {
@@ -200,6 +210,22 @@ function watchDownload(st) {
   }, 1000);
 }
 
+/** Say `input` with the Speak card's model, voice and language -> WAV bytes.
+ *  Throws an Error with the server's message. Talk uses it too. */
+async function ttsWav(input) {
+  const r = await fetch("/api/tts/speak", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ input: input.slice(0, V.st.max_chars), voice: V.voice, language: V.lang,
+                           model: active(V.st)?.id || "" }),
+  });
+  if (!r.ok) {
+    let msg = r.status + "";
+    try { msg = (await r.json()).error || msg; } catch (e) {}
+    throw new Error(msg);
+  }
+  return new Uint8Array(await r.arrayBuffer());
+}
+
 async function speak() {
   const btn = $("#tts-speak"), out = $("#tts-out");
   const input = $("#tts-text").value.trim();
@@ -208,17 +234,12 @@ async function speak() {
   const t0 = performance.now();
   setHTML(out, `<div class="msg work">Speaking... the model loads, talks, then exits.</div>`);
   try {
-    const r = await fetch("/api/tts/speak", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ input, voice: V.voice, language: V.lang, model: active(V.st)?.id || "" }),
-    });
-    if (!r.ok) {
-      let msg = r.status + "";
-      try { msg = (await r.json()).error || msg; } catch (e) {}
-      setHTML(out, `<div class="msg err" style="white-space:pre-wrap">${esc(msg)}</div>`);
+    let bytes;
+    try { bytes = await ttsWav(input); }
+    catch (e) {
+      setHTML(out, `<div class="msg err" style="white-space:pre-wrap">${esc(e.message)}</div>`);
       return;
     }
-    const bytes = new Uint8Array(await r.arrayBuffer());
     const took = (performance.now() - t0) / 1000;
     const dur = Math.max(0, bytes.length - 44) / 2 / RATE;
     if (V.url) URL.revokeObjectURL(V.url);

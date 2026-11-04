@@ -121,7 +121,7 @@ class PanelRoutes(Live):
     def test_status_lists_the_models_that_can_hear(self):
         code, got = self.req("/api/stt/status")
         self.assertEqual((code, got["models"]), (200, ["voxtral"]))
-        self.assertEqual(got["offer"]["repo"], "ggml-org/Voxtral-Mini-3B-2507-GGUF")
+        self.assertEqual(got["offer"]["repo"], "unsloth/gemma-4-E4B-it-GGUF")
         self.assertIn("phase", got["download"])
 
     def test_mic_posts_base64_json(self):
@@ -136,6 +136,42 @@ class PanelRoutes(Live):
         code, got = self.req("/api/stt/transcribe", "POST", {"audio": base64.b64encode(b"webm..").decode()})
         self.assertEqual(code, 400)
         self.assertIn("WAV", got["error"])
+
+    def talk(self, replies, body):
+        it = iter(replies)
+        with mock.patch.object(routes, "_router_openai",
+                               side_effect=lambda b, **kw: (self.sent.append(b), next(it))[1]):
+            return self.req("/api/stt/talk", "POST", body)
+
+    def test_talk_hears_then_answers_on_the_same_model(self):
+        said = (200, {"choices": [{"message": {"content": "What is a GGUF?"}}]})
+        answer = (200, {"choices": [{"message": {"content": "**A file format** for models."}}]})
+        hist = [{"role": "user", "content": "hi"}, {"role": "assistant", "content": "Hello."}]
+        code, got = self.talk([said, answer], {"audio": base64.b64encode(WAV).decode(), "history": hist})
+        self.assertEqual(code, 200)
+        self.assertEqual((got["heard"], got["reply"], got["model"]),
+                         ("What is a GGUF?", "A file format for models.", "voxtral"))
+        self.assertGreaterEqual(got["hear_s"], 0)
+        self.assertGreaterEqual(got["think_s"], 0)
+        hear, think = self.sent
+        self.assertEqual(hear["messages"][0]["content"][0]["type"], "input_audio")
+        self.assertEqual(think["model"], "voxtral")
+        self.assertEqual([m["content"] for m in think["messages"][1:]], ["hi", "Hello.", "What is a GGUF?"])
+
+    def test_talk_with_nothing_heard_skips_the_answer(self):
+        said = (200, {"choices": [{"message": {"content": "  "}}]})
+        code, got = self.talk([said], {"audio": base64.b64encode(WAV).decode()})
+        self.assertEqual(code, 200)
+        self.assertEqual((got["heard"], got["reply"]), ("", ""))
+        self.assertEqual(len(self.sent), 1)
+
+    def test_talk_errors_are_panel_shaped(self):
+        said = (200, {"choices": [{"message": {"content": "hello"}}]})
+        code, got = self.talk([said, (500, {"error": {"message": "out of memory"}})],
+                              {"audio": base64.b64encode(WAV).decode()})
+        self.assertEqual(code, 502)
+        self.assertIn("out of memory", got["error"])
+        self.assertEqual(self.talk([], {"audio": "%%"})[0], 400)
 
     def test_models_come_from_audio_projectors(self):
         sections = {"vox": {"mmproj": "rel/a.gguf"}, "txt": {"model": "m"}}

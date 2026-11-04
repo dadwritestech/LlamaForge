@@ -12,27 +12,27 @@ const wav = await inline("wav.js");
 const { listenMarkup, dlLine, curlSnippet } =
   await import(await inline("listen.js", {"core.js": core, "wav.js": wav}));
 
-const OFFER = {label: "Voxtral Mini 3B", repo: "ggml-org/Voxtral-Mini-3B-2507-GGUF",
-               path: "Voxtral-Mini-3B-2507-Q4_K_M.gguf", mmproj: "mmproj-Voxtral-Mini-3B-2507-Q8_0.gguf",
-               bytes: 3188716000, license: "Apache-2.0", note: "English and seven more languages."};
+const OFFER = {label: "Gemma 4 E4B", repo: "unsloth/gemma-4-E4B-it-GGUF",
+               path: "gemma-4-E4B-it-Q4_K_M.gguf", mmproj: "mmproj-F16.gguf",
+               bytes: 5967544256, license: "Apache-2.0", note: "Hears and answers on one model."};
 const IDLE = {running: false, phase: "idle", repo: ""};
 const ST = (o) => ({models: [], offer: OFFER, download: IDLE, ...o});
 
-test("with no model that can hear, the card offers Voxtral", () => {
+test("with no model that can hear, the card offers Gemma 4 E4B", () => {
   const out = listenMarkup(ST(), "");
   assert.match(out, /data-stt-get/);
-  assert.match(out, /Voxtral Mini 3B/);
-  assert.match(out, /3\.0 GiB/);
+  assert.match(out, /Gemma 4 E4B/);
+  assert.match(out, /5\.6 GiB/);
   assert.doesNotMatch(out, /id="stt-rec"/);
 });
 
-test("while Voxtral downloads the card shows progress, not the button", () => {
+test("while the model downloads the card shows progress, not the button", () => {
   const d = {running: true, phase: "downloading", repo: OFFER.repo, file: OFFER.path,
              done_files: 0, total_files: 2, downloaded: 50, total: 200};
   const out = listenMarkup(ST({download: d}), "");
   assert.match(out, /id="stt-dl"/);
   assert.doesNotMatch(out, /data-stt-get/);
-  assert.equal(dlLine(d), "Downloading Voxtral-Mini-3B-2507-Q4_K_M.gguf (1 of 2) 25%");
+  assert.equal(dlLine(d), "Downloading gemma-4-E4B-it-Q4_K_M.gguf (1 of 2) 25%");
   assert.equal(dlLine({phase: "registering"}), "Adding it to your models...");
 });
 
