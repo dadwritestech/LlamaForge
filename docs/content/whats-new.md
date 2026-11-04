@@ -8,6 +8,10 @@ order: 1
 
 This page summarizes the most recent additions to LlamaForge. Each entry links to the full reference for that capability. For the longer-term direction, see the project's `ROADMAP.md`.
 
+## v0.18.35: Share your model's X-ray
+
+The X-ray has a **Share image** button. It turns what's on screen, slider included, into a 1200x630 card: one column per layer, coloured by what the layer holds, with the part in system RAM hatched, plus the quant mix and the GPU / RAM split. Post "my 26B at 10 GPU layers" next to "all layers" and the difference is plain to see. The card holds no paths. See [Models & Tuning](models.md#how-to-use-it).
+
 ## v0.18.34: Model X-ray
 
 Every model's info card has an **X-ray** button. It takes the GGUF apart from its header, one bar per layer, split into attention, FFN, MoE experts and the rest, and hatches what stays in system RAM under your settings. On Gemma 4 26B it showed why 5 GB of a 15.4 GB model sat in RAM: `n-cpu-moe=10` keeps the first ten blocks' experts there (about 440 MB each), plus the 748 MB embedding. Drag the **GPU layers** slider and watch the blocks move; nothing is saved. See [Models & Tuning](models.md#how-to-use-it).

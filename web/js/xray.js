@@ -79,12 +79,13 @@ export async function openXray(id) {
     <div class="xr-ngl"><label for="xr-ngl">GPU layers</label>
       <input type="range" id="xr-ngl" min="0" max="${esc(top)}" step="1" value="${esc(conf)}">
       <output for="xr-ngl" data-xr-ngl>${esc(nglText(conf, v.n_layer))}</output>
-      <button type="button" class="qbtn" data-xr-reset hidden>Back to ${esc(conf)}</button></div>
+      <button type="button" class="qbtn" data-xr-reset hidden>Back to ${esc(conf)}</button>
+      <button type="button" class="qbtn" data-xr-share title="This view as a 1200x630 image">Share image</button></div>
     <p class="af-q dim xr-what">Drag to see what moves. A what-if only: nothing is saved.</p>
     <div data-xr-body>${body(v)}</div>`);
   const range = $("#xr-ngl"), out = $("[data-xr-ngl]"), reset = $("[data-xr-reset]"), box = $("[data-xr-body]");
   if (!range || !box) return;
-  let t = 0;
+  let t = 0, cur = v;
   const update = () => {
     const n = clampNgl(range.value, v.n_layer);
     out.textContent = nglText(n, v.n_layer);
@@ -94,10 +95,36 @@ export async function openXray(id) {
       const mine = ++seq;
       try {
         const w = await api(`/api/model/xray?model=${encodeURIComponent(id)}&ngl=${n}`);
-        if (mine === seq && box.isConnected) setHTML(box, body(w));
+        if (mine === seq && box.isConnected) { cur = w; setHTML(box, body(w)); }
       } catch (e) { toast(String(e.message || e), "err"); }
     }, 90);
   };
   range.oninput = update;
   reset.onclick = () => { range.value = String(conf); update(); };
+  $("[data-xr-share]").onclick = () => shareXray(cur, id);
+}
+
+// The view on screen (slider included) as a 1200x630 image (xraycard.js), loaded on
+// first use. Same dialog as the other share cards.
+async function shareXray(v, id) {
+  const { drawXray } = await import("./xraycard.js");
+  showModal(`Share X-ray: ${id}`, `<canvas class="af-card" width="1200" height="630" aria-label="Model X-ray card"></canvas>
+    <p class="af-q">Holds the model's name, architecture, layer sizes, quant types and the GPU / RAM split. No paths.</p>
+    <div class="af-act"><button type="button" class="qbtn load" data-xc-png>Download image</button>
+      <button type="button" class="qbtn" data-xc-copyimg>Copy image</button></div>`);
+  const dlg = document.querySelector("#modal-root dialog");
+  const canvas = dlg && dlg.querySelector("canvas.af-card");
+  if (!canvas) return;
+  await drawXray(canvas, v, id);
+  const blob = () => new Promise(r => canvas.toBlob(r, "image/png"));
+  dlg.querySelector("[data-xc-png]").onclick = async () => {
+    const url = URL.createObjectURL(await blob());
+    const name = "llamaforge-xray-" + String(id).replace(/[^\w.-]+/g, "_") + ".png";
+    const a = Object.assign(document.createElement("a"), {href: url, download: name});
+    a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+  dlg.querySelector("[data-xc-copyimg]").onclick = async () => {
+    try { await navigator.clipboard.write([new ClipboardItem({"image/png": blob()})]); toast("Image copied", "ok"); }
+    catch { toast("This browser can't copy images; use Download", "err"); }
+  };
 }
