@@ -58,3 +58,36 @@ test("the body escapes model data and hatches RAM", () => {
   assert.doesNotMatch(html, /tied output/);
   assert.match(X.body({...v, tied_copy: 748 * M}), /748 MB GPU copy/);
 });
+
+test("a quant's short name comes from its file name", () => {
+  assert.equal(X.quantName("gemma-4-26b-a4b-it-Q4_K_M.gguf"), "Q4_K_M");
+  assert.equal(X.quantName("Q8_0/gemma-4-26b-Q8_0-00001-of-00002.gguf"), "Q8_0");
+  assert.equal(X.quantName("Qwen3.6-35B-A3B-UD-IQ4_XS.gguf"), "UD-IQ4_XS");
+  assert.equal(X.quantName("gemma-4-26b-a4b-it-MXFP4_MOE.gguf"), "MXFP4_MOE");
+  assert.equal(X.quantName("model-bf16.gguf"), "bf16");
+  assert.equal(X.quantName("Ternary-Bonsai-2-27B-PTQ1_0.gguf"), "PTQ1_0");
+  assert.equal(X.quantName("weird.gguf"), "weird");
+});
+
+const G = 1024 ** 3;
+const half = (file, total, gpu, label = "blk 0") => ({
+  file, total, gpu, ram: total - gpu, confident: true, types: [{type: "Q4_K", bytes: total, share: 1}],
+  rows: [{label, type: "Q4_K", gpu, ram: total - gpu, parts: {ffn: total}, ram_parts: total > gpu ? {ffn: total - gpu} : {}}],
+});
+
+test("the compare line says what the other quant costs", () => {
+  const a = half("m-Q4_K_M.gguf", 9 * G, 9 * G), b = half("m-Q8_0.gguf", 15 * G, 10 * G);
+  assert.equal(X.compareText(a, b),
+    "Q8_0 vs Q4_K_M: +6.00 GB of weights, +1.00 GB on GPU, +5.00 GB in system RAM");
+  assert.match(X.compareText(b, a), /^Q4_K_M vs Q8_0: -6.00 GB of weights/);
+});
+
+test("both stacks share one scale and model data is escaped", () => {
+  const a = half("m-Q4_K_M.gguf", 5 * G, 5 * G), b = half("<x>-Q8_0.gguf", 10 * G, 10 * G, "blk <1>");
+  const html = X.compareBody({...a, vs: b});
+  assert.match(html, /style="width:50%"/);     // the smaller file's bar is half as long
+  assert.match(html, /style="width:100%"/);
+  assert.match(html, /blk &lt;1&gt;/);
+  assert.doesNotMatch(html, /<x>/);
+  assert.match(html, /none of its weights were downloaded/);
+});

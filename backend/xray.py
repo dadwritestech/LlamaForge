@@ -8,10 +8,26 @@ model's settings, by the same rule footprint.predict() uses.
 
 Pure and stdlib only: the header is read by gguf.py, nothing is loaded.
 """
+import io
 import re
+import threading
+import time
+import urllib.parse
+import urllib.request
 
 import compat
 import footprint
+import gguf
+import hub
+
+# A quant that isn't on this disk is read like the template check reads one:
+# the header only, by HTTP Range, starting small and widening until it parses.
+FIRST = 4 * 1024 * 1024
+CAP = 256 * 1024 * 1024
+_REMOTE = {}            # (repo, path) -> layout; headers never change for a commit
+_LISTS = {}             # repo -> (time, files)
+_LIST_TTL = 600
+_LOCK = threading.Lock()
 
 _BLK = re.compile(r"blk\.(\d+)\.")
 # first match wins: expert tensors are also "ffn", an MTP head holds its own norms.
@@ -86,3 +102,63 @@ def view(layout, settings):
             "types": [{"type": t, "bytes": b, "share": round(b / total, 4) if total else 0}
                       for t, b in sorted(by_type.items(), key=lambda kv: -kv[1])],
             "rows": out_rows}
+
+
+def _get(url, headers):
+    """(body, response headers) for a GET: patched in tests."""
+    req = urllib.request.Request(url, headers=dict(hub.UA, **headers))
+    with urllib.request.urlopen(req, timeout=30) as r:
+        return r.read(CAP), dict(r.headers)
+
+
+def _header(url):
+    """(header bytes, file size) for one GGUF, or None: the Range widens x4
+    until gguf can parse the header, and stops at the whole file or CAP."""
+    n = FIRST
+    while True:
+        body, hdrs = _get(url, {"Range": f"bytes=0-{n - 1}"})
+        cr = {k.lower(): v for k, v in hdrs.items()}.get("content-range", "")
+        total = int(cr.rsplit("/", 1)[1]) if "/" in cr and cr.rsplit("/", 1)[1].isdigit() else len(body)
+        if gguf.layout_streams([(io.BytesIO(body), total)]) is not None:
+            return body, total
+        if len(body) >= total or n >= CAP:
+            return None
+        n *= 4
+
+
+def remote_layout(repo, path, shards=1):
+    """gguf.layout() of a Hugging Face file (every shard of a split set) from
+    its headers alone, or None when it can't be read. Cached per file."""
+    key = (repo, path)
+    with _LOCK:
+        if key in _REMOTE:
+            return _REMOTE[key]
+    parts = []
+    try:
+        for p in hub.shard_paths(path, shards):
+            got = _header(f"{hub.HF}/{repo}/resolve/main/{urllib.parse.quote(p)}")
+            if got is None:
+                return None
+            parts.append((io.BytesIO(got[0]), got[1]))
+    except (OSError, ValueError):
+        return None
+    lay = gguf.layout_streams(parts)
+    if lay is not None:
+        with _LOCK:
+            _REMOTE[key] = lay
+    return lay
+
+
+def quants(repo):
+    """The repo's model files (hub.files, shard sets collapsed), kept 10 minutes."""
+    with _LOCK:
+        hit = _LISTS.get(repo)
+        if hit and time.time() - hit[0] < _LIST_TTL:
+            return hit[1]
+    # an importance matrix ships as .gguf too, but it's no model
+    got = [{"path": f["path"], "size": f["size"], "shards": f.get("shards", 1)}
+           for f in hub.files(repo)["files"]
+           if not f["path"].rsplit("/", 1)[-1].lower().startswith("imatrix")]
+    with _LOCK:
+        _LISTS[repo] = (time.time(), got)
+    return got

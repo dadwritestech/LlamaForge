@@ -42,15 +42,8 @@ export function nglText(ngl, nLayer) {
   return `last ${ngl} of ${nLayer} blocks`;
 }
 
-export function body(v) {
-  const widest = Math.max(1, ...v.rows.map(r => r.gpu + r.ram));
-  const used = new Set(v.rows.flatMap(r => Object.keys(r.parts)));
-  const legend = KINDS.filter(([k]) => used.has(k))
-    .map(([k, label]) => `<span><i class="xr-k-${esc(k)}"></i>${esc(label)}</span>`).join("")
-    + `<span><i class="xr-k-ram"></i>in system RAM</span>`;
-  const types = v.types.slice(0, 8).map(t =>
-    `<span class="xr-type" title="${esc(gb(t.bytes))}">${esc(t.type)} <b>${esc(Math.round(t.share * 100))}%</b></span>`).join("");
-  const rows = v.rows.map(r => {
+function stack(v, widest) {
+  return v.rows.map(r => {
     const tip = `${r.label} · ${r.type} · ${gb(r.gpu + r.ram)}` + (r.ram ? ` · ${gb(r.ram)} in RAM` : " · on GPU");
     const segs = segments(r, widest).map(s =>
       `<i class="xr-k-${esc(s.kind)}${s.ram ? " ram" : ""}" style="width:${s.pct}%"></i>`).join("");
@@ -58,13 +51,59 @@ export function body(v) {
     const tick = !n || Number(n[1]) % 5 === 0 ? " tick" : "";
     return `<div class="xr-row${tick}" title="${esc(tip)}"><span class="xr-l">${esc(r.label)}</span><span class="xr-bar">${segs}</span></div>`;
   }).join("");
+}
+
+const widestOf = (...vs) => Math.max(1, ...vs.flatMap(v => v.rows.map(r => r.gpu + r.ram)));
+
+function legendHTML(...vs) {
+  const used = new Set(vs.flatMap(v => v.rows.flatMap(r => Object.keys(r.parts))));
+  return `<div class="xr-legend">${KINDS.filter(([k]) => used.has(k))
+    .map(([k, label]) => `<span><i class="xr-k-${esc(k)}"></i>${esc(label)}</span>`).join("")}<span><i class="xr-k-ram"></i>in system RAM</span></div>`;
+}
+
+const typesHTML = (v, n = 8) => `<div class="xr-types">${v.types.slice(0, n).map(t =>
+  `<span class="xr-type" title="${esc(gb(t.bytes))}">${esc(t.type)} <b>${esc(Math.round(t.share * 100))}%</b></span>`).join("")}</div>`;
+
+const guess = v => v.confident ? "" : `<p class="slotnote warn">An override-tensor pattern didn't parse, so the RAM / GPU split is a guess.</p>`;
+
+export function body(v) {
   return `<div class="xr-sum"><b>${esc(gb(v.total))}</b> of weights · <span class="xr-gpu">${esc(gb(v.gpu))} on GPU</span>
       · <span class="xr-ram">${esc(gb(v.ram))} in system RAM</span>${v.tied_copy
         ? ` <span class="xr-tied" title="The output layer is tied to the embedding, so llama.cpp keeps a GPU copy of it">+ ${esc(gb(v.tied_copy))} GPU copy of the embedding (tied output)</span>` : ""}</div>
-    <div class="xr-types">${types}</div>
-    <div class="xr-legend">${legend}</div>
-    <div class="xr-stack" data-xr-stack>${rows}</div>
-    ${v.confident ? "" : `<p class="slotnote warn">An override-tensor pattern didn't parse, so the RAM / GPU split is a guess.</p>`}`;
+    ${typesHTML(v)}
+    ${legendHTML(v)}
+    <div class="xr-stack" data-xr-stack>${stack(v, widestOf(v))}</div>
+    ${guess(v)}`;
+}
+
+/** "Q4_K_M" from "Q4_K_M/gemma-4-26b-Q4_K_M-00001-of-00002.gguf"; the file stem when no quant tag is in it. */
+export function quantName(path) {
+  const stem = String(path || "").split("/").pop().replace(/(-\d{5}-of-\d{5})?\.gguf$/i, "");
+  const m = /(?:^|[-_.])((?:UD-)?(?:[IPT]{0,2}Q\d\w*|MXFP4\w*|BF16|F16|F32|FP8\w*))$/i.exec(stem);
+  return m ? m[1] : stem;
+}
+
+const signed = b => (b < 0 ? "-" : "+") + gb(Math.abs(b));
+
+/** What the second quant costs against the first, under the same settings. */
+export function compareText(a, b) {
+  return `${quantName(b.file)} vs ${quantName(a.file)}: ${signed(b.total - a.total)} of weights, `
+    + `${signed(b.gpu - a.gpu)} on GPU, ${signed(b.ram - a.ram)} in system RAM`;
+}
+
+/** Both quants side by side, bars on one scale so the bigger file looks bigger. */
+export function compareBody(v) {
+  const w = v.vs, widest = widestOf(v, w);
+  const half = (x, tag) => `<div class="xr-half"><div class="xr-file" title="${esc(x.file)}">${esc(tag)} <b>${esc(quantName(x.file))}</b></div>
+      <div class="xr-sum"><b>${esc(gb(x.total))}</b> · <span class="xr-gpu">${esc(gb(x.gpu))} GPU</span>
+        · <span class="xr-ram">${esc(gb(x.ram))} RAM</span></div>
+      ${typesHTML(x, 4)}
+      <div class="xr-stack">${stack(x, widest)}</div></div>`;
+  return `<div class="xr-delta">${esc(compareText(v, w))}</div>
+    ${legendHTML(v, w)}
+    <div class="xr-two">${half(v, "this file")}${half(w, "vs")}</div>
+    <p class="af-q dim">Same settings and GPU layers for both. The other file's header was read from Hugging Face; none of its weights were downloaded.</p>
+    ${guess(v)}`;
 }
 
 let seq = 0;
@@ -81,27 +120,57 @@ export async function openXray(id) {
       <output for="xr-ngl" data-xr-ngl>${esc(nglText(conf, v.n_layer))}</output>
       <button type="button" class="qbtn" data-xr-reset hidden>Back to ${esc(conf)}</button>
       <button type="button" class="qbtn" data-xr-share title="This view as a 1200x630 image">Share image</button></div>
+    <div class="xr-ngl"><label for="xr-vs">Compare with</label>
+      <select id="xr-vs" data-xr-vs disabled><option value="">looking up the other quants…</option></select>
+      <span class="af-q dim" data-xr-vsnote></span></div>
     <p class="af-q dim xr-what">Drag to see what moves. A what-if only: nothing is saved.</p>
     <div data-xr-body>${body(v)}</div>`);
   const range = $("#xr-ngl"), out = $("[data-xr-ngl]"), reset = $("[data-xr-reset]"), box = $("[data-xr-body]");
+  const pick = $("[data-xr-vs]"), note = $("[data-xr-vsnote]");
   if (!range || !box) return;
   let t = 0, cur = v;
+  const fetchView = async () => {
+    const n = clampNgl(range.value, v.n_layer), vs = pick.value;
+    const mine = ++seq;
+    if (vs) note.textContent = "reading its header…";
+    try {
+      const w = await api(`/api/model/xray?model=${encodeURIComponent(id)}&ngl=${n}`
+        + (vs ? "&vs=" + encodeURIComponent(vs) : ""));
+      if (mine === seq && box.isConnected) {
+        cur = w; note.textContent = "";
+        setHTML(box, w.vs ? compareBody(w) : body(w));
+      }
+    } catch (e) {
+      if (mine === seq) note.textContent = "";
+      toast(String(e.message || e), "err");
+    }
+  };
   const update = () => {
     const n = clampNgl(range.value, v.n_layer);
     out.textContent = nglText(n, v.n_layer);
     reset.hidden = n === conf;
     clearTimeout(t);
-    t = setTimeout(async () => {
-      const mine = ++seq;
-      try {
-        const w = await api(`/api/model/xray?model=${encodeURIComponent(id)}&ngl=${n}`);
-        if (mine === seq && box.isConnected) { cur = w; setHTML(box, body(w)); }
-      } catch (e) { toast(String(e.message || e), "err"); }
-    }, 90);
+    t = setTimeout(fetchView, 90);
   };
   range.oninput = update;
   reset.onclick = () => { range.value = String(conf); update(); };
+  pick.onchange = fetchView;
   $("[data-xr-share]").onclick = () => shareXray(cur, id);
+  try {
+    const q = await api("/api/model/xray/quants?model=" + encodeURIComponent(id));
+    const others = q.files.filter(f => f.path !== q.current);
+    if (!pick.isConnected) return;
+    if (!others.length) {
+      pick.hidden = true;
+      note.textContent = q.reason || "This repo has no other quant to compare with.";
+      return;
+    }
+    setHTML(pick, `<option value="">another quant of ${esc(q.repo)}…</option>` + others.map(f =>
+      `<option value="${esc(f.path)}">${esc(quantName(f.path))} · ${esc(gb(f.size))}</option>`).join(""));
+    pick.disabled = false;
+  } catch {
+    if (pick.isConnected) { pick.hidden = true; note.textContent = "Couldn't list the other quants."; }
+  }
 }
 
 // The view on screen (slider included) as a 1200x630 image (xraycard.js), loaded on

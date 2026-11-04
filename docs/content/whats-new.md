@@ -8,6 +8,10 @@ order: 1
 
 This page summarizes the most recent additions to LlamaForge. Each entry links to the full reference for that capability. For the longer-term direction, see the project's `ROADMAP.md`.
 
+## v0.18.36: Which quant fits? Compare them in the X-ray
+
+The X-ray now has **Compare with**: pick another quant of the same Hugging Face repo and see both layer stacks side by side, on one scale and under your model's own settings. LlamaForge reads only that file's GGUF header over HTTP Range, a few MB, so you see where a Q8_0 or an IQ4_XS would sit (GPU or system RAM, block by block) before downloading 20 GB. The GPU layers slider moves both. See [Models](models.md).
+
 ## v0.18.35: Share your model's X-ray
 
 The X-ray has a **Share image** button. It turns what's on screen, slider included, into a 1200x630 card: one column per layer, coloured by what the layer holds, with the part in system RAM hatched, plus the quant mix and the GPU / RAM split. Post "my 26B at 10 GPU layers" next to "all layers" and the difference is plain to see. The card holds no paths. See [Models & Tuning](models.md#how-to-use-it).

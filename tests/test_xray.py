@@ -167,5 +167,142 @@ class Route(unittest.TestCase):
         self.assertIs(self.routes.GET_ROUTES["/api/model/xray"], self.routes.get_model_xray)
 
 
+class Remote(unittest.TestCase):
+    """A quant that isn't on this disk: its header over HTTP Range, never the weights."""
+
+    def setUp(self):
+        import os
+        import shutil
+        import tempfile
+        from unittest import mock
+        from test_gguf_layout import kv_str, kv_u32, write_gguf
+        self.dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.dir, True)
+        self.files = {}
+        specs = {"q6.gguf": ["blk.0.attn_q.weight", "blk.1.attn_q.weight"],
+                 "big-00001-of-00002.gguf": ["blk.0.attn_q.weight"],
+                 "big-00002-of-00002.gguf": ["output.weight"]}
+        for name, tensors in specs.items():
+            path = os.path.join(self.dir, name)
+            write_gguf(path, [kv_str("general.architecture", "llama"), kv_u32("llama.block_count", 2)],
+                       [(t, 14, 5000) for t in tensors])
+            with open(path, "rb") as f:
+                self.files[name] = f.read()
+        self.local = os.path.join(self.dir, "q6.gguf")
+        self.calls = []
+        mock.patch.object(xray, "_get", side_effect=self.fake).start()
+        mock.patch.object(xray, "FIRST", 64).start()
+        mock.patch.dict(xray._REMOTE, clear=True).start()
+        self.addCleanup(mock.patch.stopall)
+
+    def fake(self, url, headers):
+        self.calls.append((url, headers))
+        raw = self.files[url.rsplit("/", 1)[-1]]
+        end = min(int(headers["Range"].split("-")[1]), len(raw) - 1)
+        return raw[:end + 1], {"Content-Range": f"bytes 0-{end}/{len(raw)}"}
+
+    def test_widens_the_range_until_the_header_fits(self):
+        import gguf
+        self.assertEqual(xray.remote_layout("o/r", "q6.gguf"), gguf.layout(self.local))
+        self.assertGreater(len(self.calls), 1)
+        self.assertEqual(self.calls[0], ("https://huggingface.co/o/r/resolve/main/q6.gguf",
+                                         {"Range": "bytes=0-63"}))
+
+    def test_cached_per_file(self):
+        xray.remote_layout("o/r", "q6.gguf")
+        n = len(self.calls)
+        xray.remote_layout("o/r", "q6.gguf")
+        self.assertEqual(len(self.calls), n)
+
+    def test_shards_are_merged(self):
+        lay = xray.remote_layout("o/r", "big-00001-of-00002.gguf", shards=2)
+        self.assertEqual([t[0] for t in lay["tensors"]], ["blk.0.attn_q.weight", "output.weight"])
+
+    def test_unreadable_is_none_and_not_cached(self):
+        good = self.files["q6.gguf"]
+        self.files["q6.gguf"] = b"nope" * 10
+        self.assertIsNone(xray.remote_layout("o/r", "q6.gguf"))
+        self.files["q6.gguf"] = good
+        self.assertIsNotNone(xray.remote_layout("o/r", "q6.gguf"))
+
+    def test_listing_drops_the_imatrix_and_is_cached(self):
+        from unittest import mock
+        listing = {"files": [{"path": "imatrix_unsloth.gguf", "size": 1, "shards": 1},
+                             {"path": "m-Q4_K_M.gguf", "size": 9, "shards": 1}]}
+        with mock.patch.object(xray.hub, "files", return_value=listing) as f,                 mock.patch.dict(xray._LISTS, clear=True):
+            self.assertEqual([q["path"] for q in xray.quants("o/r")], ["m-Q4_K_M.gguf"])
+            xray.quants("o/r")
+            self.assertEqual(f.call_count, 1)
+
+    def test_network_error_is_none(self):
+        xray._get.side_effect = OSError("offline")
+        self.assertIsNone(xray.remote_layout("o/r", "q6.gguf"))
+
+
+class Compare(unittest.TestCase):
+    def setUp(self):
+        from unittest import mock
+        import routes
+        self.routes = routes
+        self.secs = {"*": {}, "q": {"model": "D:/dl/unsloth--Gem-GGUF/Gem-Q4_K_M.gguf", "ngl": "3"},
+                     "local": {"model": "D:/m/own.gguf"}}
+        mock.patch.object(routes.config, "read_sections", side_effect=lambda *a: self.secs).start()
+        mock.patch.object(routes, "_el_layout", return_value=moe()).start()
+        self.quants = mock.patch.object(xray, "quants", return_value=[
+            {"path": "Gem-Q4_K_M.gguf", "size": 9 * M, "shards": 1},
+            {"path": "Gem-Q6_K.gguf", "size": 12 * M, "shards": 1},
+            {"path": "Gem-Q8_0-00001-of-00002.gguf", "size": 20 * M, "shards": 2}]).start()
+        self.remote = mock.patch.object(xray, "remote_layout", return_value=dense()).start()
+        self.addCleanup(mock.patch.stopall)
+
+    def get(self, route, **qs):
+        return route(self.routes.Req(qs=qs))
+
+    def test_lists_the_repo_quants_and_marks_this_file(self):
+        st, v = self.get(self.routes.get_model_xray_quants, model="q")
+        self.assertEqual(v["repo"], "unsloth/Gem-GGUF")
+        self.assertEqual(v["current"], "Gem-Q4_K_M.gguf")
+        self.assertEqual([f["path"] for f in v["files"]][1], "Gem-Q6_K.gguf")
+        self.quants.assert_called_with("unsloth/Gem-GGUF")
+
+    def test_a_file_with_no_repo_says_so(self):
+        st, v = self.get(self.routes.get_model_xray_quants, model="local")
+        self.assertEqual(v["files"], [])
+        self.assertIn("Hugging Face", v["reason"])
+
+    def test_listing_offline_says_so(self):
+        self.quants.side_effect = OSError("offline")
+        st, v = self.get(self.routes.get_model_xray_quants, model="q")
+        self.assertEqual(v["files"], [])
+        self.assertIn("reach", v["reason"])
+
+    def test_vs_draws_the_other_quant_under_the_same_settings(self):
+        st, v = self.get(self.routes.get_model_xray, model="q", vs="Gem-Q8_0-00001-of-00002.gguf", ngl="1")
+        self.remote.assert_called_with("unsloth/Gem-GGUF", "Gem-Q8_0-00001-of-00002.gguf", shards=2)
+        self.assertEqual(v["vs"]["file"], "Gem-Q8_0-00001-of-00002.gguf")
+        self.assertEqual(v["vs"]["ngl"], 1)
+        self.assertEqual(v["vs"]["arch"], "llama")
+        self.assertEqual(v["file"], "Gem-Q4_K_M.gguf")
+        self.assertEqual(v["ngl"], 1)
+
+    def test_vs_must_be_a_file_of_that_repo(self):
+        for bad in ("../x.gguf", "Other.gguf"):
+            with self.assertRaises(self.routes.ApiError) as e:
+                self.get(self.routes.get_model_xray, model="q", vs=bad)
+            self.assertEqual(e.exception.status, 400)
+        with self.assertRaises(self.routes.ApiError) as e:
+            self.get(self.routes.get_model_xray, model="local", vs="Gem-Q6_K.gguf")
+        self.assertEqual(e.exception.status, 400)
+
+    def test_unreadable_remote_header(self):
+        self.remote.return_value = None
+        with self.assertRaises(self.routes.ApiError) as e:
+            self.get(self.routes.get_model_xray, model="q", vs="Gem-Q6_K.gguf")
+        self.assertEqual(e.exception.status, 502)
+
+    def test_registered(self):
+        self.assertIs(self.routes.GET_ROUTES["/api/model/xray/quants"], self.routes.get_model_xray_quants)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -1317,7 +1317,47 @@ def get_model_xray(req):
         raise ApiError(422, "couldn't read this model's GGUF header")
     v["model"] = mid
     v["configured_ngl"] = footprint.placer(own, lay)[1]["n_gpu"]
+    repo, rel = tmpldoctor.repo_path(s.get("model") or "")
+    v["file"] = rel.rsplit("/", 1)[-1] if rel else os.path.basename(s.get("model") or "")
+    vs = req.q("vs")
+    if vs:
+        # another quant of the same repo, read by header Range: it must be one
+        # the repo lists, so this never fetches an arbitrary URL
+        pick = next((f for f in _xray_quants(repo) if f["path"] == vs), None) if repo else None
+        if pick is None or ".." in vs:
+            raise ApiError(400, "pick a file from this model's Hugging Face repo")
+        other = xray.view(xray.remote_layout(repo, vs, shards=pick["shards"]), s)
+        if other is None:
+            raise ApiError(502, f"couldn't read the header of {vs} from Hugging Face")
+        other["file"] = vs
+        v["vs"] = other
     return 200, v
+
+
+def _xray_quants(repo):
+    try:
+        return xray.quants(repo)
+    except (OSError, ValueError, KeyError):
+        return []
+
+
+def get_model_xray_quants(req):
+    """The other quants of this model's Hugging Face repo, to X-ray side by side."""
+    mid = req.q("model")
+    secs = config.read_sections()
+    if not mid or mid == "*" or mid not in secs:
+        raise ApiError(404, "no such model")
+    path = {**(secs.get("*") or {}), **secs[mid]}.get("model") or ""
+    repo, rel = tmpldoctor.repo_path(path)
+    if not repo:
+        return 200, {"repo": "", "current": "", "files": [],
+                     "reason": "This file wasn't downloaded from Hugging Face, so there's no repo to compare against."}
+    try:
+        files = xray.quants(repo)
+    except (OSError, ValueError, KeyError):
+        return 200, {"repo": repo, "current": rel, "files": [],
+                     "reason": "Couldn't reach Hugging Face to list this repo's files."}
+    return 200, {"repo": repo, "current": rel, "files": files, "reason": ""}
 
 
 def get_model_diag(req):
@@ -3251,6 +3291,7 @@ GET_ROUTES = {
     "/api/app/update":        lambda req: (200, APP_UPDATE.progress()),
     "/api/model/metadata":    get_model_metadata,
     "/api/model/xray":        get_model_xray,
+    "/api/model/xray/quants": get_model_xray_quants,
     "/api/model/diag":        get_model_diag,
     "/api/presets":           get_presets,
     "/api/wiki/docs":         get_wiki_docs,
