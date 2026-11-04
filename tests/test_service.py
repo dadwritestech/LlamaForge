@@ -141,19 +141,23 @@ class ServiceRouteTest(unittest.TestCase):
     def test_get_reports_off_then_on(self):
         st, out = self.routes.get_service(self.req())
         self.assertEqual((st, out["on"]), (200, False))
-        with mock.patch.object(service.platform, "system", return_value="Windows"):
+        # A Windows install dir on every OS: CI runs this on Linux and macOS too,
+        # where ROOT is a POSIX path that windows_vbs (rightly) refuses.
+        with mock.patch.object(service.platform, "system", return_value="Windows"), \
+             mock.patch.object(self.routes, "ROOT", r"C:\LlamaForge"):
             st, out = self.routes.post_service(self.req({"on": True}))
             self.assertTrue(out["ok"])
             self.assertTrue(os.path.isfile(self.target))
             with open(self.target, encoding="utf-8") as f:
-                self.assertIn(os.path.join(self.routes.ROOT, "run.ps1"), f.read())
+                self.assertIn(r'""C:\LlamaForge\run.ps1""', f.read())
             self.assertTrue(self.routes.get_service(self.req())[1]["on"])
             st, out = self.routes.post_service(self.req({"on": False}))
         self.assertTrue(out["ok"])
         self.assertFalse(os.path.exists(self.target))
 
     def test_unsupported_system_says_so(self):
-        with mock.patch.object(service.platform, "system", return_value="FreeBSD"),              mock.patch.object(service, "_file", _REAL_FILE):
+        with mock.patch.object(service.platform, "system", return_value="FreeBSD"), \
+             mock.patch.object(service, "_file", _REAL_FILE):
             st, out = self.routes.get_service(self.req())
             self.assertFalse(out["supported"])
             st, out = self.routes.post_service(self.req({"on": True}))
