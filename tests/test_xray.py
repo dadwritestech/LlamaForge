@@ -332,6 +332,50 @@ class Fit(unittest.TestCase):
         self.assertLess(xray.fit_ngl(lay, {}, full["gpu"]), 4)
         self.assertEqual(xray.fit_ngl(lay, {}, full["gpu"] + full["tied_copy"]), 4)
 
+    def test_experts_on_cpu_fit(self):
+        lay = moe()
+        self.assertTrue(xray.has_experts(lay))
+        self.assertFalse(xray.has_experts(dense()))
+        self.assertIsNone(xray.fit_ncmoe(dense(), 100 * G))
+        self.assertEqual(xray.fit_ncmoe(lay, 100 * G), 0)       # all of it fits
+        for budget in (6 * G, 7 * G, 8 * G):
+            k = xray.fit_ncmoe(lay, budget)
+            v = xray.view(lay, xray.with_ncmoe(xray.with_ngl({}, 5), k))
+            self.assertLessEqual(v["gpu"] + v["tied_copy"], budget, budget)
+            if k:
+                w = xray.view(lay, xray.with_ncmoe(xray.with_ngl({}, 5), k - 1))
+                self.assertGreater(w["gpu"] + w["tied_copy"], budget, budget)
+        self.assertIsNone(xray.fit_ncmoe(lay, 100 * M))         # even no experts on GPU is too much
+
+    def test_with_ncmoe_replaces_any_spelling(self):
+        s = xray.with_ncmoe({"ncmoe": "3", "cpu-moe": "", "ctx-size": "4096"}, 2)
+        self.assertEqual(s, {"ctx-size": "4096", "n-cpu-moe": "2"})
+        self.assertEqual(xray.with_ncmoe({"ncmoe": "3"}, 0), {})
+
+    def test_placement_prefers_experts_in_ram(self):
+        lay = moe()
+        block = 2171 * M                          # one whole blk of the fixture
+        for budget in (3 * G, 6 * G, 7 * G, 8 * G, 100 * G):
+            p = xray.placement(lay, budget)
+            k = xray.fit_ncmoe(lay, budget)
+            self.assertEqual(p, {"ngl": 5, "ncmoe": k}, budget)
+            v = xray.view(lay, xray.with_ncmoe(xray.with_ngl({}, p["ngl"]), p["ncmoe"]))
+            ngl_only = xray.view(lay, xray.with_ngl({}, xray.fit_ngl(lay, {}, budget)))
+            self.assertLessEqual(v["gpu"] + v["tied_copy"], budget, budget)
+            # never a whole block behind what -ngl alone would keep on the GPU
+            self.assertLess(ngl_only["gpu"] - v["gpu"], block, budget)
+        # 7 GB: 3 whole layers would keep 6.4 GB on the GPU, experts of 2 blocks off 5.1 GB,
+        # but then the CPU runs only experts, never attention
+        self.assertEqual(xray.placement(lay, 7 * G), {"ngl": 5, "ncmoe": 2})
+        self.assertEqual(xray.placement(lay, int(7.2 * G)), {"ngl": 5, "ncmoe": 1})
+        # even every expert in RAM leaves too much: whole layers it is
+        self.assertEqual(xray.placement(lay, 1 * G), {"ngl": xray.fit_ngl(lay, {}, 1 * G), "ncmoe": 0})
+        self.assertEqual(xray.placement(dense(), 100 * G), {"ngl": 4, "ncmoe": 0})
+
+    def test_flags(self):
+        self.assertEqual(xray.flags(34, 0), "-ngl 34")
+        self.assertEqual(xray.flags(41, 12), "-ngl 41 --n-cpu-moe 12")
+
 
 class Hub(unittest.TestCase):
     def setUp(self):
@@ -355,7 +399,7 @@ class Hub(unittest.TestCase):
         self.assertEqual(v["file"], "Q8/Gem-Q8_0-00001-of-00002.gguf")
         self.assertEqual(v["vram"], 8 * G)
         self.assertEqual(v["budget"], xray.budget(8 * G))
-        self.assertEqual(v["configured_ngl"], xray.fit_ngl(moe(), {}, xray.budget(8 * G)))
+        self.assertEqual(v["configured_ngl"], xray.placement(moe(), xray.budget(8 * G))["ngl"])
         self.assertEqual(v["ngl"], v["configured_ngl"])
         self.assertNotIn("model", v)
 
@@ -391,6 +435,33 @@ class Hub(unittest.TestCase):
         with self.assertRaises(self.routes.ApiError) as e:
             self.get(repo="unsloth/Gem-GGUF", path="Gem-Q4_K_M.gguf")
         self.assertEqual(e.exception.status, 502)
+
+    def test_moe_starts_at_the_best_placement(self):
+        self.routes.total_vram_mib.return_value = int(8.2 * 1024)
+        st, v = self.get(repo="unsloth/Gem-GGUF", path="Gem-Q4_K_M.gguf")
+        p = xray.placement(moe(), xray.budget(int(8.2 * 1024) * M))
+        self.assertEqual((v["configured_ngl"], v["configured_ncmoe"]), (p["ngl"], p["ncmoe"]))
+        self.assertEqual((v["ngl"], v["ncmoe"]), (p["ngl"], p["ncmoe"]))
+        self.assertTrue(v["experts"])
+        self.assertEqual(v["flags"], xray.flags(v["ngl"], v["ncmoe"]))
+
+    def test_ncmoe_param(self):
+        st, v = self.get(repo="unsloth/Gem-GGUF", path="Gem-Q4_K_M.gguf", ngl="5", ncmoe="2",
+                         vs="Q8/Gem-Q8_0-00001-of-00002.gguf")
+        self.assertEqual(v["ncmoe"], 2)
+        self.assertEqual(v["flags"], "-ngl 5 --n-cpu-moe 2")
+        full = xray.view(moe(), {"n-gpu-layers": "5"})
+        self.assertEqual(full["gpu"] - v["gpu"], 2 * 2000 * M)
+        self.assertEqual(v["vs"]["gpu"], v["gpu"])
+        with self.assertRaises(self.routes.ApiError) as e:
+            self.get(repo="unsloth/Gem-GGUF", path="Gem-Q4_K_M.gguf", ncmoe="x")
+        self.assertEqual(e.exception.status, 400)
+
+    def test_dense_has_no_experts(self):
+        self.remote.return_value = dense()
+        st, v = self.get(repo="unsloth/Gem-GGUF", path="Gem-Q4_K_M.gguf")
+        self.assertFalse(v["experts"])
+        self.assertEqual(v["ncmoe"], 0)
 
     def test_registered(self):
         self.assertIs(self.routes.GET_ROUTES["/api/hub/xray"], self.routes.get_hub_xray)

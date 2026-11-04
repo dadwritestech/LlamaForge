@@ -34,6 +34,7 @@ export function cardText(d) {
 }
 
 export function fit(ctx, text, font, max) {
+  text = String(text).replace(/--/g, "-\u200C-");    // a font ligature would draw "--" as one dash
   ctx.font = font;
   if (ctx.measureText(text).width <= max) return text;
   let t = text;

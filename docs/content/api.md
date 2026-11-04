@@ -97,7 +97,7 @@ These are the endpoints external coding agents (Claude Code, Codex, etc.) talk t
 |---|---|---|
 | POST | `/api/hub/search` | Search Hugging Face for GGUF repos, annotated with what's already installed. |
 | POST | `/api/hub/files` | List a repo's files/quantizations, sized against available VRAM. |
-| GET | `/api/hub/xray?repo=&path=[&ngl=][&vs=]` | X-ray of a repo file from its header alone: the Model X-ray view plus `vram`, `budget` (bytes the weights may use) and `configured_ngl` (the most GPU layers that fit). `path` and `vs` must be files the repo lists (400), unreadable header 502. |
+| GET | `/api/hub/xray?repo=&path=[&ngl=][&ncmoe=][&vs=]` | X-ray of a repo file from its header alone: the Model X-ray view plus `vram`, `budget` (bytes the weights may use), `configured_ngl` / `configured_ncmoe` (the placement that fits: for a MoE, all layers with the first blocks' experts on the CPU), `experts`, `ncmoe` and `flags` (the llama-server flags for this view). `path` and `vs` must be files the repo lists (400), unreadable header 502. |
 | POST | `/api/hub/download` | Start downloading a model (and optional mmproj) from the Hub. |
 | GET | `/api/hub/progress` | Current download progress. |
 | POST | `/api/hub/cancel` / `/api/hub/pause` / `/api/hub/resume` | Control the active download. |

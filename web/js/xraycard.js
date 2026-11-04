@@ -48,6 +48,9 @@ const typeMix = (v, n = 4) => (v.types || []).filter(t => Math.round(t.share * 1
 
 const NOTE_GUESS = "An override-tensor pattern didn't parse: the split is a guess.";
 
+// a file seen before download carries the exact llama-server flags: show those
+const placeText = v => v.flags ? "Load with " + v.flags : "GPU layers: " + nglText(v.ngl, v.n_layer);
+
 export function xrayCardText(v, id) {
   const rows = v.rows || [];
   return {
@@ -57,7 +60,7 @@ export function xrayCardText(v, id) {
     sub: [v.arch, `${v.n_layer} blocks`, `${gb(v.total)} of weights`].filter(Boolean).join("  ·  "),
     gpu: `${gb(v.gpu)} on GPU` + (v.tied_copy ? ` + ${gb(v.tied_copy)} tied copy` : ""),
     ram: `${gb(v.ram)} in system RAM`,
-    layers: "GPU layers: " + nglText(v.ngl, v.n_layer),
+    layers: placeText(v),
     types: typeMix(v),
     cols: columns(rows, Math.max(1, ...rows.map(sizeOf))),
     legend: legendOf(v),
@@ -80,7 +83,7 @@ export function compareCardText(v, id) {
     kicker: "WHICH QUANT FITS?",
     brand: "LLAMAFORGE",
     title: id,
-    sub: [v.arch, `${v.n_layer} blocks`, "GPU layers: " + nglText(v.ngl, v.n_layer)].filter(Boolean).join("  ·  "),
+    sub: [v.arch, `${v.n_layer} blocks`, placeText(v)].filter(Boolean).join("  ·  "),
     delta: compareText(v, w),
     halves: [half(v), half(w)],
     legend: legendOf(v, w),

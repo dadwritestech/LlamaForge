@@ -101,3 +101,9 @@ test("a file you don't have says whether it fits your VRAM", () => {
   assert.equal(X.fitText({n_layer: 30, gpu: 1}), "");      // a model you have: no VRAM line
   assert.match(X.body({...v, total: 11 * G, types: [], rows: [], confident: true}), /Fits your 16.00 GB/);
 });
+
+test("moeText names the blocks whose experts run on the CPU", () => {
+  assert.equal(X.moeText(0, 40), "none: every expert on the GPU");
+  assert.equal(X.moeText(12, 40), "first 12 of 40 blocks");
+  assert.equal(X.moeText(40, 40), "all 40 blocks");
+});

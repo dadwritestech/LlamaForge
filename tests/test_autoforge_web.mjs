@@ -174,3 +174,8 @@ test("share card without a baseline, lossy or vision off says so", () => {
   assert.equal(t.note.warn, true);
   assert.match(t.note.text, /Lossy.*vision off/);
 });
+
+test("fit keeps -- as two dashes on the canvas (the card font ligates it into a dash)", () => {
+  const g = {measureText: s => ({width: s.length})};
+  assert.equal(fc.fit(g, "-ngl 41 --n-cpu-moe 7", "x", 100), "-ngl 41 -\u200C-n-cpu-moe 7");
+});

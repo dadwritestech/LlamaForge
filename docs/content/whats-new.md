@@ -8,6 +8,10 @@ order: 1
 
 This page summarizes the most recent additions to LlamaForge. Each entry links to the full reference for that capability. For the longer-term direction, see the project's `ROADMAP.md`.
 
+## v0.18.39: The exact flags for a MoE that doesn't fit
+
+X-ray before download now places a MoE the way you'd run it: every layer on the GPU and the experts of the first few blocks in system RAM (`--n-cpu-moe`), so the CPU only runs a few active experts, never attention. An **Experts on CPU** slider moves that line, and **Load it with** shows the flags for the view, like `-ngl 41 --n-cpu-moe 7`, with a Copy button. The share card prints them too. See [Discover](discover.md).
+
 ## v0.18.38: X-ray a model before you download it
 
 Discover's file rows have an **X-ray** button. It reads only the file's GGUF header from Hugging Face, a few MB, and shows every layer and where it would land on your GPUs, starting at the most GPU layers whose weights fit your VRAM. A line says whether it fits, or by how much it's over. Compare with another quant and Share image work here too. See [Discover](discover.md).

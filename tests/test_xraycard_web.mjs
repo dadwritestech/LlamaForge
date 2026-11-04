@@ -102,3 +102,10 @@ test("every kind has a colour and the card keeps no paths", () => {
   const t = X.xrayCardText({...view, model: "D:/secret/m.gguf"}, "m");
   assert.doesNotMatch(JSON.stringify(t), /secret/);
 });
+
+test("a view with a flag line puts the flags on the card", () => {
+  const t = X.xrayCardText({...view, flags: "-ngl 3 --n-cpu-moe 1"}, "m");
+  assert.equal(t.layers, "Load with -ngl 3 --n-cpu-moe 1");
+  const c = X.compareCardText({...pair, flags: "-ngl 3 --n-cpu-moe 1"}, "m");
+  assert.equal(c.sub, "gemma4  ·  2 blocks  ·  Load with -ngl 3 --n-cpu-moe 1");
+});

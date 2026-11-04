@@ -42,6 +42,13 @@ export function nglText(ngl, nLayer) {
   return `last ${ngl} of ${nLayer} blocks`;
 }
 
+/** The --n-cpu-moe slider's label: the first k blocks keep their experts in RAM. */
+export function moeText(k, nLayer) {
+  if (k <= 0) return "none: every expert on the GPU";
+  if (k >= nLayer) return `all ${nLayer} blocks`;
+  return `first ${k} of ${nLayer} blocks`;
+}
+
 function stack(v, widest) {
   return v.rows.map(r => {
     const tip = `${r.label} · ${r.type} · ${gb(r.gpu + r.ram)}` + (r.ram ? ` · ${gb(r.ram)} in RAM` : " · on GPU");
@@ -125,7 +132,8 @@ export function compareBody(v) {
 
 let seq = 0;
 
-const withQ = (base, n, vs) => base + (n == null ? "" : "&ngl=" + n) + (vs ? "&vs=" + encodeURIComponent(vs) : "");
+const withQ = (base, n, vs, k) => base + (n == null ? "" : "&ngl=" + n) + (k == null ? "" : "&ncmoe=" + k)
+  + (vs ? "&vs=" + encodeURIComponent(vs) : "");
 
 /** X-ray of a model you have, under its own settings. */
 export const openXray = id => xrayModal({
@@ -140,8 +148,8 @@ export const openHubXray = (repo, path, files = []) => xrayModal({
   id: String(path).split("/").pop().replace(/(-\d{5}-of-\d{5})?\.gguf$/i, ""),
   title: `X-ray before download: ${quantName(path)}`,
   from: "read from the file's header on Hugging Face. Nothing is downloaded.",
-  what: "Starts at the most layers whose weights fit your VRAM. Drag to see what moves.",
-  url: (n, vs) => withQ(`/api/hub/xray?repo=${encodeURIComponent(repo)}&path=${encodeURIComponent(path)}`, n, vs),
+  what: "Starts where the most weight fits your VRAM: fewer GPU layers, or for a MoE its experts in RAM. Drag to see what moves.",
+  url: (n, vs, k) => withQ(`/api/hub/xray?repo=${encodeURIComponent(repo)}&path=${encodeURIComponent(path)}`, n, vs, k),
   quants: async () => ({repo, current: path, files, reason: ""}),
 });
 
@@ -151,6 +159,8 @@ async function xrayModal(src) {
   try { v = await api(src.url(null, "")); }
   catch (e) { toast("Couldn't X-ray " + id + ": " + (e.message || e), "err"); return; }
   const top = v.n_layer + 1, conf = clampNgl(v.configured_ngl, v.n_layer);
+  // a MoE you don't have yet: its experts can go to RAM block by block (--n-cpu-moe)
+  const moe = !!v.experts, confK = Math.max(0, Math.min(Number(v.configured_ncmoe) || 0, v.n_layer));
   showModal(src.title, `
     <p class="af-q">${esc(v.arch)} · ${esc(v.n_layer)} blocks, ${esc(src.from)}</p>
     <div class="xr-ngl"><label for="xr-ngl">GPU layers</label>
@@ -158,6 +168,11 @@ async function xrayModal(src) {
       <output for="xr-ngl" data-xr-ngl>${esc(nglText(conf, v.n_layer))}</output>
       <button type="button" class="qbtn" data-xr-reset hidden>Back to ${esc(conf)}</button>
       <button type="button" class="qbtn" data-xr-share title="This view as a 1200x630 image">Share image</button></div>
+    ${moe ? `<div class="xr-ngl"><label for="xr-moe">Experts on CPU</label>
+      <input type="range" id="xr-moe" min="0" max="${esc(v.n_layer)}" step="1" value="${esc(confK)}">
+      <output for="xr-moe" data-xr-moe>${esc(moeText(confK, v.n_layer))}</output></div>` : ""}
+    ${v.flags ? `<p class="xr-flags">Load it with <code data-xr-flags>${esc(v.flags)}</code>
+      <button type="button" class="qbtn" data-xr-copy title="Copy these llama-server flags">Copy</button></p>` : ""}
     <div class="xr-ngl"><label for="xr-vs">Compare with</label>
       <select id="xr-vs" data-xr-vs disabled><option value="">looking up the other quants…</option></select>
       <span class="af-q dim" data-xr-vsnote></span></div>
@@ -165,6 +180,8 @@ async function xrayModal(src) {
     <div data-xr-body>${body(v)}</div>`);
   const range = $("#xr-ngl"), out = $("[data-xr-ngl]"), reset = $("[data-xr-reset]"), box = $("[data-xr-body]");
   const pick = $("[data-xr-vs]"), note = $("[data-xr-vsnote]");
+  const moeRange = $("#xr-moe"), moeOut = $("[data-xr-moe]"), flagsEl = $("[data-xr-flags]");
+  const kNow = () => moeRange ? Math.max(0, Math.min(Number(moeRange.value) || 0, v.n_layer)) : null;
   if (!range || !box) return;
   let t = 0, cur = v;
   const fetchView = async () => {
@@ -172,9 +189,10 @@ async function xrayModal(src) {
     const mine = ++seq;
     if (vs) note.textContent = "reading its header…";
     try {
-      const w = await api(src.url(n, vs));
+      const w = await api(src.url(n, vs, kNow()));
       if (mine === seq && box.isConnected) {
         cur = w; note.textContent = "";
+        if (flagsEl && w.flags) flagsEl.textContent = w.flags;
         setHTML(box, w.vs ? compareBody(w) : body(w));
       }
     } catch (e) {
@@ -185,12 +203,17 @@ async function xrayModal(src) {
   const update = () => {
     const n = clampNgl(range.value, v.n_layer);
     out.textContent = nglText(n, v.n_layer);
-    reset.hidden = n === conf;
+    if (moeOut) moeOut.textContent = moeText(kNow(), v.n_layer);
+    reset.hidden = n === conf && (kNow() ?? confK) === confK;
     clearTimeout(t);
     t = setTimeout(fetchView, 90);
   };
   range.oninput = update;
-  reset.onclick = () => { range.value = String(conf); update(); };
+  if (moeRange) moeRange.oninput = update;
+  reset.onclick = () => { range.value = String(conf); if (moeRange) moeRange.value = String(confK); update(); };
+  const copy = $("[data-xr-copy]");
+  if (copy) copy.onclick = () => navigator.clipboard.writeText(flagsEl.textContent)
+    .then(() => toast("Flags copied", "ok"), () => toast("Couldn't copy", "err"));
   pick.onchange = fetchView;
   $("[data-xr-share]").onclick = () => shareXray(cur, id);
   try {

@@ -1365,12 +1365,16 @@ _HF_REPO = re.compile(r"[\w.-]+/[\w.-]+")
 
 def get_hub_xray(req):
     """X-ray a Hugging Face file you don't have yet, from its header alone.
-    Starts at the most GPU layers whose weights fit your VRAM; ?ngl=N, ?vs=path."""
+    Starts at the placement that keeps the most weight on the GPU within your
+    VRAM (-ngl, or for a MoE all layers with --n-cpu-moe); ?ngl=N, ?ncmoe=K, ?vs=path."""
     repo, path, vs, ngl = req.q("repo"), req.q("path"), req.q("vs"), req.q("ngl")
+    ncmoe = req.q("ncmoe")
     if not _HF_REPO.fullmatch(repo or "") or ".." in repo:
         raise ApiError(400, "repo must look like owner/name")
     if ngl != "" and not re.fullmatch(r"\d{1,4}", str(ngl)):
         raise ApiError(400, "ngl must be a whole number of layers")
+    if ncmoe != "" and not re.fullmatch(r"\d{1,4}", str(ncmoe)):
+        raise ApiError(400, "ncmoe must be a whole number of blocks")
     try:
         files = xray.quants(repo)
     except (OSError, ValueError, KeyError):
@@ -1392,12 +1396,17 @@ def get_hub_xray(req):
     lay = remote(path)
     vram = total_vram_mib() * 1024 * 1024
     room = xray.budget(vram)
-    start = xray.fit_ngl(lay, {}, room) if vram else footprint.placer({}, lay)[1]["n_layer"] + 1
-    s = xray.with_ngl({}, ngl if ngl != "" else start)
+    best = (xray.placement(lay, room) if vram
+            else {"ngl": footprint.placer({}, lay)[1]["n_layer"] + 1, "ncmoe": 0})
+    experts = xray.has_experts(lay)
+    n = int(ngl) if ngl != "" else best["ngl"]
+    k = (int(ncmoe) if ncmoe != "" else best["ncmoe"]) if experts else 0
+    s = xray.with_ncmoe(xray.with_ngl({}, n), k)
     v = xray.view(lay, s)
     if v is None:
         raise ApiError(502, f"couldn't read the header of {path} from Hugging Face")
-    v.update(repo=repo, file=path, vram=vram, budget=room, configured_ngl=start)
+    v.update(repo=repo, file=path, vram=vram, budget=room, configured_ngl=best["ngl"],
+             configured_ncmoe=best["ncmoe"], experts=experts, ncmoe=k, flags=xray.flags(n, k))
     if vs:
         other = xray.view(remote(vs), s)
         if other is None:

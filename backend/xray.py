@@ -134,6 +134,62 @@ def fit_ngl(layout, settings, room):
     return lo
 
 
+def has_experts(layout):
+    """True when the model holds MoE expert tensors --n-cpu-moe can move."""
+    rx = re.compile(footprint._EXPS)
+    return any(rx.search(n) for n, _, _ in (layout or {}).get("tensors") or ())
+
+
+def with_ncmoe(settings, k):
+    """settings with the experts of the first k blocks on the CPU (no cpu-moe
+    of any spelling left over); k = 0 drops the flag."""
+    s = {key: v for key, v in settings.items()
+         if footprint._ALIASES.get(key.strip().lower(), key.strip().lower()) not in ("n-cpu-moe", "cpu-moe")}
+    if k:
+        s["n-cpu-moe"] = str(k)
+    return s
+
+
+def fit_ncmoe(layout, room):
+    """With every layer on the GPU, the fewest blocks whose experts go to the CPU
+    so the weights fit in room bytes: None for a dense model or when even all
+    experts on the CPU leave too much."""
+    if not has_experts(layout):
+        return None
+    top = footprint.placer({}, layout)[1]["n_layer"]
+
+    def used(k):
+        v = view(layout, with_ncmoe(with_ngl({}, top + 1), k))
+        return v["gpu"] + v["tied_copy"] if v else 0
+    if used(top) > room:
+        return None
+    lo, hi = 0, top                     # gpu use only shrinks as k grows
+    while lo < hi:
+        mid = (lo + hi) // 2
+        if used(mid) <= room:
+            hi = mid
+        else:
+            lo = mid + 1
+    return lo
+
+
+def placement(layout, room):
+    """{ngl, ncmoe}: for a MoE, every layer on the GPU with the experts of the
+    first blocks in RAM (--n-cpu-moe), when that fits; else whole layers off
+    (-ngl). The experts fit stops within one block's experts of the budget, so it
+    is never a whole block behind the -ngl fit, and the CPU then runs only the few
+    active experts of those blocks, not their attention and KV cache too."""
+    k = fit_ncmoe(layout, room)
+    if k is None:
+        return {"ngl": fit_ngl(layout, {}, room), "ncmoe": 0}
+    return {"ngl": footprint.placer({}, layout)[1]["n_layer"] + 1, "ncmoe": k}
+
+
+def flags(ngl, ncmoe):
+    """The llama-server flags for a placement."""
+    return f"-ngl {ngl}" + (f" --n-cpu-moe {ncmoe}" if ncmoe else "")
+
+
 def _get(url, headers):
     """(body, response headers) for a GET: patched in tests."""
     req = urllib.request.Request(url, headers=dict(hub.UA, **headers))
