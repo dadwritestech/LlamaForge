@@ -66,10 +66,27 @@ const typesHTML = (v, n = 8) => `<div class="xr-types">${v.types.slice(0, n).map
 
 const guess = v => v.confident ? "" : `<p class="slotnote warn">An override-tensor pattern didn't parse, so the RAM / GPU split is a guess.</p>`;
 
+/** For a file you don't have yet (Discover): does it fit your VRAM as shown?
+ *  "" for a model you have, whose view carries no vram. */
+export function fitText(v) {
+  if (!("vram" in v)) return "";
+  if (!v.vram) return "No GPU detected, so this shows every layer on the GPU: compare the GPU figure with your card's VRAM.";
+  const used = v.gpu + (v.tied_copy || 0);
+  return used <= v.budget
+    ? `Fits your ${gb(v.vram)} of VRAM: ${gb(used)} of weights on the GPU, ${gb(v.vram - used)} left for the KV cache and buffers.`
+    : `Too much for your ${gb(v.vram)} of VRAM: ${gb(used)} of weights on the GPU, ${gb(used - v.budget)} over what leaves room for the KV cache.`;
+}
+
+const fitHTML = v => {
+  const t = fitText(v);
+  return t ? `<p class="xr-fit ${v.vram && v.gpu + (v.tied_copy || 0) > v.budget ? "over" : ""}">${esc(t)}</p>` : "";
+};
+
 export function body(v) {
   return `<div class="xr-sum"><b>${esc(gb(v.total))}</b> of weights · <span class="xr-gpu">${esc(gb(v.gpu))} on GPU</span>
       · <span class="xr-ram">${esc(gb(v.ram))} in system RAM</span>${v.tied_copy
         ? ` <span class="xr-tied" title="The output layer is tied to the embedding, so llama.cpp keeps a GPU copy of it">+ ${esc(gb(v.tied_copy))} GPU copy of the embedding (tied output)</span>` : ""}</div>
+    ${fitHTML(v)}
     ${typesHTML(v)}
     ${legendHTML(v)}
     <div class="xr-stack" data-xr-stack>${stack(v, widestOf(v))}</div>
@@ -108,13 +125,34 @@ export function compareBody(v) {
 
 let seq = 0;
 
-export async function openXray(id) {
+const withQ = (base, n, vs) => base + (n == null ? "" : "&ngl=" + n) + (vs ? "&vs=" + encodeURIComponent(vs) : "");
+
+/** X-ray of a model you have, under its own settings. */
+export const openXray = id => xrayModal({
+  id, title: `X-ray: ${id}`, from: "read from the GGUF header. Nothing is loaded.",
+  url: (n, vs) => withQ("/api/model/xray?model=" + encodeURIComponent(id), n, vs),
+  quants: () => api("/api/model/xray/quants?model=" + encodeURIComponent(id)),
+});
+
+/** X-ray of a Hugging Face file before you download it (Discover). files is the
+ *  repo listing already on screen, for Compare with. */
+export const openHubXray = (repo, path, files = []) => xrayModal({
+  id: String(path).split("/").pop().replace(/(-\d{5}-of-\d{5})?\.gguf$/i, ""),
+  title: `X-ray before download: ${quantName(path)}`,
+  from: "read from the file's header on Hugging Face. Nothing is downloaded.",
+  what: "Starts at the most layers whose weights fit your VRAM. Drag to see what moves.",
+  url: (n, vs) => withQ(`/api/hub/xray?repo=${encodeURIComponent(repo)}&path=${encodeURIComponent(path)}`, n, vs),
+  quants: async () => ({repo, current: path, files, reason: ""}),
+});
+
+async function xrayModal(src) {
+  const id = src.id;
   let v;
-  try { v = await api("/api/model/xray?model=" + encodeURIComponent(id)); }
+  try { v = await api(src.url(null, "")); }
   catch (e) { toast("Couldn't X-ray " + id + ": " + (e.message || e), "err"); return; }
   const top = v.n_layer + 1, conf = clampNgl(v.configured_ngl, v.n_layer);
-  showModal(`X-ray: ${id}`, `
-    <p class="af-q">${esc(v.arch)} · ${esc(v.n_layer)} blocks, read from the GGUF header. Nothing is loaded.</p>
+  showModal(src.title, `
+    <p class="af-q">${esc(v.arch)} · ${esc(v.n_layer)} blocks, ${esc(src.from)}</p>
     <div class="xr-ngl"><label for="xr-ngl">GPU layers</label>
       <input type="range" id="xr-ngl" min="0" max="${esc(top)}" step="1" value="${esc(conf)}">
       <output for="xr-ngl" data-xr-ngl>${esc(nglText(conf, v.n_layer))}</output>
@@ -123,7 +161,7 @@ export async function openXray(id) {
     <div class="xr-ngl"><label for="xr-vs">Compare with</label>
       <select id="xr-vs" data-xr-vs disabled><option value="">looking up the other quants…</option></select>
       <span class="af-q dim" data-xr-vsnote></span></div>
-    <p class="af-q dim xr-what">Drag to see what moves. A what-if only: nothing is saved.</p>
+    <p class="af-q dim xr-what">${esc(src.what || "Drag to see what moves. A what-if only: nothing is saved.")}</p>
     <div data-xr-body>${body(v)}</div>`);
   const range = $("#xr-ngl"), out = $("[data-xr-ngl]"), reset = $("[data-xr-reset]"), box = $("[data-xr-body]");
   const pick = $("[data-xr-vs]"), note = $("[data-xr-vsnote]");
@@ -134,8 +172,7 @@ export async function openXray(id) {
     const mine = ++seq;
     if (vs) note.textContent = "reading its header…";
     try {
-      const w = await api(`/api/model/xray?model=${encodeURIComponent(id)}&ngl=${n}`
-        + (vs ? "&vs=" + encodeURIComponent(vs) : ""));
+      const w = await api(src.url(n, vs));
       if (mine === seq && box.isConnected) {
         cur = w; note.textContent = "";
         setHTML(box, w.vs ? compareBody(w) : body(w));
@@ -157,7 +194,7 @@ export async function openXray(id) {
   pick.onchange = fetchView;
   $("[data-xr-share]").onclick = () => shareXray(cur, id);
   try {
-    const q = await api("/api/model/xray/quants?model=" + encodeURIComponent(id));
+    const q = await src.quants();
     const others = q.files.filter(f => f.path !== q.current);
     if (!pick.isConnected) return;
     if (!others.length) {

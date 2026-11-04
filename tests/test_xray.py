@@ -304,5 +304,97 @@ class Compare(unittest.TestCase):
         self.assertIs(self.routes.GET_ROUTES["/api/model/xray/quants"], self.routes.get_model_xray_quants)
 
 
+G = 1024 * M
+
+
+class Fit(unittest.TestCase):
+    def test_budget_keeps_room_for_the_kv_cache(self):
+        self.assertEqual(xray.budget(16 * G), 16 * G - 16 * G // 10)
+        self.assertEqual(xray.budget(4 * G), 3 * G)          # at least 1 GB kept back
+        self.assertEqual(xray.budget(0), 0)
+        self.assertEqual(xray.budget(512 * M), 0)
+
+    def test_most_layers_whose_weights_fit(self):
+        lay = moe()
+        for budget in (0, 3 * G, 5 * G, 7 * G, 100 * G):
+            n = xray.fit_ngl(lay, {}, budget)
+            v = xray.view(lay, {"n-gpu-layers": str(n)})
+            self.assertLessEqual(v["gpu"] + v["tied_copy"], budget, budget)
+            if n < 5:
+                w = xray.view(lay, {"n-gpu-layers": str(n + 1)})
+                self.assertGreater(w["gpu"] + w["tied_copy"], budget, budget)
+        self.assertEqual(xray.fit_ngl(lay, {}, 100 * G), 5)
+        self.assertEqual(xray.fit_ngl(lay, {}, 0), 0)
+
+    def test_the_tied_copy_counts(self):
+        lay = dense()        # no output.weight: the embedding is copied to the GPU
+        full = xray.view(lay, {"n-gpu-layers": "4"})
+        self.assertLess(xray.fit_ngl(lay, {}, full["gpu"]), 4)
+        self.assertEqual(xray.fit_ngl(lay, {}, full["gpu"] + full["tied_copy"]), 4)
+
+
+class Hub(unittest.TestCase):
+    def setUp(self):
+        from unittest import mock
+        import routes
+        self.routes = routes
+        mock.patch.object(routes, "total_vram_mib", return_value=8 * 1024).start()
+        self.quants = mock.patch.object(xray, "quants", return_value=[
+            {"path": "Gem-Q4_K_M.gguf", "size": 9 * G, "shards": 1},
+            {"path": "Q8/Gem-Q8_0-00001-of-00002.gguf", "size": 20 * G, "shards": 2}]).start()
+        self.remote = mock.patch.object(xray, "remote_layout", return_value=moe()).start()
+        self.addCleanup(mock.patch.stopall)
+
+    def get(self, **qs):
+        return self.routes.get_hub_xray(self.routes.Req(qs=qs))
+
+    def test_xrays_a_file_you_dont_have_and_starts_at_what_fits(self):
+        st, v = self.get(repo="unsloth/Gem-GGUF", path="Q8/Gem-Q8_0-00001-of-00002.gguf")
+        self.remote.assert_called_with("unsloth/Gem-GGUF", "Q8/Gem-Q8_0-00001-of-00002.gguf", shards=2)
+        self.assertEqual(v["repo"], "unsloth/Gem-GGUF")
+        self.assertEqual(v["file"], "Q8/Gem-Q8_0-00001-of-00002.gguf")
+        self.assertEqual(v["vram"], 8 * G)
+        self.assertEqual(v["budget"], xray.budget(8 * G))
+        self.assertEqual(v["configured_ngl"], xray.fit_ngl(moe(), {}, xray.budget(8 * G)))
+        self.assertEqual(v["ngl"], v["configured_ngl"])
+        self.assertNotIn("model", v)
+
+    def test_ngl_and_vs(self):
+        st, v = self.get(repo="unsloth/Gem-GGUF", path="Gem-Q4_K_M.gguf", ngl="2",
+                         vs="Q8/Gem-Q8_0-00001-of-00002.gguf")
+        self.assertEqual(v["ngl"], 2)
+        self.assertEqual(v["vs"]["ngl"], 2)
+        self.assertEqual(v["vs"]["file"], "Q8/Gem-Q8_0-00001-of-00002.gguf")
+
+    def test_no_gpu_means_all_layers_and_no_budget(self):
+        self.routes.total_vram_mib.return_value = 0
+        st, v = self.get(repo="unsloth/Gem-GGUF", path="Gem-Q4_K_M.gguf")
+        self.assertEqual(v["vram"], 0)
+        self.assertEqual(v["configured_ngl"], 5)
+
+    def test_only_files_the_repo_lists(self):
+        for qs in ({"repo": "unsloth/Gem-GGUF", "path": "Other.gguf"},
+                   {"repo": "unsloth/Gem-GGUF", "path": "Gem-Q4_K_M.gguf", "vs": "../x.gguf"},
+                   {"repo": "../etc", "path": "Gem-Q4_K_M.gguf"},
+                   {"repo": "a/b/c", "path": "Gem-Q4_K_M.gguf"},
+                   {"repo": "unsloth/Gem-GGUF", "path": "Gem-Q4_K_M.gguf", "ngl": "lots"}):
+            with self.assertRaises(self.routes.ApiError) as e:
+                self.get(**qs)
+            self.assertEqual(e.exception.status, 400, qs)
+
+    def test_listing_or_header_unreachable(self):
+        self.remote.return_value = None
+        with self.assertRaises(self.routes.ApiError) as e:
+            self.get(repo="unsloth/Gem-GGUF", path="Gem-Q4_K_M.gguf")
+        self.assertEqual(e.exception.status, 502)
+        self.quants.side_effect = OSError("offline")
+        with self.assertRaises(self.routes.ApiError) as e:
+            self.get(repo="unsloth/Gem-GGUF", path="Gem-Q4_K_M.gguf")
+        self.assertEqual(e.exception.status, 502)
+
+    def test_registered(self):
+        self.assertIs(self.routes.GET_ROUTES["/api/hub/xray"], self.routes.get_hub_xray)
+
+
 if __name__ == "__main__":
     unittest.main()

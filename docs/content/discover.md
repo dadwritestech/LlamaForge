@@ -19,6 +19,10 @@ Each file is rated against your hardware. When a prediction is available (the de
 - **CPU OFFLOAD** — generation would be slow, or the weights stream from disk. The model still loads; nothing is ever blocked.
 - **?** (unknown) — no VRAM detected and no prediction, so no rating can be made.
 
+### X-ray before you download
+
+**X-ray** on a file row reads just that file's GGUF header from Hugging Face (an HTTP Range request, a few MB, every shard of a split set) and opens the same Model X-ray you get for a model you have: one bar per layer, split into attention, FFN, MoE experts and so on, with what would stay in system RAM hatched. It starts at the most GPU layers whose weights fit your VRAM, keeping 10% (at least 1 GB) back for the KV cache and compute buffers, and a line says whether the view fits or by how much it's over. Drag the GPU layers slider to see what moves, pick another quant under **Compare with** to see both side by side, and **Share image** makes a card of either view. It counts weights only: the real KV cache depends on the context size you load with. The fit uses GPU layers alone; a MoE you'd run with `--n-cpu-moe` can do better than this view shows.
+
 Expanding a repo also shows a **Will-it-run** panel that predicts whether a selected quant will fit your GPU and at what approximate speed. It factors in MoE active-vs-total parameters, your GPU's memory bandwidth (with manual overrides in Setup), and the quant's size — then rates it as **FITS**, **TIGHT**, or **CPU OFFLOAD** with a rough tok/s estimate. Treat the speed as a ballpark from memory bandwidth, not a measurement: real speed depends on the build, the quant kernels, and context length. The same estimate appears as a badge when you expand a model in the file list.
 
 Downloads run in a background thread (`hub.py` `DownloadManager`) that streams the file to disk and reports progress the dashboard polls. Pausing keeps the partial `.part` file on disk; resuming re-issues the request with an HTTP `Range` header starting from the bytes already downloaded, so a paused multi-gigabyte download picks up where it left off instead of restarting from zero. Cancelling instead deletes the partial file.
@@ -30,7 +34,8 @@ Each result also carries platform tags (Windows/Linux/macOS) — GGUF runs on al
 1. Open the **Discover** tab. It opens on **New this week**: model architectures llama.cpp just merged, each marked against your engine build, above Hugging Face GGUFs that are new and trending in the last 14 days. Type a query (e.g. `qwen coder`, `gemma vision`) to search, and use the sort dropdown for most downloaded, newest or most liked.
 2. Switch the mode dropdown to **safetensors (vLLM)** if you want a full-precision/quantized model for the vLLM backend instead (Windows + WSL2 only — this option is hidden on platforms without vLLM support).
 3. Click a repo row to expand its file list. Each file shows its size and a fit badge (FITS VRAM / TIGHT / CPU OFFLOAD).
-4. Click **Download** on the file you want. Progress, current file (for multi-file/shard downloads), speed, and ETA appear in the Download card at the top of the tab.
+4. Not sure yet? Click **X-ray** on a file to see it before you download it (see **X-ray before you download** above).
+5. Click **Download** on the file you want. Progress, current file (for multi-file/shard downloads), speed, and ETA appear in the Download card at the top of the tab.
 5. Use **Pause** to suspend a running download (the partial file is kept) and **Resume** to continue it later. **Cancel download** stops it and discards the partial file.
 6. When a download finishes, LlamaForge adds it to `models.ini` by itself (even if you closed the tab). Click **Load & Chat** to load it and open the Chat tab, or load it later from the Models tab.
 

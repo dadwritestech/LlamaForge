@@ -91,3 +91,13 @@ test("both stacks share one scale and model data is escaped", () => {
   assert.doesNotMatch(html, /<x>/);
   assert.match(html, /none of its weights were downloaded/);
 });
+
+test("a file you don't have says whether it fits your VRAM", () => {
+  const v = {n_layer: 30, ngl: 31, gpu: 10 * G, tied_copy: 0, ram: 1 * G, vram: 16 * G, budget: 14.4 * G};
+  assert.equal(X.fitText(v), "Fits your 16.00 GB of VRAM: 10.00 GB of weights on the GPU, 6.00 GB left for the KV cache and buffers.");
+  assert.equal(X.fitText({...v, gpu: 15 * G, tied_copy: 0.5 * G}),
+    "Too much for your 16.00 GB of VRAM: 15.50 GB of weights on the GPU, 1.10 GB over what leaves room for the KV cache.");
+  assert.match(X.fitText({...v, vram: 0}), /No GPU detected/);
+  assert.equal(X.fitText({n_layer: 30, gpu: 1}), "");      // a model you have: no VRAM line
+  assert.match(X.body({...v, total: 11 * G, types: [], rows: [], confident: true}), /Fits your 16.00 GB/);
+});

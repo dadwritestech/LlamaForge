@@ -205,15 +205,18 @@ async function hubFiles(row) {
     ${mm?`<div class="note">vision model - the smallest mmproj (${esc(mm)}) will be downloaded too</div>`:""}
     ${r.files.some(f=>f.mtp)?`<div class="note">matching MTP sidecars are downloaded automatically</div>`:""}
     <div class="list" style="margin-top:8px">${r.files.map(f=>`
-      <div class="row"><div class="rhead" style="grid-template-columns:1fr auto auto auto auto;cursor:default">
+      <div class="row"><div class="rhead" style="grid-template-columns:1fr auto auto auto auto auto;cursor:default">
         <span class="mid">${esc(f.path)}${f.shards>1?`<span class="tag">${f.shards} shards</span>`:""}${f.mtp?`<span class="tag" title="includes ${esc(f.mtp)}">MTP</span>`:""}</span>
         <span class="ctxpill">${esc((f.size/1e9).toFixed(2))} GB</span>
         ${fitBadge(f.fit)}
         ${predictBadge(f.predict)}
+        <button class="qbtn" data-xr="${esc(f.path)}" title="See every layer and where it lands on your GPU, from the file's header. Nothing is downloaded.">X-ray</button>
         <button data-dl="${esc(f.path)}" data-shards="${f.shards}" data-mtp="${esc(f.mtp||"")}" ${f.fit==="offload"?'title="larger than VRAM - will be slow"':""}>Download</button>
       </div></div>`).join("")}</div>`);
   $$("[data-dl]", box).forEach(b => b.onclick = () =>
     hubDownload(row.dataset.repo, b.dataset.dl, parseInt(b.dataset.shards), mm, b.dataset.mtp));
+  $$("[data-xr]", box).forEach(b => b.onclick = () =>
+    import("./xray.js").then(m => m.openHubXray(row.dataset.repo, b.dataset.xr, r.files)));
 }
 
 async function hubDownload(repo, path, shards, mmproj, mtp) {

@@ -1360,6 +1360,53 @@ def get_model_xray_quants(req):
     return 200, {"repo": repo, "current": rel, "files": files, "reason": ""}
 
 
+_HF_REPO = re.compile(r"[\w.-]+/[\w.-]+")
+
+
+def get_hub_xray(req):
+    """X-ray a Hugging Face file you don't have yet, from its header alone.
+    Starts at the most GPU layers whose weights fit your VRAM; ?ngl=N, ?vs=path."""
+    repo, path, vs, ngl = req.q("repo"), req.q("path"), req.q("vs"), req.q("ngl")
+    if not _HF_REPO.fullmatch(repo or "") or ".." in repo:
+        raise ApiError(400, "repo must look like owner/name")
+    if ngl != "" and not re.fullmatch(r"\d{1,4}", str(ngl)):
+        raise ApiError(400, "ngl must be a whole number of layers")
+    try:
+        files = xray.quants(repo)
+    except (OSError, ValueError, KeyError):
+        raise ApiError(502, "couldn't list that repo's files on Hugging Face")
+    # only files the repo lists, so this never fetches an arbitrary URL
+    picks = {f["path"]: f for f in files}
+    for p in (path, vs):
+        if p and (p not in picks or ".." in p):
+            raise ApiError(400, "pick a file from that Hugging Face repo")
+    if not path:
+        raise ApiError(400, "pick a file from that Hugging Face repo")
+
+    def remote(p):
+        lay = xray.remote_layout(repo, p, shards=picks[p]["shards"])
+        if lay is None:
+            raise ApiError(502, f"couldn't read the header of {p} from Hugging Face")
+        return lay
+
+    lay = remote(path)
+    vram = total_vram_mib() * 1024 * 1024
+    room = xray.budget(vram)
+    start = xray.fit_ngl(lay, {}, room) if vram else footprint.placer({}, lay)[1]["n_layer"] + 1
+    s = xray.with_ngl({}, ngl if ngl != "" else start)
+    v = xray.view(lay, s)
+    if v is None:
+        raise ApiError(502, f"couldn't read the header of {path} from Hugging Face")
+    v.update(repo=repo, file=path, vram=vram, budget=room, configured_ngl=start)
+    if vs:
+        other = xray.view(remote(vs), s)
+        if other is None:
+            raise ApiError(502, f"couldn't read the header of {vs} from Hugging Face")
+        other["file"] = vs
+        v["vs"] = other
+    return 200, v
+
+
 def get_model_diag(req):
     mid = req.q("model")
     ini = config.read_sections()
@@ -3292,6 +3339,7 @@ GET_ROUTES = {
     "/api/model/metadata":    get_model_metadata,
     "/api/model/xray":        get_model_xray,
     "/api/model/xray/quants": get_model_xray_quants,
+    "/api/hub/xray":          get_hub_xray,
     "/api/model/diag":        get_model_diag,
     "/api/presets":           get_presets,
     "/api/wiki/docs":         get_wiki_docs,

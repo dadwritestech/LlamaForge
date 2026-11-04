@@ -104,6 +104,36 @@ def view(layout, settings):
             "rows": out_rows}
 
 
+def budget(vram):
+    """Bytes of VRAM the weights may take: the rest (10%, at least 1 GB) is
+    left for the KV cache and compute buffers."""
+    return max(0, vram - max(1024 ** 3, vram // 10))
+
+
+def with_ngl(settings, ngl):
+    """settings with n-gpu-layers set to ngl, whatever spelling it had."""
+    s = {k: v for k, v in settings.items()
+         if footprint._ALIASES.get(k.strip().lower(), k.strip().lower()) != "n-gpu-layers"}
+    s["n-gpu-layers"] = str(ngl)
+    return s
+
+
+def fit_ngl(layout, settings, room):
+    """The most GPU layers whose weights (tied copy included) fit in room bytes."""
+    def used(n):
+        v = view(layout, with_ngl(settings, n))
+        return v["gpu"] + v["tied_copy"] if v else 0
+    top = footprint.placer(settings, layout)[1]["n_layer"] + 1
+    lo, hi = 0, top                     # gpu use only grows with ngl: binary search
+    while lo < hi:
+        mid = (lo + hi + 1) // 2
+        if used(mid) <= room:
+            lo = mid
+        else:
+            hi = mid - 1
+    return lo
+
+
 def _get(url, headers):
     """(body, response headers) for a GET: patched in tests."""
     req = urllib.request.Request(url, headers=dict(hub.UA, **headers))
