@@ -24,6 +24,7 @@ These are the endpoints external coding agents (Claude Code, Codex, etc.) talk t
 | POST | `/v1/messages/count_tokens` | Anthropic-compatible token-count estimate for a would-be `/v1/messages` request. Same enable and conditional auth behavior as `/v1/messages`. |
 | POST | `/v1/chat/completions` | OpenAI Chat Completions-compatible endpoint with the same conditional `_shim_auth_ok` behavior. Injects the active wiki context profile as a system message (`_inject_openai_system`) before forwarding to the router. Supports `"stream": true`. |
 | POST | `/v1/audio/speech` | OpenAI speech-compatible text to speech through llama.cpp's `llama-tts` (see [Voice](voice.md)). Body: `input`, optional `model`, `voice`, `language`, `response_format` (`wav`, the default, or `pcm`; anything else such as `mp3` is a 400 rather than WAV under the wrong name). Same conditional `_shim_auth_ok` behavior. Returns `audio/wav` or `audio/pcm`; errors in the OpenAI shape. |
+| POST | `/v1/audio/transcriptions` | OpenAI transcription-compatible speech to text through a router model whose mmproj has an audio encoder (see [Voice](voice.md#speech-to-text)). `multipart/form-data`: `file` (WAV, MP3 or FLAC, 25 MB), optional `model`, `language`, `prompt`, `response_format` (`json` or `text`), `temperature`. Same conditional `_shim_auth_ok` behavior. Errors in the OpenAI shape; **502** when the model refuses the audio. |
 | POST | `/api/load` | Load a model into the router. Body: `{"model": "<id>"}`. Proxies to the router's `/models/load`. With multi-model on, the body also takes `role` (`main` or `worker`) and `evict`, and the load goes through the placement planner; a refusal comes back with a `reason`. |
 | POST | `/api/unload` | Unload a model from the router. Body: `{"model": "<id>"}`. Proxies to the router's `/models/unload`. |
 | POST | `/api/unload_all` | Unload every currently loaded/loading model (except the router's `default` entry). |
@@ -190,6 +191,8 @@ The Embers tab's endpoints. See [Embers](embers.md) for what each does.
 | POST | `/api/tts/get` | Download a speech model from the catalog. Body: `{"id"}` (`qwen3-tts` by default, or `pocket-tts-en`). Qwen3-TTS goes into `<tts_dir>/models`, others into a subfolder; Pocket TTS also fetches a CC0 starter voice. Not registered as a chat model. |
 | POST | `/api/tts/voice` | Save a reference clip. Body: `{"name", "wav_b64"}`; a 1 to 60 second WAV. |
 | POST | `/api/tts/voice/delete` | Remove a saved voice. Body: `{"name"}`. |
+| GET | `/api/stt/status` | `{models}`: the registry models whose mmproj has an audio encoder, i.e. the ones speech to text can use. |
+| POST | `/api/stt/transcribe` | The panel's mic. Body: `{audio}` (base64 WAV, MP3 or FLAC), optional `model`, `language`. Returns `{text, model}`; panel-style `{"error"}` on failure. |
 
 ## vLLM (WSL) management
 
@@ -291,15 +294,17 @@ reachable by any page in your browser. Every request is therefore checked:
 - When a POST declares `Content-Type`, it must be `application/json`; declared
   form or other non-JSON content types get **415**, helping block a cross-site
   `<form>`. This guard currently permits an absent `Content-Type`. The one
-  exception is an SDK's `multipart/form-data` upload to `/v1/files` with no
-  `Origin` header (a browser always sends one cross-site).
+  exceptions are an SDK's `multipart/form-data` upload to `/v1/files` or
+  `/v1/audio/transcriptions` with no `Origin` header (a browser always sends one
+  cross-site).
 - The only `DELETE` is `/v1/files/{id}`. It is not a simple method, so a
   cross-site page needs a preflight it can't pass.
 - Every POST requires exactly one ASCII-decimal `Content-Length`. Missing length
   is **411**. Malformed, duplicate, or transfer-encoded framing is **400**; a
   short body is also **400**. Rejected framing closes the connection.
 - Management POSTs are limited to 4 MiB. `/v1/messages`,
-  `/v1/chat/completions` and `/v1/files` use a 64 MiB limit. A body over its
+  `/v1/chat/completions`, `/v1/files`, `/v1/audio/transcriptions` and
+  `/api/stt/transcribe` use a 64 MiB limit. A body over its
   route-class limit is **413** before it is read or dispatched.
 - `POST /api/config` only accepts an allowlist of user-facing keys (the list is in [config.json Reference](config.md)). See
   [Security](https://github.com/dadwritestech/LlamaForge/blob/master/SECURITY.md).

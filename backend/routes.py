@@ -27,7 +27,8 @@ import vram_predict, gpuprobe
 import wsl, vllm_ctl, vllm_registry, vllm_setup, vllm_job, vllm_hub, vllm_download
 import gguf, diag, backends, prebuilt, version, slots, slotctl, slotproc, builds, compat
 import idle, reclaim, tmpldoctor, samplers, reupload, mcp_server, ollama, piinstall, tts, logfiles, loadprog, gamemode, footprint, elastic, slotkeep
-import claudelaunch, rigcard, watchdog, phone, arena, proving, prtry, prbench, batchapi, batchrun
+import claudelaunch, rigcard, watchdog, phone, arena, proving, prtry, prbench, batchapi, batchrun, stt
+import base64
 from builder import BuildManager
 from embers import panel as embers_panel
 import forge_panel
@@ -3026,6 +3027,63 @@ def post_tts_speak(req):
         raise ApiError(e.status, str(e))
 
 
+# Speech to text: llama.cpp's own audio input behind /v1/audio/transcriptions (see stt.py).
+
+def _stt_models():
+    """Registry models whose mmproj has an audio encoder."""
+    return stt.audio_models(config.read_sections(),
+                            kinds=lambda p: gguf.projector_modalities(config._abs(p)))
+
+
+def _transcribe(audio, fmt, model=None, language=None, prompt="", temperature=0.0):
+    """-> (model, text); raises stt.SttError."""
+    m = stt.pick_model(_stt_models(), model)
+    status, reply = _router_openai(stt.chat_body(m, audio, fmt, language, prompt, temperature))
+    if status != 200:
+        err = reply.get("error") if isinstance(reply, dict) else None
+        msg = err.get("message") if isinstance(err, dict) else err
+        raise stt.SttError(f"{m} could not transcribe it: {msg or f'router answered {status}'}", 502)
+    return m, stt.transcript(reply)
+
+
+def post_audio_transcriptions(req):
+    """POST /v1/audio/transcriptions for the OpenAI SDK, Open WebUI and scripts."""
+    if not _shim_auth_ok(req.headers):
+        return _openai_err(401, "invalid key", "authentication_error")
+    try:
+        if "_multipart" not in req.body:     # server.py lets only an SDK's multipart through
+            raise stt.SttError("send the audio as multipart/form-data with a 'file' field")
+        r = stt.parse_request(req.body.get("_ctype"), req.body["_multipart"])
+        _, text = _transcribe(r["audio"], r["format"], r["model"], r["language"],
+                              r["prompt"], r["temperature"])
+        body, ctype = stt.respond(text, r["response_format"])
+        return 200, body, ctype
+    except stt.SttError as e:
+        return _openai_err(e.status, str(e), "server_error" if e.status >= 500 else "invalid_request_error")
+
+
+def post_stt_transcribe(req):
+    """The panel's mic: {audio: base64 WAV/MP3/FLAC, language?, model?} -> {text, model}."""
+    try:
+        audio = base64.b64decode(str(req.body.get("audio") or ""), validate=True)
+    except ValueError:
+        raise ApiError(400, "audio must be base64")
+    fmt = stt.sniff_format(audio)
+    try:
+        if not fmt:
+            raise stt.SttError("send WAV, MP3 or FLAC audio; llama.cpp decodes only those")
+        if len(audio) > stt.MAX_BYTES:
+            raise stt.SttError("the recording is too long", 413)
+        m, text = _transcribe(audio, fmt, req.body.get("model"), req.body.get("language"))
+    except stt.SttError as e:
+        raise ApiError(e.status, str(e))
+    return 200, {"text": text, "model": m}
+
+
+def get_stt_status(req):
+    return 200, {"models": _stt_models()}
+
+
 def get_tts_status(req):
     s = tts.status(cfg())
     s["busy"] = TTS.busy
@@ -3128,6 +3186,7 @@ GET_ROUTES = {
     "/api/mcp/setup":         get_mcp_setup,
     "/api/pi/status":         get_pi_status,
     "/api/tts/status":        get_tts_status,
+    "/api/stt/status":        get_stt_status,
     "/api/tts/progress":      lambda req: (200, TTS_DOWNLOADS.progress()),
     "/api/embers":            _embers(embers_panel.get_embers),
     "/api/embers/templates":  _embers(embers_panel.get_templates),
@@ -3142,6 +3201,8 @@ GET_ROUTES = {
 POST_ROUTES = {
     "/api/idle":              post_idle,
     "/v1/audio/speech":         post_audio_speech,
+    "/v1/audio/transcriptions": post_audio_transcriptions,
+    "/api/stt/transcribe":      post_stt_transcribe,
     "/api/tts/speak":           post_tts_speak,
     "/api/tts/get":             post_tts_get,
     "/api/tts/voice":           post_tts_voice,

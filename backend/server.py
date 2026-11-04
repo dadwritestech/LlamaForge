@@ -48,16 +48,21 @@ LINGER_MAX_BYTES = 1024 * 1024
 EMBERS_SCHED = None        # the panel's ember scheduler, started by main() only
 
 
+_SDK_UPLOADS = ("/v1/files", "/v1/audio/transcriptions")
+
+
 def _sdk_upload(path, ctype, origin):
-    """The one non-JSON POST: an OpenAI SDK's multipart file upload to /v1/files.
-    Only without an Origin (SDKs and curl send none; a browser always does on a
-    cross-site POST), so a web page still can't forge it. Even then it can only
-    store a file: starting a batch takes JSON."""
-    return path == "/v1/files" and ctype == "multipart/form-data" and not origin
+    """The only non-JSON POSTs: an OpenAI SDK's multipart upload to /v1/files or
+    /v1/audio/transcriptions. Only without an Origin (SDKs and curl send none; a
+    browser always does on a cross-site POST), so a web page still can't forge
+    one. Even then it can only store a file (starting a batch takes JSON) or get
+    words back."""
+    return path in _SDK_UPLOADS and ctype == "multipart/form-data" and not origin
 
 
 def _post_body_limit(path):
-    if path in ("/v1/messages", "/v1/chat/completions", "/v1/files"):
+    if path in ("/v1/messages", "/v1/chat/completions", "/v1/files",
+                "/v1/audio/transcriptions", "/api/stt/transcribe"):
         return MAX_PROXY_JSON_BODY_BYTES
     return MAX_MANAGEMENT_JSON_BODY_BYTES
 

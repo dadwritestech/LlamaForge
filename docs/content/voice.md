@@ -61,3 +61,26 @@ curl http://127.0.0.1:8090/v1/audio/speech \
 - `speed` is accepted and ignored.
 
 Errors use the OpenAI shape (`{"error": {"message", "type"}}`): 400 for a bad request, 503 when speech isn't set up, 500 with the tail of the `llama-tts` log when it fails. When the router is reachable from your network (`router_host` is not `127.0.0.1`), the endpoint asks for the router's API key, as `Authorization: Bearer <key>` or `x-api-key`, like the other endpoints on the panel.
+
+## Speech to text
+
+The other direction needs no extra tool. llama.cpp's server takes audio in a chat request for models whose projector (`mmproj`) has an audio encoder, such as Voxtral, Qwen2.5-Omni and Ultravox. Add one to your models with its mmproj like any vision model, and the panel answers OpenAI's transcription endpoint with it:
+
+```bash
+curl http://127.0.0.1:8090/v1/audio/transcriptions   -F file=@meeting.wav -F model=whisper-1
+```
+
+```python
+from openai import OpenAI
+client = OpenAI(base_url="http://127.0.0.1:8090/v1", api_key="none")   # or your router key
+print(client.audio.transcriptions.create(model="whisper-1", file=open("meeting.wav", "rb")).text)
+```
+
+- `file` (required): WAV, MP3 or FLAC, up to 25 MB. llama.cpp decodes these itself; other formats (WebM, M4A) are a 400, so convert them first.
+- `model`: the name of a model that can hear. Anything else, like OpenAI's `whisper-1`, uses the first one. With none, the error says so.
+- `language` and `prompt`: passed to the model as hints (the language to write in; names and terms to spell right).
+- `response_format`: `json` (the default, `{"text": ...}`) or `text`. `srt`, `vtt` and `verbose_json` are a 400: a chat model gives no timestamps, and LlamaForge won't invent them.
+- `temperature`: default 0.
+
+The model is a chat model listening, not a dedicated speech recognizer: it follows the instruction to transcribe word for word, and usually does. It loads on the router like any other request, so the first call waits for the load. The key rules are the same as for `/v1/audio/speech`.
+
