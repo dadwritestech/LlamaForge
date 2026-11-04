@@ -76,7 +76,7 @@ The other direction needs no extra tool. llama.cpp's server takes audio in a cha
 | Gemma 4 12B Q6_K_XL | 1.7 to 2.4 s | none on these clips | more (a 12B model) |
 | Voxtral Mini 3B Q4_K_M | about 0.45 s | answers questions instead of writing them down | about 4.3 GB |
 
-For the most accurate hearing pick a bigger Gemma 4 with its audio mmproj; for speed, E4B.
+For the most accurate hearing pick a bigger Gemma 4 with its audio mmproj; for speed, E4B. To do the same with a plain `llama-server` and curl, see [Speech to text with llama.cpp](speech-to-text-llamacpp.md).
 
 ### Talk
 
