@@ -54,6 +54,10 @@ Because the flag count is entirely a function of your `llama-server` build, Llam
    - **re-uploaded** on a row: the repo's file differs from yours. Open the model to see when it changed and the commit message, then **Re-download**. The new copy downloads next to the old one and replaces it only when complete; a loaded model is unloaded first.
    - Files in the Hugging Face cache are compared by sha256, exactly. LlamaForge's own downloads have no hash on record, so a different size counts as re-uploaded. A newer commit at the same size shows a softer note (often metadata only); the Template row's **Check** shows whether the chat template changed.
    - For a file in the Hugging Face cache, the note gives the `hf download` command instead of a button, so the cache stays consistent.
+16. To see inside a model, click **X-ray** on its info card. LlamaForge reads the GGUF header (nothing is loaded) and draws one bar per layer: the embedding, every block, then the output head. Each bar is split into what the layer holds (attention, FFN, MoE experts, the shared expert, SSM, per-layer inputs, an MTP head, norms), and the part that stays in system RAM under the model's settings is hatched.
+   - The summary gives the weights on the GPU and in system RAM, using the same placement rule as the fit check: the embedding always stays in RAM, `n-gpu-layers` offloads the *last* N blocks, and `cpu-moe`, `n-cpu-moe` and `override-tensor` pull tensors back. A model with a tied output (no `output.weight`) also gets a GPU copy of the embedding, shown on its own.
+   - The chips rank the quant types by bytes. Mixed quants show up here: a block whose bar is longer than its neighbours was given a bigger type.
+   - Drag the **GPU layers** slider to see what moves at another setting. It's a what-if only: nothing is saved, and **Back to N** returns to the model's own value.
 
 ## Screenshot
 
@@ -75,6 +79,7 @@ Because the flag count is entirely a function of your `llama-server` build, Llam
 | Multi-model | `POST /api/load` (`role`, `evict`), `/api/slots*` | With `multi_model` on, a load goes through the placement planner; see [HTTP API](api.md). |
 | Per-model build | `POST /api/model/build` | Stores `{model: build}` in `model_builds`; blank follows the router. |
 | Load progress | `backend/loadprog.py`, `load_progress` on `/api/state` rows | Folds the router's `/models/sse` `status_change` events into `{pct, stage}` per loading model; never goes backwards within a load; a 404 from an older router stops it asking for 10 minutes. |
+| X-ray | `GET /api/model/xray?model=<id>[&ngl=N]` (`backend/xray.py`) | Rows per layer with bytes per tensor kind, GPU/RAM split by `footprint.placer()` (the fit check's rule), quant types by bytes, and `configured_ngl`. `ngl` is a what-if; nothing is written. 422 when the header can't be read. |
 | Thinking | `POST /api/save` with `reasoning` / `reasoning-effort` / `reasoning-budget` | Template hint from `gguf.thinking_kind()` (`thinking` in `/api/model/metadata`: `switch`, `tags` or absent) and `gguf.effort_levels()` (`effort_levels`, lowest to highest). The template itself is never returned. |
 | Template doctor | `GET /api/template/check`, `POST /api/template/apply` (`backend/tmpldoctor.py`) | Streams the repo file's GGUF header over an HTTP Range request (64 MB cap), reads the base model's template, diffs both against `gguf.chat_template()`. Apply writes `chat-templates/<model>.<source>.jinja` and sets `chat-template-file`. |
 | Recommended samplers | `GET /api/samplers` (`backend/samplers.py`) | Reads `generation_config.json` (GGUF repo, then base model) and maps the HF keys to llama-server knob names. Apply goes through `POST /api/save` with only the differing knobs. |

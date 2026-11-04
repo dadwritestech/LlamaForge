@@ -21,6 +21,7 @@ import { bayPlans, bayInputs, gpuTele } from "./bays.js";
 import * as tmpl from "./tmpldoctor.js";
 import * as smp from "./samplers.js";
 import * as reup from "./reupload.js";
+import { openXray } from "./xray.js";
 
 const LITE_KNOBS = new Set(["n-gpu-layers","ctx-size","cache-type-k","cache-type-v",
   "flash-attn","batch-size","ubatch-size","threads","tensor-split","temp","top-p"]);
@@ -674,7 +675,7 @@ function metaBlock(m) {
   if (!meta || !Object.keys(meta).length) return compatNote(m.id);
   const row = (k, v) => v == null ? "" : `<div class="m"><div class="mk">${esc(k)}</div><div class="mv">${esc(v)}</div></div>`;
   const runsOn = RUNS_ON[(compatCache[m.id] || {}).class];
-  return `<div class="metacard">${row("architecture",meta.architecture)}${row("parameters",meta.size_label)}${row("quantization",meta.quantization)}${row("trained ctx",meta.context_length)}${row("embedding",meta.embedding_length)}${row("layers",meta.block_count)}${row("attn heads",meta.head_count)}${row("vocab",meta.vocab_size)}${row("experts",meta.expert_count)}${row("rope base",meta.rope_freq_base)}${row("rope scaling",meta.rope_scaling)}${row("runs on",runsOn)}</div>${compatNote(m.id)}`;
+  return `<div class="metacard">${row("architecture",meta.architecture)}${row("parameters",meta.size_label)}${row("quantization",meta.quantization)}${row("trained ctx",meta.context_length)}${row("embedding",meta.embedding_length)}${row("layers",meta.block_count)}${row("attn heads",meta.head_count)}${row("vocab",meta.vocab_size)}${row("experts",meta.expert_count)}${row("rope base",meta.rope_freq_base)}${row("rope scaling",meta.rope_scaling)}${row("runs on",runsOn)}<div class="m xr-open"><button type="button" class="qbtn" data-xray="${esc(m.id)}" title="Every layer of the GGUF, what it's made of, and what lands on the GPU or in RAM">X-ray</button></div></div>${compatNote(m.id)}`;
 }
 // From the GGUF's tensor types; advice only, since a third fork can reuse an id.
 const RUNS_ON = {"any": "llama.cpp + ik_llama.cpp", "ik-only": "ik_llama.cpp, not mainline", "mainline-only": "llama.cpp, not ik_llama"};
@@ -1088,6 +1089,8 @@ export function initModels() {
     }
     const onlySetChip = e.target.closest("#view-models [data-onlyset]");
     if (onlySetChip) { e.stopPropagation(); toggleOnlySet(onlySetChip); return; }
+    const xr = e.target.closest("#view-models [data-xray]");
+    if (xr) { e.stopPropagation(); openXray(xr.dataset.xray); return; }
     if (e.target.closest("[data-mclose]")) { closeModal(); return; }
     // compare-pick checkbox
     const cmpBox = e.target.closest("[data-cmp]");

@@ -135,6 +135,45 @@ def _projector(s, mmproj_bytes, cpu_only):
     return _mib(mmproj_bytes) + MMPROJ_COMPUTE_MIB, 0
 
 
+def placer(settings, layout):
+    """(on_gpu(name) -> bool, info) for one model's weight tensors, by the rules in
+    this module's docstring. info: n_layer, n_gpu (blocks + output offloaded),
+    first_gpu (lowest block on the GPU), output_on_gpu, cpu_only, confident (False
+    when an override-tensor pattern doesn't compile, so the split is a guess)."""
+    s = _norm(settings)
+    cpu_only = (s.get("device") or "").lower() == "none"
+    n_layer = int((layout.get("kv") or {}).get("block_count") or 0)
+    ngl = s.get("n-gpu-layers", "").lower()
+    if cpu_only:
+        n_gpu = 0
+    elif ngl in ("", "all", "auto") or _int(s, "n-gpu-layers", -1) < 0:
+        n_gpu = n_layer + 1
+    else:
+        n_gpu = _int(s, "n-gpu-layers", n_layer + 1)
+    first_gpu = max(n_layer - n_gpu, 0)
+    output_on_gpu = n_gpu > n_layer
+    rules = _overrides(s)
+    confident = rules is not None
+    rules = rules or []
+
+    def on_gpu(name):
+        m = re.match(r"blk\.(\d+)\.", name)
+        if name.startswith(("token_embd", "per_layer_token_embd")):
+            gpu = False
+        elif m:
+            gpu = int(m.group(1)) >= first_gpu and n_gpu > 0
+        else:
+            gpu = output_on_gpu
+        for rx, to_cpu in rules:
+            if rx.search(name):
+                return not to_cpu and not cpu_only
+        return gpu
+
+    return on_gpu, {"n_layer": n_layer, "n_gpu": n_gpu, "first_gpu": first_gpu,
+                    "output_on_gpu": output_on_gpu, "cpu_only": cpu_only,
+                    "confident": confident}
+
+
 def predict(settings, layout, extra_gpu_bytes=0, size_bytes=None, mmproj_bytes=0):
     """{need_mib (GPU, incl. one process overhead), first_gpu_mib, ram_mib,
     weights_gpu_mib, weights_ram_mib, kv_gpu_mib, kv_ram_mib, staging_mib, ctx,
@@ -157,19 +196,9 @@ def predict(settings, layout, extra_gpu_bytes=0, size_bytes=None, mmproj_bytes=0
                 "staging_mib": 0, "ctx": ctx, "ctx_from_model": 0, "confident": False}
 
     kv = dict(layout.get("kv") or {}, _arch=layout.get("arch") or "")
-    n_layer = int(kv.get("block_count") or 0)
-    ngl = s.get("n-gpu-layers", "").lower()
-    if cpu_only:
-        n_gpu = 0
-    elif ngl in ("", "all", "auto") or _int(s, "n-gpu-layers", -1) < 0:
-        n_gpu = n_layer + 1
-    else:
-        n_gpu = _int(s, "n-gpu-layers", n_layer + 1)
-    first_gpu = max(n_layer - n_gpu, 0)
-    output_on_gpu = n_gpu > n_layer
-    rules = _overrides(s)
-    confident = rules is not None
-    rules = rules or []
+    place, info = placer(s, layout)
+    n_layer, n_gpu, first_gpu = info["n_layer"], info["n_gpu"], info["first_gpu"]
+    output_on_gpu, confident = info["output_on_gpu"], info["confident"]
 
     w_gpu = w_ram = 0
     names = set()
@@ -178,19 +207,9 @@ def predict(settings, layout, extra_gpu_bytes=0, size_bytes=None, mmproj_bytes=0
     for name, _typ, nbytes in layout.get("tensors") or []:
         names.add(name)
         m = re.match(r"blk\.(\d+)\.", name)
-        if name.startswith(("token_embd", "per_layer_token_embd")):
-            on_gpu = False
-            if name.startswith("token_embd."):
-                embd += nbytes
-        elif m:
-            on_gpu = int(m.group(1)) >= first_gpu and n_gpu > 0
-        else:
-            on_gpu = output_on_gpu
-        for rx, to_cpu in rules:
-            if rx.search(name):
-                on_gpu = not to_cpu and not cpu_only
-                break
-        if on_gpu:
+        if name.startswith("token_embd."):
+            embd += nbytes
+        if place(name):
             w_gpu += nbytes
         else:
             w_ram += nbytes

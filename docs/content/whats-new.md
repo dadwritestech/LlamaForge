@@ -8,6 +8,10 @@ order: 1
 
 This page summarizes the most recent additions to LlamaForge. Each entry links to the full reference for that capability. For the longer-term direction, see the project's `ROADMAP.md`.
 
+## v0.18.34: Model X-ray
+
+Every model's info card has an **X-ray** button. It takes the GGUF apart from its header, one bar per layer, split into attention, FFN, MoE experts and the rest, and hatches what stays in system RAM under your settings. On Gemma 4 26B it showed why 5 GB of a 15.4 GB model sat in RAM: `n-cpu-moe=10` keeps the first ten blocks' experts there (about 440 MB each), plus the 748 MB embedding. Drag the **GPU layers** slider and watch the blocks move; nothing is saved. See [Models & Tuning](models.md#how-to-use-it).
+
 ## v0.18.33: Talk from your phone
 
 The phone remote got a **Talk** button. Ask out loud from the sofa, and your PC hears you, answers, and the phone plays the answer in Qwen3-TTS's voice. It's the Voice tab's Talk, on the phone, and it stops recording by itself when you pause. Phones only allow the mic on HTTPS pages, so the Phone dialog now offers a **Tailscale HTTPS** link when this PC is on a tailnet: one `tailscale serve --bg 8092` and there's no certificate to make. See [Talk from your phone](phone.md#talk-from-your-phone).

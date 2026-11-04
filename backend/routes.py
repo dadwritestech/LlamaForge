@@ -27,7 +27,7 @@ import vram_predict, gpuprobe
 import wsl, vllm_ctl, vllm_registry, vllm_setup, vllm_job, vllm_hub, vllm_download
 import gguf, diag, backends, prebuilt, version, slots, slotctl, slotproc, builds, compat
 import idle, reclaim, tmpldoctor, samplers, reupload, mcp_server, ollama, piinstall, tts, logfiles, loadprog, gamemode, footprint, elastic, slotkeep
-import claudelaunch, rigcard, watchdog, phone, arena, proving, prtry, prbench, batchapi, batchrun, stt
+import claudelaunch, rigcard, watchdog, phone, arena, proving, prtry, prbench, batchapi, batchrun, stt, xray
 import base64
 from builder import BuildManager
 from embers import panel as embers_panel
@@ -1294,6 +1294,30 @@ def get_model_metadata(req):
     return 200, {"metadata": meta or {}, "compat": ok,
                  "builds": {"options": [{k: o[k] for k in ("ref", "label", "router")} for o in opts],
                             "pinned": pins.get(mid, "")}}
+
+
+def get_model_xray(req):
+    """The model taken apart (xray.py) under its own settings; ?ngl=N asks
+    "what if" without touching models.ini."""
+    mid = req.q("model")
+    secs = config.read_sections()
+    if not mid or mid == "*" or mid not in secs:
+        raise ApiError(404, "no such model")
+    own = s = {**(secs.get("*") or {}), **secs[mid]}
+    ngl = req.q("ngl")
+    if ngl != "":
+        if not re.fullmatch(r"\d{1,4}", str(ngl)):
+            raise ApiError(400, "ngl must be a whole number of layers")
+        s = {k: v for k, v in s.items()
+             if footprint._ALIASES.get(k.strip().lower(), k.strip().lower()) != "n-gpu-layers"}
+        s["n-gpu-layers"] = ngl
+    lay = _el_layout(s.get("model") or "")
+    v = xray.view(lay, s)
+    if v is None:
+        raise ApiError(422, "couldn't read this model's GGUF header")
+    v["model"] = mid
+    v["configured_ngl"] = footprint.placer(own, lay)[1]["n_gpu"]
+    return 200, v
 
 
 def get_model_diag(req):
@@ -3226,6 +3250,7 @@ GET_ROUTES = {
     "/api/recipes/gallery":   get_recipes_gallery,
     "/api/app/update":        lambda req: (200, APP_UPDATE.progress()),
     "/api/model/metadata":    get_model_metadata,
+    "/api/model/xray":        get_model_xray,
     "/api/model/diag":        get_model_diag,
     "/api/presets":           get_presets,
     "/api/wiki/docs":         get_wiki_docs,
