@@ -107,3 +107,14 @@ test("moeText names the blocks whose experts run on the CPU", () => {
   assert.equal(X.moeText(12, 40), "first 12 of 40 blocks");
   assert.equal(X.moeText(40, 40), "all 40 blocks");
 });
+
+test("a model you have with no GPU says nothing about fitting", () => {
+  assert.equal(X.fitText({model: "m", vram: 0, budget: 0, gpu: 1, rows: []}), "");
+});
+
+test("Apply asks before writing and says it unloads a loaded model", () => {
+  const q = X.applyAsk("qwen", "-ngl 41 --n-cpu-moe 7");
+  assert.match(q, /Save -ngl 41 --n-cpu-moe 7 as the GPU layers and experts on CPU of qwen\?/);
+  assert.match(q, /unloaded/);
+  assert.doesNotMatch(X.applyAsk("gem", "-ngl 20"), /and experts on CPU/);
+});

@@ -150,6 +150,18 @@ def with_ncmoe(settings, k):
     return s
 
 
+def ncmoe_of(settings, n_layer):
+    """How many blocks keep their experts on the CPU under these settings:
+    cpu-moe means all of them, else n-cpu-moe (any spelling), else none."""
+    s = footprint._norm(settings)
+    if footprint._flag(s, "cpu-moe"):
+        return n_layer
+    try:
+        return max(0, min(int(s.get("n-cpu-moe") or 0), n_layer))
+    except ValueError:
+        return 0
+
+
 def fit_ncmoe(layout, room):
     """With every layer on the GPU, the fewest blocks whose experts go to the CPU
     so the weights fit in room bytes: None for a dense model or when even all

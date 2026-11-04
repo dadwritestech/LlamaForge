@@ -1304,19 +1304,27 @@ def get_model_xray(req):
     if not mid or mid == "*" or mid not in secs:
         raise ApiError(404, "no such model")
     own = s = {**(secs.get("*") or {}), **secs[mid]}
-    ngl = req.q("ngl")
+    ngl, ncmoe = req.q("ngl"), req.q("ncmoe")
     if ngl != "":
         if not re.fullmatch(r"\d{1,4}", str(ngl)):
             raise ApiError(400, "ngl must be a whole number of layers")
-        s = {k: v for k, v in s.items()
-             if footprint._ALIASES.get(k.strip().lower(), k.strip().lower()) != "n-gpu-layers"}
-        s["n-gpu-layers"] = ngl
+        s = xray.with_ngl(s, ngl)
+    if ncmoe != "":
+        if not re.fullmatch(r"\d{1,4}", str(ncmoe)):
+            raise ApiError(400, "ncmoe must be a whole number of blocks")
+        s = xray.with_ncmoe(s, int(ncmoe))
     lay = _el_layout(s.get("model") or "")
     v = xray.view(lay, s)
     if v is None:
         raise ApiError(422, "couldn't read this model's GGUF header")
     v["model"] = mid
     v["configured_ngl"] = footprint.placer(own, lay)[1]["n_gpu"]
+    experts = xray.has_experts(lay)
+    k = xray.ncmoe_of(s, v["n_layer"]) if experts else 0
+    vram = total_vram_mib() * 1024 * 1024
+    v.update(experts=experts, ncmoe=k, configured_ncmoe=xray.ncmoe_of(own, v["n_layer"]) if experts else 0,
+             flags=xray.flags(v["ngl"], k), vram=vram, budget=xray.budget(vram),
+             best=xray.placement(lay, xray.budget(vram)) if vram else None)
     repo, rel = tmpldoctor.repo_path(s.get("model") or "")
     v["file"] = rel.rsplit("/", 1)[-1] if rel else os.path.basename(s.get("model") or "")
     vs = req.q("vs")
@@ -1332,6 +1340,28 @@ def get_model_xray(req):
         other["file"] = vs
         v["vs"] = other
     return 200, v
+
+
+def post_model_xray_apply(req):
+    """Keep an X-ray placement: write n-gpu-layers / n-cpu-moe into the model's
+    models.ini section (other spellings of them dropped), then reload it like Save."""
+    b = req.body
+    mid = b.get("model")
+    secs = config.read_sections()
+    if not mid or mid == "*" or mid not in secs:
+        raise ApiError(404, "no such model")
+
+    def count(key, what):
+        val = b.get(key, 0 if key == "ncmoe" else None)
+        if isinstance(val, bool) or not re.fullmatch(r"\d{1,4}", str(val)):
+            raise ApiError(400, f"{key} must be a whole number of {what}")
+        return int(val)
+    n, k = count("ngl", "layers"), count("ncmoe", "blocks")
+    drop = {key: None for key in secs[mid]
+            if footprint._ALIASES.get(key.strip().lower(), key.strip().lower())
+            in ("n-gpu-layers", "n-cpu-moe", "cpu-moe")}
+    was = _apply_knobs_and_reload(mid, {**drop, "n-gpu-layers": str(n), "n-cpu-moe": str(k) if k else None})
+    return 200, {"ok": True, "flags": xray.flags(n, k), "was_running": was}
 
 
 def _xray_quants(repo):
@@ -3389,6 +3419,7 @@ POST_ROUTES = {
     "/api/models/load":         post_model_load,
     "/api/models/unload":       post_model_unload,
     "/api/models/save":         post_model_save,
+    "/api/model/xray/apply":    post_model_xray_apply,
     "/api/models/delete":       post_model_delete,
     "/api/models/unregister":   post_model_unregister,
     # llama.cpp-specific aliases

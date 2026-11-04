@@ -129,6 +129,7 @@ class Route(unittest.TestCase):
                      "qmoe": {"model": "D:/m/q.gguf", "ngl": "3", "cpu-moe": "true"}}
         mock.patch.object(routes.config, "read_sections", side_effect=lambda *a: self.secs).start()
         self.lay = mock.patch.object(routes, "_el_layout", return_value=moe()).start()
+        mock.patch.object(routes, "total_vram_mib", return_value=8 * 1024).start()
         self.addCleanup(mock.patch.stopall)
 
     def get(self, **qs):
@@ -162,6 +163,70 @@ class Route(unittest.TestCase):
         with self.assertRaises(self.routes.ApiError) as e:
             self.get(model="qmoe")
         self.assertEqual(e.exception.status, 422)
+
+    def test_experts_flags_and_fit_from_the_model_settings(self):
+        st, v = self.get(model="qmoe")
+        self.assertTrue(v["experts"])
+        self.assertEqual((v["ncmoe"], v["configured_ncmoe"]), (4, 4))    # cpu-moe = every block
+        self.assertEqual(v["flags"], "-ngl 3 --n-cpu-moe 4")
+        self.assertEqual(v["vram"], 8 * G)
+        self.assertEqual(v["budget"], xray.budget(8 * G))
+        self.assertEqual(v["best"], xray.placement(moe(), xray.budget(8 * G)))
+
+    def test_ncmoe_query_replaces_cpu_moe(self):
+        st, v = self.get(model="qmoe", ngl="5", ncmoe="1")
+        self.assertEqual((v["ngl"], v["ncmoe"], v["configured_ncmoe"]), (5, 1, 4))
+        self.assertEqual(v["flags"], "-ngl 5 --n-cpu-moe 1")
+        self.assertEqual(v["rows"][1]["ram"], 2000 * M)     # only blk 0's experts in RAM
+        self.assertEqual(v["rows"][2]["ram"], 0)
+        with self.assertRaises(self.routes.ApiError) as e:
+            self.get(model="qmoe", ncmoe="x")
+        self.assertEqual(e.exception.status, 400)
+
+    def test_dense_model_and_no_gpu(self):
+        self.lay.return_value = dense()
+        self.routes.total_vram_mib.return_value = 0
+        st, v = self.get(model="qmoe")
+        self.assertFalse(v["experts"])
+        self.assertEqual(v["ncmoe"], 0)
+        self.assertEqual(v["flags"], "-ngl 3")
+        self.assertEqual(v["vram"], 0)
+        self.assertIsNone(v["best"])
+
+    def apply(self, **body):
+        return self.routes.post_model_xray_apply(self.routes.Req(body=body))
+
+    def test_apply_writes_the_flags_over_any_spelling(self):
+        from unittest import mock
+        self.secs["qmoe"]["gpu-layers"] = "9"
+        with mock.patch.object(self.routes, "_apply_knobs_and_reload", return_value=True) as w:
+            st, out = self.apply(model="qmoe", ngl=5, ncmoe=2)
+        self.assertEqual(st, 200)
+        w.assert_called_once_with("qmoe", {"ngl": None, "gpu-layers": None, "cpu-moe": None,
+                                           "n-gpu-layers": "5", "n-cpu-moe": "2"})
+        self.assertEqual(out, {"ok": True, "flags": "-ngl 5 --n-cpu-moe 2", "was_running": True})
+
+    def test_apply_zero_experts_drops_the_flag(self):
+        from unittest import mock
+        with mock.patch.object(self.routes, "_apply_knobs_and_reload", return_value=False) as w:
+            self.apply(model="qmoe", ngl="5", ncmoe="0")
+        w.assert_called_once_with("qmoe", {"ngl": None, "cpu-moe": None,
+                                           "n-gpu-layers": "5", "n-cpu-moe": None})
+
+    def test_apply_checks_its_input(self):
+        from unittest import mock
+        with mock.patch.object(self.routes, "_apply_knobs_and_reload") as w:
+            for body, code in (({"model": "nope", "ngl": 1}, 404), ({"model": "*", "ngl": 1}, 404),
+                               ({"model": "qmoe", "ngl": "lots"}, 400), ({"model": "qmoe"}, 400),
+                               ({"model": "qmoe", "ngl": 1, "ncmoe": -1}, 400),
+                               ({"model": "qmoe", "ngl": True}, 400)):
+                with self.assertRaises(self.routes.ApiError) as e:
+                    self.apply(**body)
+                self.assertEqual(e.exception.status, code, body)
+            w.assert_not_called()
+
+    def test_apply_registered(self):
+        self.assertIs(self.routes.POST_ROUTES["/api/model/xray/apply"], self.routes.post_model_xray_apply)
 
     def test_registered(self):
         self.assertIs(self.routes.GET_ROUTES["/api/model/xray"], self.routes.get_model_xray)
@@ -371,6 +436,14 @@ class Fit(unittest.TestCase):
         # even every expert in RAM leaves too much: whole layers it is
         self.assertEqual(xray.placement(lay, 1 * G), {"ngl": xray.fit_ngl(lay, {}, 1 * G), "ncmoe": 0})
         self.assertEqual(xray.placement(dense(), 100 * G), {"ngl": 4, "ncmoe": 0})
+
+    def test_ncmoe_of_reads_either_flag(self):
+        self.assertEqual(xray.ncmoe_of({"cpu-moe": "true"}, 4), 4)
+        self.assertEqual(xray.ncmoe_of({"cmoe": "on"}, 4), 4)
+        self.assertEqual(xray.ncmoe_of({"cpu-moe": "false", "ncmoe": "2"}, 4), 2)
+        self.assertEqual(xray.ncmoe_of({"n-cpu-moe": "99"}, 4), 4)
+        self.assertEqual(xray.ncmoe_of({"n-cpu-moe": "x"}, 4), 0)
+        self.assertEqual(xray.ncmoe_of({}, 4), 0)
 
     def test_flags(self):
         self.assertEqual(xray.flags(34, 0), "-ngl 34")

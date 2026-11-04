@@ -3,7 +3,7 @@
 // system RAM under the model's settings is hatched. The GPU-layers slider asks
 // the backend "what if" with ?ngl=, so the placement rule lives in one place
 // (footprint.placer) and nothing is written to models.ini.
-import { $, esc, setHTML, api, toast } from "./core.js";
+import { $, esc, setHTML, api, toast, askYes } from "./core.js";
 import { showModal } from "./models.js";
 
 export const KINDS = [
@@ -77,7 +77,7 @@ const guess = v => v.confident ? "" : `<p class="slotnote warn">An override-tens
  *  "" for a model you have, whose view carries no vram. */
 export function fitText(v) {
   if (!("vram" in v)) return "";
-  if (!v.vram) return "No GPU detected, so this shows every layer on the GPU: compare the GPU figure with your card's VRAM.";
+  if (!v.vram) return v.model ? "" : "No GPU detected, so this shows every layer on the GPU: compare the GPU figure with your card's VRAM.";
   const used = v.gpu + (v.tied_copy || 0);
   return used <= v.budget
     ? `Fits your ${gb(v.vram)} of VRAM: ${gb(used)} of weights on the GPU, ${gb(v.vram - used)} left for the KV cache and buffers.`
@@ -132,14 +132,23 @@ export function compareBody(v) {
 
 let seq = 0;
 
+/** The question before Apply writes a placement into a model's settings. */
+export function applyAsk(id, flags) {
+  return `Save ${flags} as the GPU layers${/n-cpu-moe/.test(flags) ? " and experts on CPU" : ""} of ${id}? `
+    + "It replaces any GPU layers or CPU-experts setting in its models.ini section; the rest stays as it is."
+    + " If it's loaded, it is unloaded so the next load uses them.";
+}
+
 const withQ = (base, n, vs, k) => base + (n == null ? "" : "&ngl=" + n) + (k == null ? "" : "&ncmoe=" + k)
   + (vs ? "&vs=" + encodeURIComponent(vs) : "");
 
 /** X-ray of a model you have, under its own settings. */
 export const openXray = id => xrayModal({
   id, title: `X-ray: ${id}`, from: "read from the GGUF header. Nothing is loaded.",
-  url: (n, vs) => withQ("/api/model/xray?model=" + encodeURIComponent(id), n, vs),
+  what: "Drag to see what moves. Nothing is saved until you press Apply to this model.",
+  url: (n, vs, k) => withQ("/api/model/xray?model=" + encodeURIComponent(id), n, vs, k),
   quants: () => api("/api/model/xray/quants?model=" + encodeURIComponent(id)),
+  apply: (n, k) => api("/api/model/xray/apply", {model: id, ngl: n, ncmoe: k || 0}),
 });
 
 /** X-ray of a Hugging Face file before you download it (Discover). files is the
@@ -172,7 +181,9 @@ async function xrayModal(src) {
       <input type="range" id="xr-moe" min="0" max="${esc(v.n_layer)}" step="1" value="${esc(confK)}">
       <output for="xr-moe" data-xr-moe>${esc(moeText(confK, v.n_layer))}</output></div>` : ""}
     ${v.flags ? `<p class="xr-flags">Load it with <code data-xr-flags>${esc(v.flags)}</code>
-      <button type="button" class="qbtn" data-xr-copy title="Copy these llama-server flags">Copy</button></p>` : ""}
+      <button type="button" class="qbtn" data-xr-copy title="Copy these llama-server flags">Copy</button>
+      ${v.best ? `<button type="button" class="qbtn" data-xr-fit title="Move the sliders to where the most weight fits your VRAM">Fit my VRAM</button>` : ""}
+      ${src.apply ? `<button type="button" class="qbtn load" data-xr-apply title="Write these flags into this model's settings">Apply to this model</button>` : ""}</p>` : ""}
     <div class="xr-ngl"><label for="xr-vs">Compare with</label>
       <select id="xr-vs" data-xr-vs disabled><option value="">looking up the other quants…</option></select>
       <span class="af-q dim" data-xr-vsnote></span></div>
@@ -211,6 +222,23 @@ async function xrayModal(src) {
   range.oninput = update;
   if (moeRange) moeRange.oninput = update;
   reset.onclick = () => { range.value = String(conf); if (moeRange) moeRange.value = String(confK); update(); };
+  const fitBtn = $("[data-xr-fit]");
+  if (fitBtn) fitBtn.onclick = () => {
+    range.value = String(clampNgl(v.best.ngl, v.n_layer));
+    if (moeRange) moeRange.value = String(v.best.ncmoe || 0);
+    update();
+  };
+  const applyBtn = $("[data-xr-apply]");
+  if (applyBtn) applyBtn.onclick = async () => {
+    const n = clampNgl(range.value, v.n_layer), k = kNow() || 0;
+    const shown = flagsEl.textContent;
+    if (!await askYes(applyAsk(id, shown),
+                      {title: "Apply to " + id, ok: "Apply"})) return;
+    const r = await src.apply(n, k).catch(e => ({error: e.message || String(e)}));
+    if (!r || !r.ok) { toast("Couldn't apply: " + ((r && r.error) || "unknown error"), "err"); return; }
+    toast(r.was_running ? `Saved ${r.flags}; ${id} was unloaded, load it again to use them`
+                        : `Saved ${r.flags} to ${id}`, "ok");
+  };
   const copy = $("[data-xr-copy]");
   if (copy) copy.onclick = () => navigator.clipboard.writeText(flagsEl.textContent)
     .then(() => toast("Flags copied", "ok"), () => toast("Couldn't copy", "err"));
