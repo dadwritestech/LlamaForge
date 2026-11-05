@@ -1318,9 +1318,29 @@ def get_model_metadata(req):
                             "pinned": pins.get(mid, "")}}
 
 
+def _xray_fit_query(req):
+    """(ctx, kv) from ?ctx=N&kv=TYPE: Fit my VRAM's context and KV cache type,
+    None when not asked."""
+    ctx, kv = req.q("ctx"), req.q("kv")
+    if ctx != "" and not re.fullmatch(r"\d{3,7}", str(ctx)):
+        raise ApiError(400, "ctx must be a context length in tokens")
+    if kv != "" and str(kv).lower() not in footprint._KV_BYTES:
+        raise ApiError(400, "kv must be a KV cache type, like f16 or q8_0")
+    return (int(ctx) if ctx != "" else None), (str(kv).lower() if kv != "" else None)
+
+
+def _xray_fit(lay, s, info, vram):
+    """The fit block an X-ray returns: the context and cache types it was judged
+    at, the usable VRAM, and the whole need and KV cache of the view on screen
+    (bytes), by footprint.predict(), the "Can I run it?" pages' rule."""
+    p = footprint.predict(s, lay)
+    return {**info, "usable": xray.usable_mib(vram) * xray.M,
+            "need": p["need_mib"] * xray.M, "kv": p["kv_gpu_mib"] * xray.M}
+
+
 def get_model_xray(req):
     """The model taken apart (xray.py) under its own settings; ?ngl=N asks
-    "what if" without touching models.ini."""
+    "what if" without touching models.ini, ?ctx=N&kv=TYPE what Fit my VRAM judges at."""
     mid = req.q("model")
     secs = config.read_sections()
     if not mid or mid == "*" or mid not in secs:
@@ -1335,18 +1355,21 @@ def get_model_xray(req):
         if not re.fullmatch(r"\d{1,4}", str(ncmoe)):
             raise ApiError(400, "ncmoe must be a whole number of blocks")
         s = xray.with_ncmoe(s, int(ncmoe))
+    ctx, kv = _xray_fit_query(req)
     lay = _el_layout(s.get("model") or "")
     v = xray.view(lay, s)
     if v is None:
         raise ApiError(422, "couldn't read this model's GGUF header")
+    fs, info = xray.fit_settings(own, lay, ctx=ctx, kv=kv)
+    s = {**s, **{key: fs[key] for key in xray._FIT_KEYS}}
     v["model"] = mid
     v["configured_ngl"] = footprint.placer(own, lay)[1]["n_gpu"]
     experts = xray.has_experts(lay)
     k = xray.ncmoe_of(s, v["n_layer"]) if experts else 0
     vram = total_vram_mib() * 1024 * 1024
     v.update(experts=experts, ncmoe=k, configured_ncmoe=xray.ncmoe_of(own, v["n_layer"]) if experts else 0,
-             flags=xray.flags(v["ngl"], k), vram=vram, budget=xray.budget(vram),
-             best=xray.placement(lay, xray.budget(vram)) if vram else None)
+             flags=xray.flags(v["ngl"], k, info), vram=vram, fit=_xray_fit(lay, s, info, vram),
+             best=xray.placement(lay, xray.usable_mib(vram), fs) if vram else None)
     repo, rel = tmpldoctor.repo_path(s.get("model") or "")
     v["file"] = rel.rsplit("/", 1)[-1] if rel else os.path.basename(s.get("model") or "")
     vs = req.q("vs")
@@ -1379,11 +1402,28 @@ def post_model_xray_apply(req):
             raise ApiError(400, f"{key} must be a whole number of {what}")
         return int(val)
     n, k = count("ngl", "layers"), count("ncmoe", "blocks")
+    ctx, kv = b.get("ctx"), b.get("kv")
+    if ctx is not None and (isinstance(ctx, bool) or not re.fullmatch(r"\d{3,7}", str(ctx))):
+        raise ApiError(400, "ctx must be a context length in tokens")
+    if kv is not None and str(kv).lower() not in footprint._KV_BYTES:
+        raise ApiError(400, "kv must be a KV cache type, like f16 or q8_0")
+    keys = ("n-gpu-layers", "n-cpu-moe", "cpu-moe")
+    keys += ("ctx-size",) if ctx is not None else ()
+    keys += ("cache-type-k", "cache-type-v") if kv is not None else ()
     drop = {key: None for key in secs[mid]
-            if footprint._ALIASES.get(key.strip().lower(), key.strip().lower())
-            in ("n-gpu-layers", "n-cpu-moe", "cpu-moe")}
-    was = _apply_knobs_and_reload(mid, {**drop, "n-gpu-layers": str(n), "n-cpu-moe": str(k) if k else None})
-    return 200, {"ok": True, "flags": xray.flags(n, k), "was_running": was}
+            if footprint._ALIASES.get(key.strip().lower(), key.strip().lower()) in keys}
+    knobs = {**drop, "n-gpu-layers": str(n), "n-cpu-moe": str(k) if k else None}
+    info = None
+    if ctx is not None:
+        knobs["ctx-size"] = str(int(ctx))
+    if kv is not None:
+        kv = str(kv).lower()
+        # f16 is llama-server's own default: leave no line for it
+        knobs.update({"cache-type-k": kv if kv != "f16" else None, "cache-type-v": kv if kv != "f16" else None})
+    if ctx is not None:     # the cache types it keeps when none was picked
+        info = xray.fit_settings({**(secs.get("*") or {}), **secs[mid]}, None, ctx=int(ctx), kv=kv)[1]
+    was = _apply_knobs_and_reload(mid, knobs)
+    return 200, {"ok": True, "flags": xray.flags(n, k, info), "was_running": was}
 
 
 def _xray_quants(repo):
@@ -1418,7 +1458,8 @@ _HF_REPO = re.compile(r"[\w.-]+/[\w.-]+")
 def get_hub_xray(req):
     """X-ray a Hugging Face file you don't have yet, from its header alone.
     Starts at the placement that keeps the most weight on the GPU within your
-    VRAM (-ngl, or for a MoE all layers with --n-cpu-moe); ?ngl=N, ?ncmoe=K, ?vs=path."""
+    VRAM (-ngl, or for a MoE all layers with --n-cpu-moe); ?ngl=N, ?ncmoe=K, ?vs=path,
+    ?ctx=N&kv=TYPE (the context and KV cache type the fit is judged at)."""
     repo, path, vs, ngl = req.q("repo"), req.q("path"), req.q("vs"), req.q("ngl")
     ncmoe = req.q("ncmoe")
     if not _HF_REPO.fullmatch(repo or "") or ".." in repo:
@@ -1427,6 +1468,7 @@ def get_hub_xray(req):
         raise ApiError(400, "ngl must be a whole number of layers")
     if ncmoe != "" and not re.fullmatch(r"\d{1,4}", str(ncmoe)):
         raise ApiError(400, "ncmoe must be a whole number of blocks")
+    ctx, kv = _xray_fit_query(req)
     try:
         files = xray.quants(repo)
     except (OSError, ValueError, KeyError):
@@ -1447,18 +1489,18 @@ def get_hub_xray(req):
 
     lay = remote(path)
     vram = total_vram_mib() * 1024 * 1024
-    room = xray.budget(vram)
-    best = (xray.placement(lay, room) if vram
+    fs, info = xray.fit_settings({}, lay, ctx=ctx, kv=kv)
+    best = (xray.placement(lay, xray.usable_mib(vram), fs) if vram
             else {"ngl": footprint.placer({}, lay)[1]["n_layer"] + 1, "ncmoe": 0})
     experts = xray.has_experts(lay)
     n = int(ngl) if ngl != "" else best["ngl"]
     k = (int(ncmoe) if ncmoe != "" else best["ncmoe"]) if experts else 0
-    s = xray.with_ncmoe(xray.with_ngl({}, n), k)
+    s = xray.with_ncmoe(xray.with_ngl(fs, n), k)
     v = xray.view(lay, s)
     if v is None:
         raise ApiError(502, f"couldn't read the header of {path} from Hugging Face")
-    v.update(repo=repo, file=path, vram=vram, budget=room, configured_ngl=best["ngl"],
-             configured_ncmoe=best["ncmoe"], experts=experts, ncmoe=k, flags=xray.flags(n, k))
+    v.update(repo=repo, file=path, vram=vram, fit=_xray_fit(lay, s, info, vram), configured_ngl=best["ngl"],
+             configured_ncmoe=best["ncmoe"], experts=experts, ncmoe=k, flags=xray.flags(n, k, info))
     if vs:
         other = xray.view(remote(vs), s)
         if other is None:

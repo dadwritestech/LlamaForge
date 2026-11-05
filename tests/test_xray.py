@@ -168,15 +168,34 @@ class Route(unittest.TestCase):
         st, v = self.get(model="qmoe")
         self.assertTrue(v["experts"])
         self.assertEqual((v["ncmoe"], v["configured_ncmoe"]), (4, 4))    # cpu-moe = every block
-        self.assertEqual(v["flags"], "-ngl 3 --n-cpu-moe 4")
+        self.assertEqual(v["flags"], "-ngl 3 --n-cpu-moe 4 -c 8192")
         self.assertEqual(v["vram"], 8 * G)
-        self.assertEqual(v["budget"], xray.budget(8 * G))
-        self.assertEqual(v["best"], xray.placement(moe(), xray.budget(8 * G)))
+        s = xray.fit_settings({**self.secs["*"], **self.secs["qmoe"]}, moe())[0]
+        self.assertEqual(v["best"], xray.placement(moe(), xray.usable_mib(8 * G), s))
+        cur = footprint.predict(xray.with_ncmoe(xray.with_ngl(s, 3), 4), moe())
+        self.assertEqual(v["fit"], {"ctx": 8192, "ctk": "f16", "ctv": "f16", "trained_ctx": 0,
+                                    "usable": xray.usable_mib(8 * G) * M,
+                                    "need": cur["need_mib"] * M, "kv": cur["kv_gpu_mib"] * M})
+
+    def test_ctx_and_kv_queries_change_the_fit(self):
+        self.lay.return_value = heavy()
+        st, v = self.get(model="qmoe", ngl="5", ncmoe="0", ctx="32768", kv="q8_0")
+        self.assertEqual((v["fit"]["ctx"], v["fit"]["ctk"], v["fit"]["ctv"]), (32768, "q8_0", "q8_0"))
+        self.assertEqual(v["fit"]["trained_ctx"], 32768)
+        self.assertEqual(v["flags"], "-ngl 5 -c 32768 -ctk q8_0 -ctv q8_0")
+        s = xray.fit_settings({}, heavy(), ctx=32768, kv="q8_0")[0]
+        self.assertEqual(v["best"], xray.placement(heavy(), xray.usable_mib(8 * G), s))
+        st, f16 = self.get(model="qmoe", ngl="5", ncmoe="0", ctx="32768")
+        self.assertGreater(f16["fit"]["kv"], v["fit"]["kv"])
+        for bad in ({"ctx": "lots"}, {"ctx": "12"}, {"kv": "q9_9"}, {"kv": "f16;rm"}):
+            with self.assertRaises(self.routes.ApiError) as e:
+                self.get(model="qmoe", **bad)
+            self.assertEqual(e.exception.status, 400, bad)
 
     def test_ncmoe_query_replaces_cpu_moe(self):
         st, v = self.get(model="qmoe", ngl="5", ncmoe="1")
         self.assertEqual((v["ngl"], v["ncmoe"], v["configured_ncmoe"]), (5, 1, 4))
-        self.assertEqual(v["flags"], "-ngl 5 --n-cpu-moe 1")
+        self.assertEqual(v["flags"], "-ngl 5 --n-cpu-moe 1 -c 8192")
         self.assertEqual(v["rows"][1]["ram"], 2000 * M)     # only blk 0's experts in RAM
         self.assertEqual(v["rows"][2]["ram"], 0)
         with self.assertRaises(self.routes.ApiError) as e:
@@ -189,9 +208,10 @@ class Route(unittest.TestCase):
         st, v = self.get(model="qmoe")
         self.assertFalse(v["experts"])
         self.assertEqual(v["ncmoe"], 0)
-        self.assertEqual(v["flags"], "-ngl 3")
+        self.assertEqual(v["flags"], "-ngl 3 -c 8192")
         self.assertEqual(v["vram"], 0)
         self.assertIsNone(v["best"])
+        self.assertEqual(v["fit"]["usable"], 0)
 
     def apply(self, **body):
         return self.routes.post_model_xray_apply(self.routes.Req(body=body))
@@ -213,13 +233,30 @@ class Route(unittest.TestCase):
         w.assert_called_once_with("qmoe", {"ngl": None, "cpu-moe": None,
                                            "n-gpu-layers": "5", "n-cpu-moe": None})
 
+    def test_apply_writes_context_and_cache_type_when_given(self):
+        from unittest import mock
+        self.secs["qmoe"].update({"c": "4096", "ctk": "q4_0"})
+        with mock.patch.object(self.routes, "_apply_knobs_and_reload", return_value=False) as w:
+            st, out = self.apply(model="qmoe", ngl=5, ncmoe=2, ctx=16384, kv="q8_0")
+        w.assert_called_once_with("qmoe", {"ngl": None, "cpu-moe": None, "c": None, "ctk": None,
+                                           "n-gpu-layers": "5", "n-cpu-moe": "2", "ctx-size": "16384",
+                                           "cache-type-k": "q8_0", "cache-type-v": "q8_0"})
+        self.assertEqual(out["flags"], "-ngl 5 --n-cpu-moe 2 -c 16384 -ctk q8_0 -ctv q8_0")
+        with mock.patch.object(self.routes, "_apply_knobs_and_reload", return_value=False) as w:
+            self.apply(model="qmoe", ngl=5, ctx="8192", kv="f16")     # f16 is the default: no line
+        self.assertEqual(w.call_args[0][1]["cache-type-k"], None)
+        self.assertEqual(w.call_args[0][1]["ctx-size"], "8192")
+
     def test_apply_checks_its_input(self):
         from unittest import mock
         with mock.patch.object(self.routes, "_apply_knobs_and_reload") as w:
             for body, code in (({"model": "nope", "ngl": 1}, 404), ({"model": "*", "ngl": 1}, 404),
                                ({"model": "qmoe", "ngl": "lots"}, 400), ({"model": "qmoe"}, 400),
                                ({"model": "qmoe", "ngl": 1, "ncmoe": -1}, 400),
-                               ({"model": "qmoe", "ngl": True}, 400)):
+                               ({"model": "qmoe", "ngl": True}, 400),
+                               ({"model": "qmoe", "ngl": 1, "ctx": "lots"}, 400),
+                               ({"model": "qmoe", "ngl": 1, "ctx": True}, 400),
+                               ({"model": "qmoe", "ngl": 1, "kv": "q9_9"}, 400)):
                 with self.assertRaises(self.routes.ApiError) as e:
                     self.apply(**body)
                 self.assertEqual(e.exception.status, code, body)
@@ -372,70 +409,131 @@ class Compare(unittest.TestCase):
 G = 1024 * M
 
 
+def heavy(n_layer=4):
+    """moe() with a real KV cache: 64 KiB a token at f16, 512 MiB at 8k, 2 GiB at 32k."""
+    lay = moe(n_layer)
+    lay["kv"] = {"block_count": n_layer, "context_length": 32768, "head_count": 16,
+                 "head_count_kv": 16, "key_length": 256, "value_length": 256,
+                 "embedding_length": 4096}
+    return lay
+
+
+def need(lay, s):
+    return footprint.predict(s, lay)["need_mib"]
+
+
+def canirun():
+    import os
+    import sys
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "tools"))
+    import canirun as c
+    return c
+
+
 class Fit(unittest.TestCase):
-    def test_budget_keeps_room_for_the_kv_cache(self):
-        self.assertEqual(xray.budget(16 * G), 16 * G - 16 * G // 10)
-        self.assertEqual(xray.budget(4 * G), 3 * G)          # at least 1 GB kept back
-        self.assertEqual(xray.budget(0), 0)
-        self.assertEqual(xray.budget(512 * M), 0)
+    """Fit my VRAM: the whole need (weights, the KV cache at the chosen context
+    and cache type, buffers) against the card less what the desktop holds, the
+    same rule the "Can I run it?" pages judge every card by."""
 
-    def test_most_layers_whose_weights_fit(self):
-        lay = moe()
-        for budget in (0, 3 * G, 5 * G, 7 * G, 100 * G):
-            n = xray.fit_ngl(lay, {}, budget)
-            v = xray.view(lay, {"n-gpu-layers": str(n)})
-            self.assertLessEqual(v["gpu"] + v["tied_copy"], budget, budget)
+    def test_usable_keeps_the_desktop_share_back(self):
+        self.assertEqual(xray.usable_mib(12 * G), 12 * 1024 - xray.DESKTOP_MIB)
+        self.assertEqual(xray.usable_mib(0), 0)
+        self.assertEqual(xray.usable_mib(256 * M), 0)
+
+    def test_same_constants_as_the_canirun_pages(self):
+        c = canirun()
+        self.assertEqual(xray.DESKTOP_MIB, c.DESKTOP_MIB)
+        self.assertEqual(xray.DEFAULT_CTX, c.ANSWER_CTX)
+
+    def test_fit_settings_context_and_cache_type(self):
+        s, f = xray.fit_settings({}, heavy())
+        self.assertEqual(f, {"ctx": 8192, "ctk": "f16", "ctv": "f16", "trained_ctx": 32768})
+        self.assertEqual(s, {"ctx-size": "8192", "cache-type-k": "f16", "cache-type-v": "f16"})
+        short = heavy()
+        short["kv"]["context_length"] = 4096           # never past what the model was trained on
+        self.assertEqual(xray.fit_settings({}, short)[1]["ctx"], 4096)
+        self.assertEqual(xray.fit_settings({}, moe())[1]["ctx"], 8192)   # no trained length known
+        own = {"c": "16384", "ctk": "q8_0", "ctv": "q4_0", "ngl": "3"}
+        s, f = xray.fit_settings(own, heavy())        # the model's own, any spelling
+        self.assertEqual((f["ctx"], f["ctk"], f["ctv"]), (16384, "q8_0", "q4_0"))
+        self.assertEqual(s, {"ngl": "3", "ctx-size": "16384", "cache-type-k": "q8_0",
+                             "cache-type-v": "q4_0"})
+        s, f = xray.fit_settings(own, heavy(), ctx=32768, kv="f16")   # what you picked wins
+        self.assertEqual((f["ctx"], f["ctk"], f["ctv"]), (32768, "f16", "f16"))
+        self.assertEqual(xray.fit_settings({"ctx-size": "0"}, heavy())[1]["ctx"], 8192)
+        self.assertEqual(xray.fit_settings({"ctk": "nope"}, heavy())[1]["ctk"], "f16")
+
+    def test_most_layers_whose_whole_need_fits(self):
+        lay, s = heavy(), xray.fit_settings({}, heavy())[0]
+        for room in (1500, 3000, 5000, 7000, 100000):
+            n = xray.fit_ngl(lay, s, room)
+            if n:
+                self.assertLessEqual(need(lay, xray.with_ngl(s, n)), room, room)
             if n < 5:
-                w = xray.view(lay, {"n-gpu-layers": str(n + 1)})
-                self.assertGreater(w["gpu"] + w["tied_copy"], budget, budget)
-        self.assertEqual(xray.fit_ngl(lay, {}, 100 * G), 5)
-        self.assertEqual(xray.fit_ngl(lay, {}, 0), 0)
+                self.assertGreater(need(lay, xray.with_ngl(s, n + 1)), room, room)
+        self.assertEqual(xray.fit_ngl(lay, s, 100000), 5)
+        self.assertEqual(xray.fit_ngl(lay, s, 0), 0)
 
-    def test_the_tied_copy_counts(self):
-        lay = dense()        # no output.weight: the embedding is copied to the GPU
-        full = xray.view(lay, {"n-gpu-layers": "4"})
-        self.assertLess(xray.fit_ngl(lay, {}, full["gpu"]), 4)
-        self.assertEqual(xray.fit_ngl(lay, {}, full["gpu"] + full["tied_copy"]), 4)
-
-    def test_experts_on_cpu_fit(self):
-        lay = moe()
+    def test_fewest_experts_on_cpu_whose_whole_need_fits(self):
+        lay, s = heavy(), xray.fit_settings({}, heavy())[0]
         self.assertTrue(xray.has_experts(lay))
         self.assertFalse(xray.has_experts(dense()))
-        self.assertIsNone(xray.fit_ncmoe(dense(), 100 * G))
-        self.assertEqual(xray.fit_ncmoe(lay, 100 * G), 0)       # all of it fits
-        for budget in (6 * G, 7 * G, 8 * G):
-            k = xray.fit_ncmoe(lay, budget)
-            v = xray.view(lay, xray.with_ncmoe(xray.with_ngl({}, 5), k))
-            self.assertLessEqual(v["gpu"] + v["tied_copy"], budget, budget)
-            if k:
-                w = xray.view(lay, xray.with_ncmoe(xray.with_ngl({}, 5), k - 1))
-                self.assertGreater(w["gpu"] + w["tied_copy"], budget, budget)
-        self.assertIsNone(xray.fit_ncmoe(lay, 100 * M))         # even no experts on GPU is too much
+        self.assertIsNone(xray.fit_ncmoe(dense(), s, 100000))
+        self.assertEqual(xray.fit_ncmoe(lay, s, 100000), 0)
+        full = xray.with_ngl(s, 5)
+        for room in (4500, 6000, 7000, 8000):
+            k = xray.fit_ncmoe(lay, s, room)
+            self.assertLessEqual(need(lay, xray.with_ncmoe(full, k)), room, room)
+            for j in range(k):
+                self.assertGreater(need(lay, xray.with_ncmoe(full, j)), room, room)
+        self.assertIsNone(xray.fit_ncmoe(lay, s, 1000))     # even every expert in RAM is too much
+
+    def test_kv_cache_counts(self):
+        lay, room = heavy(), 9000
+        k = {name: xray.fit_ncmoe(lay, xray.fit_settings({}, lay, **kw)[0], room)
+             for name, kw in (("4k", {"ctx": 4096}), ("32k", {"ctx": 32768}),
+                              ("32k q8", {"ctx": 32768, "kv": "q8_0"}))}
+        self.assertLess(k["4k"], k["32k"])          # 2 GiB of KV at 32k pushes experts out
+        self.assertLess(k["32k q8"], k["32k"])      # q8_0 about halves it and pulls some back
+
+    def test_placement_prefers_experts_in_ram(self):
+        lay, s = heavy(), xray.fit_settings({}, heavy())[0]
+        for room in (4500, 7000, 100000):
+            self.assertEqual(xray.placement(lay, room, s), {"ngl": 5, "ncmoe": xray.fit_ncmoe(lay, s, room)})
+        self.assertEqual(xray.placement(lay, 1000, s),
+                         {"ngl": xray.fit_ngl(lay, s, 1000), "ncmoe": 0})
+        self.assertEqual(xray.placement(dense(), 100000, s), {"ngl": 4, "ncmoe": 0})
+        # the model's own cpu-moe doesn't stick to a whole-layer fit
+        cm = dict(s, **{"cpu-moe": "true"})
+        self.assertEqual(xray.placement(lay, 1000, cm), xray.placement(lay, 1000, s))
+
+    def test_agrees_with_every_canirun_page(self):
+        """Fit my VRAM and the published "Can I run it?" answers are one rule."""
+        import json
+        c = canirun()
+        with open(c.DATA, encoding="utf-8") as f:
+            data = json.load(f)
+        checked = set()
+        for m in c.valid_models(data):
+            for q in m["quants"]:
+                lay = {"arch": m["arch"], "kv": m["kv"], "tensors": q["tensors"]}
+                s = xray.fit_settings({}, lay)[0]
+                for gb in (6, 8, 12, 16, 24, 32):
+                    a = c.answer(m, q, gb)
+                    if a["status"] == "no":
+                        continue
+                    p = xray.placement(lay, gb * 1024 - xray.DESKTOP_MIB, s)
+                    want = {"fits": {"ngl": a["layers"] + 1, "ncmoe": 0},
+                            "experts": {"ngl": a["layers"] + 1, "ncmoe": a["cpu_moe"]},
+                            "partial": {"ngl": a["gpu_layers"], "ncmoe": 0}}[a["status"]]
+                    self.assertEqual(p, want, (m["slug"], q["quant"], gb, a["status"]))
+                    checked.add(a["status"])
+        self.assertEqual(checked, {"fits", "experts", "partial"})
 
     def test_with_ncmoe_replaces_any_spelling(self):
         s = xray.with_ncmoe({"ncmoe": "3", "cpu-moe": "", "ctx-size": "4096"}, 2)
         self.assertEqual(s, {"ctx-size": "4096", "n-cpu-moe": "2"})
         self.assertEqual(xray.with_ncmoe({"ncmoe": "3"}, 0), {})
-
-    def test_placement_prefers_experts_in_ram(self):
-        lay = moe()
-        block = 2171 * M                          # one whole blk of the fixture
-        for budget in (3 * G, 6 * G, 7 * G, 8 * G, 100 * G):
-            p = xray.placement(lay, budget)
-            k = xray.fit_ncmoe(lay, budget)
-            self.assertEqual(p, {"ngl": 5, "ncmoe": k}, budget)
-            v = xray.view(lay, xray.with_ncmoe(xray.with_ngl({}, p["ngl"]), p["ncmoe"]))
-            ngl_only = xray.view(lay, xray.with_ngl({}, xray.fit_ngl(lay, {}, budget)))
-            self.assertLessEqual(v["gpu"] + v["tied_copy"], budget, budget)
-            # never a whole block behind what -ngl alone would keep on the GPU
-            self.assertLess(ngl_only["gpu"] - v["gpu"], block, budget)
-        # 7 GB: 3 whole layers would keep 6.4 GB on the GPU, experts of 2 blocks off 5.1 GB,
-        # but then the CPU runs only experts, never attention
-        self.assertEqual(xray.placement(lay, 7 * G), {"ngl": 5, "ncmoe": 2})
-        self.assertEqual(xray.placement(lay, int(7.2 * G)), {"ngl": 5, "ncmoe": 1})
-        # even every expert in RAM leaves too much: whole layers it is
-        self.assertEqual(xray.placement(lay, 1 * G), {"ngl": xray.fit_ngl(lay, {}, 1 * G), "ncmoe": 0})
-        self.assertEqual(xray.placement(dense(), 100 * G), {"ngl": 4, "ncmoe": 0})
 
     def test_ncmoe_of_reads_either_flag(self):
         self.assertEqual(xray.ncmoe_of({"cpu-moe": "true"}, 4), 4)
@@ -448,6 +546,10 @@ class Fit(unittest.TestCase):
     def test_flags(self):
         self.assertEqual(xray.flags(34, 0), "-ngl 34")
         self.assertEqual(xray.flags(41, 12), "-ngl 41 --n-cpu-moe 12")
+        f = {"ctx": 8192, "ctk": "f16", "ctv": "f16"}
+        self.assertEqual(xray.flags(41, 22, f), "-ngl 41 --n-cpu-moe 22 -c 8192")
+        self.assertEqual(xray.flags(41, 0, dict(f, ctk="q8_0", ctv="q8_0")),
+                         "-ngl 41 -c 8192 -ctk q8_0 -ctv q8_0")
 
 
 class Hub(unittest.TestCase):
@@ -471,8 +573,9 @@ class Hub(unittest.TestCase):
         self.assertEqual(v["repo"], "unsloth/Gem-GGUF")
         self.assertEqual(v["file"], "Q8/Gem-Q8_0-00001-of-00002.gguf")
         self.assertEqual(v["vram"], 8 * G)
-        self.assertEqual(v["budget"], xray.budget(8 * G))
-        self.assertEqual(v["configured_ngl"], xray.placement(moe(), xray.budget(8 * G))["ngl"])
+        self.assertEqual(v["fit"]["usable"], xray.usable_mib(8 * G) * M)
+        s = xray.fit_settings({}, moe())[0]
+        self.assertEqual(v["configured_ngl"], xray.placement(moe(), xray.usable_mib(8 * G), s)["ngl"])
         self.assertEqual(v["ngl"], v["configured_ngl"])
         self.assertNotIn("model", v)
 
@@ -512,17 +615,28 @@ class Hub(unittest.TestCase):
     def test_moe_starts_at_the_best_placement(self):
         self.routes.total_vram_mib.return_value = int(8.2 * 1024)
         st, v = self.get(repo="unsloth/Gem-GGUF", path="Gem-Q4_K_M.gguf")
-        p = xray.placement(moe(), xray.budget(int(8.2 * 1024) * M))
+        p = xray.placement(moe(), xray.usable_mib(int(8.2 * 1024) * M), xray.fit_settings({}, moe())[0])
         self.assertEqual((v["configured_ngl"], v["configured_ncmoe"]), (p["ngl"], p["ncmoe"]))
         self.assertEqual((v["ngl"], v["ncmoe"]), (p["ngl"], p["ncmoe"]))
         self.assertTrue(v["experts"])
-        self.assertEqual(v["flags"], xray.flags(v["ngl"], v["ncmoe"]))
+        self.assertEqual(v["flags"], xray.flags(v["ngl"], v["ncmoe"], v["fit"]))
+
+    def test_ctx_and_kv(self):
+        self.remote.return_value = heavy()
+        st, v = self.get(repo="unsloth/Gem-GGUF", path="Gem-Q4_K_M.gguf", ctx="32768", kv="q4_0")
+        s = xray.fit_settings({}, heavy(), ctx=32768, kv="q4_0")[0]
+        p = xray.placement(heavy(), xray.usable_mib(8 * G), s)
+        self.assertEqual((v["ngl"], v["ncmoe"]), (p["ngl"], p["ncmoe"]))
+        self.assertTrue(v["flags"].endswith("-c 32768 -ctk q4_0 -ctv q4_0"))
+        with self.assertRaises(self.routes.ApiError) as e:
+            self.get(repo="unsloth/Gem-GGUF", path="Gem-Q4_K_M.gguf", kv="q9")
+        self.assertEqual(e.exception.status, 400)
 
     def test_ncmoe_param(self):
         st, v = self.get(repo="unsloth/Gem-GGUF", path="Gem-Q4_K_M.gguf", ngl="5", ncmoe="2",
                          vs="Q8/Gem-Q8_0-00001-of-00002.gguf")
         self.assertEqual(v["ncmoe"], 2)
-        self.assertEqual(v["flags"], "-ngl 5 --n-cpu-moe 2")
+        self.assertEqual(v["flags"], "-ngl 5 --n-cpu-moe 2 -c 8192")
         full = xray.view(moe(), {"n-gpu-layers": "5"})
         self.assertEqual(full["gpu"] - v["gpu"], 2 * 2000 * M)
         self.assertEqual(v["vs"]["gpu"], v["gpu"])

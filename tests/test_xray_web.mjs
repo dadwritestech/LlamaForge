@@ -92,14 +92,35 @@ test("both stacks share one scale and model data is escaped", () => {
   assert.match(html, /none of its weights were downloaded/);
 });
 
-test("a file you don't have says whether it fits your VRAM", () => {
-  const v = {n_layer: 30, ngl: 31, gpu: 10 * G, tied_copy: 0, ram: 1 * G, vram: 16 * G, budget: 14.4 * G};
-  assert.equal(X.fitText(v), "Fits your 16.00 GB of VRAM: 10.00 GB of weights on the GPU, 6.00 GB left for the KV cache and buffers.");
-  assert.equal(X.fitText({...v, gpu: 15 * G, tied_copy: 0.5 * G}),
-    "Too much for your 16.00 GB of VRAM: 15.50 GB of weights on the GPU, 1.10 GB over what leaves room for the KV cache.");
+test("the fit line weighs the whole need, KV cache included, against your VRAM", () => {
+  const fit = {ctx: 8192, ctk: "f16", ctv: "f16", trained_ctx: 32768, usable: 15.5 * G, need: 12 * G, kv: 1 * G};
+  const v = {n_layer: 30, ngl: 31, gpu: 10 * G, tied_copy: 0, ram: 1 * G, vram: 16 * G, fit};
+  assert.equal(X.fitText(v),
+    "Fits your 16.00 GB of VRAM: 12.00 GB on the GPU at a 8K context (1.00 GB of f16 KV cache), 3.50 GB to spare.");
+  const over = {...v, fit: {...fit, need: 16.6 * G}};
+  assert.equal(X.fitText(over), "Too much for your 16.00 GB of VRAM: 16.60 GB on the GPU at a 8K context "
+    + "(1.00 GB of f16 KV cache), 1.10 GB over. Fewer GPU layers, a shorter context or a q8_0 KV cache brings it down.");
+  assert.match(X.fitText({...over, experts: true}), /More experts on CPU, a shorter context or a q8_0/);
+  assert.match(X.fitText({...over, fit: {...over.fit, ctk: "q8_0", ctv: "q4_0"}}),
+    /q8_0 K \/ q4_0 V KV cache\), 1.10 GB over\. Fewer GPU layers or a shorter context brings it down\.$/);
   assert.match(X.fitText({...v, vram: 0}), /No GPU detected/);
-  assert.equal(X.fitText({n_layer: 30, gpu: 1}), "");      // a model you have: no VRAM line
-  assert.match(X.body({...v, total: 11 * G, types: [], rows: [], confident: true}), /Fits your 16.00 GB/);
+  assert.equal(X.fitText({n_layer: 30, gpu: 1}), "");      // no VRAM in the view: no line
+  const html = X.body({...over, total: 11 * G, types: [], rows: [], confident: true});
+  assert.match(html, /class="xr-fit over"/);
+  assert.match(X.body({...v, total: 11 * G, types: [], rows: [], confident: true}), /class="xr-fit "/);
+});
+
+test("Fit at: context steps up to the trained length, and KV cache types", () => {
+  const f = {ctx: 8192, ctk: "f16", ctv: "f16", trained_ctx: 40960};
+  assert.deepEqual(X.ctxOptions(f).map(o => o[0]), [2048, 4096, 8192, 16384, 32768, 40960]);
+  assert.equal(X.ctxOptions(f).at(-1)[1], "40K (trained)");
+  assert.deepEqual(X.ctxOptions({...f, ctx: 12000}).map(o => o[0]), [2048, 4096, 8192, 12000, 16384, 32768, 40960]);
+  assert.equal(X.ctxOptions({...f, trained_ctx: 0}).at(-1)[0], 1048576);    // length unknown
+  assert.deepEqual(X.kvOptions(f), [["", "f16"], ["q8_0", "q8_0"], ["q4_0", "q4_0"]]);
+  assert.deepEqual(X.kvOptions({...f, ctk: "q8_0", ctv: "q4_0"}).map(o => o[1]),
+    ["q8_0 K / q4_0 V", "f16", "q8_0", "q4_0"]);
+  assert.equal(X.ctxText(131072), "128K");
+  assert.equal(X.ctxText(1000), "1000");
 });
 
 test("moeText names the blocks whose experts run on the CPU", () => {
@@ -117,4 +138,7 @@ test("Apply asks before writing and says it unloads a loaded model", () => {
   assert.match(q, /Save -ngl 41 --n-cpu-moe 7 as the GPU layers and experts on CPU of qwen\?/);
   assert.match(q, /unloaded/);
   assert.doesNotMatch(X.applyAsk("gem", "-ngl 20"), /and experts on CPU/);
+  assert.match(X.applyAsk("qwen", "-ngl 41 --n-cpu-moe 7 -c 32768 -ctk q8_0 -ctv q8_0"),
+    /as the GPU layers, experts on CPU, context and KV cache type of qwen\?/);
+  assert.match(X.applyAsk("gem", "-ngl 20 -c 8192"), /as the GPU layers and context of gem\?/);
 });

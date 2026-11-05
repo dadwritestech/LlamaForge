@@ -104,10 +104,46 @@ def view(layout, settings):
             "rows": out_rows}
 
 
-def budget(vram):
-    """Bytes of VRAM the weights may take: the rest (10%, at least 1 GB) is
-    left for the KV cache and compute buffers."""
-    return max(0, vram - max(1024 ** 3, vram // 10))
+# Fit my VRAM uses the "Can I run it?" pages' rule (tools/canirun.py): the whole
+# need footprint.predict() works out (weights, the KV cache at the context and
+# cache type, compute buffers, the op-offload staging buffer) against the card
+# less what the desktop already holds, at an 8k context unless you pick one.
+DESKTOP_MIB = 512
+DEFAULT_CTX = 8192
+M = 1024 * 1024
+_FIT_KEYS = ("ctx-size", "cache-type-k", "cache-type-v")
+
+
+def usable_mib(vram):
+    """MiB of a card of vram bytes a model may take."""
+    return max(0, vram // M - DESKTOP_MIB)
+
+
+def need_mib(layout, settings):
+    return footprint.predict(settings, layout)["need_mib"]
+
+
+def fit_settings(settings, layout, ctx=None, kv=None):
+    """(settings with ctx-size and both cache types set, {ctx, ctk, ctv,
+    trained_ctx}): ctx is what you picked, else the model's own, else 8k (never
+    past the trained length); kv sets both cache types, else the model's own, else f16."""
+    norm = footprint._norm(settings)
+    trained = int(((layout or {}).get("kv") or {}).get("context_length") or 0)
+    if not ctx:
+        try:
+            ctx = int(norm.get("ctx-size") or 0)
+        except ValueError:
+            ctx = 0
+    ctx = ctx or (min(DEFAULT_CTX, trained) if trained else DEFAULT_CTX)
+
+    def kind(key):
+        v = str(kv or norm.get(key) or "f16").strip().lower()
+        return v if v in footprint._KV_BYTES else "f16"
+    ctk, ctv = kind("cache-type-k"), kind("cache-type-v")
+    s = {k: v for k, v in settings.items()
+         if footprint._ALIASES.get(k.strip().lower(), k.strip().lower()) not in _FIT_KEYS}
+    s.update({"ctx-size": str(ctx), "cache-type-k": ctk, "cache-type-v": ctv})
+    return s, {"ctx": ctx, "ctk": ctk, "ctv": ctv, "trained_ctx": trained}
 
 
 def with_ngl(settings, ngl):
@@ -118,20 +154,13 @@ def with_ngl(settings, ngl):
     return s
 
 
-def fit_ngl(layout, settings, room):
-    """The most GPU layers whose weights (tied copy included) fit in room bytes."""
-    def used(n):
-        v = view(layout, with_ngl(settings, n))
-        return v["gpu"] + v["tied_copy"] if v else 0
+def fit_ngl(layout, settings, usable):
+    """The most GPU layers whose whole need fits in usable MiB."""
     top = footprint.placer(settings, layout)[1]["n_layer"] + 1
-    lo, hi = 0, top                     # gpu use only grows with ngl: binary search
-    while lo < hi:
-        mid = (lo + hi + 1) // 2
-        if used(mid) <= room:
-            lo = mid
-        else:
-            hi = mid - 1
-    return lo
+    for n in range(top, 0, -1):
+        if need_mib(layout, with_ngl(settings, n)) <= usable:
+            return n
+    return 0
 
 
 def has_experts(layout):
@@ -162,44 +191,42 @@ def ncmoe_of(settings, n_layer):
         return 0
 
 
-def fit_ncmoe(layout, room):
+def fit_ncmoe(layout, settings, usable):
     """With every layer on the GPU, the fewest blocks whose experts go to the CPU
-    so the weights fit in room bytes: None for a dense model or when even all
-    experts on the CPU leave too much."""
+    so the whole need fits in usable MiB: None for a dense model or when even
+    all experts on the CPU leave too much. A linear scan, like the canirun pages:
+    the staging buffer the first CPU block brings makes the need not quite monotone."""
     if not has_experts(layout):
         return None
-    top = footprint.placer({}, layout)[1]["n_layer"]
-
-    def used(k):
-        v = view(layout, with_ncmoe(with_ngl({}, top + 1), k))
-        return v["gpu"] + v["tied_copy"] if v else 0
-    if used(top) > room:
-        return None
-    lo, hi = 0, top                     # gpu use only shrinks as k grows
-    while lo < hi:
-        mid = (lo + hi) // 2
-        if used(mid) <= room:
-            hi = mid
-        else:
-            lo = mid + 1
-    return lo
+    top = footprint.placer(settings, layout)[1]["n_layer"]
+    full = with_ngl(settings, top + 1)
+    for k in range(top + 1):
+        if need_mib(layout, with_ncmoe(full, k)) <= usable:
+            return k
+    return None
 
 
-def placement(layout, room):
+def placement(layout, usable, settings=None):
     """{ngl, ncmoe}: for a MoE, every layer on the GPU with the experts of the
     first blocks in RAM (--n-cpu-moe), when that fits; else whole layers off
-    (-ngl). The experts fit stops within one block's experts of the budget, so it
-    is never a whole block behind the -ngl fit, and the CPU then runs only the few
-    active experts of those blocks, not their attention and KV cache too."""
-    k = fit_ncmoe(layout, room)
+    (-ngl). The CPU then runs only the few active experts of those blocks, not
+    their attention and KV cache too. settings: fit_settings() (context, cache type)."""
+    s = with_ncmoe(settings or {}, 0)
+    k = fit_ncmoe(layout, s, usable)
     if k is None:
-        return {"ngl": fit_ngl(layout, {}, room), "ncmoe": 0}
-    return {"ngl": footprint.placer({}, layout)[1]["n_layer"] + 1, "ncmoe": k}
+        return {"ngl": fit_ngl(layout, s, usable), "ncmoe": 0}
+    return {"ngl": footprint.placer(s, layout)[1]["n_layer"] + 1, "ncmoe": k}
 
 
-def flags(ngl, ncmoe):
-    """The llama-server flags for a placement."""
-    return f"-ngl {ngl}" + (f" --n-cpu-moe {ncmoe}" if ncmoe else "")
+def flags(ngl, ncmoe, fit=None):
+    """The llama-server flags for a placement, with the context and cache types
+    it was judged at (fit_settings' info) when given."""
+    out = f"-ngl {ngl}" + (f" --n-cpu-moe {ncmoe}" if ncmoe else "")
+    if fit:
+        out += f" -c {fit['ctx']}"
+        if (fit["ctk"], fit["ctv"]) != ("f16", "f16"):
+            out += f" -ctk {fit['ctk']} -ctv {fit['ctv']}"
+    return out
 
 
 def _get(url, headers):

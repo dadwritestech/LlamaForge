@@ -73,21 +73,51 @@ const typesHTML = (v, n = 8) => `<div class="xr-types">${v.types.slice(0, n).map
 
 const guess = v => v.confident ? "" : `<p class="slotnote warn">An override-tensor pattern didn't parse, so the RAM / GPU split is a guess.</p>`;
 
-/** For a file you don't have yet (Discover): does it fit your VRAM as shown?
- *  "" for a model you have, whose view carries no vram. */
+/** "8K" for 8192 tokens. */
+export const ctxText = n => n >= 1024 && n % 1024 === 0 ? n / 1024 + "K" : String(n);
+
+const kvName = f => f.ctk === f.ctv ? f.ctk : `${f.ctk} K / ${f.ctv} V`;
+
+const over = v => !!(v.vram && v.fit && v.fit.need > v.fit.usable);
+
+/** Does the view on screen fit your VRAM? The whole need (weights, the KV cache
+ *  at the context and cache type picked, buffers) against the card less what the
+ *  desktop holds: the "Can I run it?" pages' rule (backend/xray.py). */
 export function fitText(v) {
   if (!("vram" in v)) return "";
   if (!v.vram) return v.model ? "" : "No GPU detected, so this shows every layer on the GPU: compare the GPU figure with your card's VRAM.";
-  const used = v.gpu + (v.tied_copy || 0);
-  return used <= v.budget
-    ? `Fits your ${gb(v.vram)} of VRAM: ${gb(used)} of weights on the GPU, ${gb(v.vram - used)} left for the KV cache and buffers.`
-    : `Too much for your ${gb(v.vram)} of VRAM: ${gb(used)} of weights on the GPU, ${gb(used - v.budget)} over what leaves room for the KV cache.`;
+  const f = v.fit;
+  if (!f) return "";
+  const at = `at a ${ctxText(f.ctx)} context (${gb(f.kv)} of ${kvName(f)} KV cache)`;
+  if (!over(v)) return `Fits your ${gb(v.vram)} of VRAM: ${gb(f.need)} on the GPU ${at}, ${gb(f.usable - f.need)} to spare.`;
+  const fix = [v.experts ? "more experts on CPU" : "fewer GPU layers", "a shorter context",
+               f.ctk === "f16" ? "a q8_0 KV cache" : ""].filter(Boolean);
+  return `Too much for your ${gb(v.vram)} of VRAM: ${gb(f.need)} on the GPU ${at}, ${gb(f.need - f.usable)} over. `
+    + `${fix.slice(0, -1).join(", ")} or ${fix[fix.length - 1]} brings it down.`.replace(/^./, c => c.toUpperCase());
 }
 
 const fitHTML = v => {
   const t = fitText(v);
-  return t ? `<p class="xr-fit ${v.vram && v.gpu + (v.tied_copy || 0) > v.budget ? "over" : ""}">${esc(t)}</p>` : "";
+  return t ? `<p class="xr-fit ${over(v) ? "over" : ""}">${esc(t)}</p>` : "";
 };
+
+const CTX_STEPS = [2048, 4096, 8192, 16384, 32768, 65536, 131072, 262144, 524288, 1048576];
+
+/** The Context picker's [value, label] pairs: the steps up to the trained length,
+ *  that length itself and the one on screen. */
+export function ctxOptions(fit) {
+  const top = fit.trained_ctx || 0;
+  const set = new Set(CTX_STEPS.filter(c => !top || c <= top));
+  if (top) set.add(top);
+  set.add(fit.ctx);
+  return [...set].sort((a, b) => a - b).map(c => [c, ctxText(c) + (c === top ? " (trained)" : "")]);
+}
+
+/** The KV cache picker's [value, label] pairs: "" keeps what's on screen. */
+export function kvOptions(fit) {
+  const now = kvName(fit);
+  return [["", now], ...["f16", "q8_0", "q4_0"].filter(k => k !== now).map(k => [k, k])];
+}
 
 export function body(v) {
   return `<div class="xr-sum"><b>${esc(gb(v.total))}</b> of weights · <span class="xr-gpu">${esc(gb(v.gpu))} on GPU</span>
@@ -134,21 +164,27 @@ let seq = 0;
 
 /** The question before Apply writes a placement into a model's settings. */
 export function applyAsk(id, flags) {
-  return `Save ${flags} as the GPU layers${/n-cpu-moe/.test(flags) ? " and experts on CPU" : ""} of ${id}? `
-    + "It replaces any GPU layers or CPU-experts setting in its models.ini section; the rest stays as it is."
+  const what = ["GPU layers", /n-cpu-moe/.test(flags) && "experts on CPU", / -c \d/.test(flags) && "context",
+                / -ctk /.test(flags) && "KV cache type"].filter(Boolean);
+  const list = what.length > 1 ? what.slice(0, -1).join(", ") + " and " + what[what.length - 1] : what[0];
+  return `Save ${flags} as the ${list} of ${id}? `
+    + "It replaces those settings in its models.ini section, whatever their spelling; the rest stays as it is."
     + " If it's loaded, it is unloaded so the next load uses them.";
 }
 
-const withQ = (base, n, vs, k) => base + (n == null ? "" : "&ngl=" + n) + (k == null ? "" : "&ncmoe=" + k)
-  + (vs ? "&vs=" + encodeURIComponent(vs) : "");
+/** fq: {ctx, kv} the fit is judged at; kv "" keeps the model's own cache types. */
+const withQ = (base, n, vs, k, fq = {}) => base + (n == null ? "" : "&ngl=" + n) + (k == null ? "" : "&ncmoe=" + k)
+  + (vs ? "&vs=" + encodeURIComponent(vs) : "") + (fq.ctx ? "&ctx=" + Number(fq.ctx) : "")
+  + (fq.kv ? "&kv=" + encodeURIComponent(fq.kv) : "");
 
 /** X-ray of a model you have, under its own settings. */
 export const openXray = id => xrayModal({
   id, title: `X-ray: ${id}`, from: "read from the GGUF header. Nothing is loaded.",
   what: "Drag to see what moves. Nothing is saved until you press Apply to this model.",
-  url: (n, vs, k) => withQ("/api/model/xray?model=" + encodeURIComponent(id), n, vs, k),
+  url: (n, vs, k, fq) => withQ("/api/model/xray?model=" + encodeURIComponent(id), n, vs, k, fq),
   quants: () => api("/api/model/xray/quants?model=" + encodeURIComponent(id)),
-  apply: (n, k) => api("/api/model/xray/apply", {model: id, ngl: n, ncmoe: k || 0}),
+  apply: (n, k, fq = {}) => api("/api/model/xray/apply", {model: id, ngl: n, ncmoe: k || 0,
+    ...(fq.ctx ? {ctx: Number(fq.ctx)} : {}), ...(fq.kv ? {kv: fq.kv} : {})}),
 });
 
 /** X-ray of a Hugging Face file before you download it (Discover). files is the
@@ -158,7 +194,7 @@ export const openHubXray = (repo, path, files = []) => xrayModal({
   title: `X-ray before download: ${quantName(path)}`,
   from: "read from the file's header on Hugging Face. Nothing is downloaded.",
   what: "Starts where the most weight fits your VRAM: fewer GPU layers, or for a MoE its experts in RAM. Drag to see what moves.",
-  url: (n, vs, k) => withQ(`/api/hub/xray?repo=${encodeURIComponent(repo)}&path=${encodeURIComponent(path)}`, n, vs, k),
+  url: (n, vs, k, fq) => withQ(`/api/hub/xray?repo=${encodeURIComponent(repo)}&path=${encodeURIComponent(path)}`, n, vs, k, fq),
   quants: async () => ({repo, current: path, files, reason: ""}),
 });
 
@@ -180,9 +216,14 @@ async function xrayModal(src) {
     ${moe ? `<div class="xr-ngl"><label for="xr-moe">Experts on CPU</label>
       <input type="range" id="xr-moe" min="0" max="${esc(v.n_layer)}" step="1" value="${esc(confK)}">
       <output for="xr-moe" data-xr-moe>${esc(moeText(confK, v.n_layer))}</output></div>` : ""}
+    ${v.fit ? `<div class="xr-ngl"><label for="xr-ctx">Fit at</label>
+      <select id="xr-ctx" class="xr-pick" data-xr-ctx title="The context the KV cache is sized for">${ctxOptions(v.fit).map(([c, l]) =>
+        `<option value="${esc(c)}"${c === v.fit.ctx ? " selected" : ""}>${esc(l)} context</option>`).join("")}</select>
+      <select id="xr-kv" class="xr-pick" data-xr-kv title="KV cache type (-ctk / -ctv): q8_0 about halves the cache">${kvOptions(v.fit).map(([k, l]) =>
+        `<option value="${esc(k)}">${esc(l)} KV cache</option>`).join("")}</select></div>` : ""}
     ${v.flags ? `<p class="xr-flags">Load it with <code data-xr-flags>${esc(v.flags)}</code>
       <button type="button" class="qbtn" data-xr-copy title="Copy these llama-server flags">Copy</button>
-      ${v.best ? `<button type="button" class="qbtn" data-xr-fit title="Move the sliders to where the most weight fits your VRAM">Fit my VRAM</button>` : ""}
+      ${v.best ? `<button type="button" class="qbtn" data-xr-fit title="Move the sliders to where the most weight fits your VRAM, KV cache and buffers included">Fit my VRAM</button>` : ""}
       ${src.apply ? `<button type="button" class="qbtn load" data-xr-apply title="Write these flags into this model's settings">Apply to this model</button>` : ""}</p>` : ""}
     <div class="xr-ngl"><label for="xr-vs">Compare with</label>
       <select id="xr-vs" data-xr-vs disabled><option value="">looking up the other quants…</option></select>
@@ -193,14 +234,16 @@ async function xrayModal(src) {
   const pick = $("[data-xr-vs]"), note = $("[data-xr-vsnote]");
   const moeRange = $("#xr-moe"), moeOut = $("[data-xr-moe]"), flagsEl = $("[data-xr-flags]");
   const kNow = () => moeRange ? Math.max(0, Math.min(Number(moeRange.value) || 0, v.n_layer)) : null;
+  const ctxSel = $("[data-xr-ctx]"), kvSel = $("[data-xr-kv]");
+  const fq = () => ({ctx: ctxSel ? ctxSel.value : "", kv: kvSel ? kvSel.value : ""});
   if (!range || !box) return;
-  let t = 0, cur = v;
-  const fetchView = async () => {
+  let t = 0, cur = v, pending = null;
+  const fetchView = () => (pending = (async () => {
     const n = clampNgl(range.value, v.n_layer), vs = pick.value;
     const mine = ++seq;
     if (vs) note.textContent = "reading its header…";
     try {
-      const w = await api(src.url(n, vs, kNow()));
+      const w = await api(src.url(n, vs, kNow(), fq()));
       if (mine === seq && box.isConnected) {
         cur = w; note.textContent = "";
         if (flagsEl && w.flags) flagsEl.textContent = w.flags;
@@ -210,7 +253,7 @@ async function xrayModal(src) {
       if (mine === seq) note.textContent = "";
       toast(String(e.message || e), "err");
     }
-  };
+  })());
   const update = () => {
     const n = clampNgl(range.value, v.n_layer);
     out.textContent = nglText(n, v.n_layer);
@@ -222,10 +265,16 @@ async function xrayModal(src) {
   range.oninput = update;
   if (moeRange) moeRange.oninput = update;
   reset.onclick = () => { range.value = String(conf); if (moeRange) moeRange.value = String(confK); update(); };
+  // a new context or cache type changes the need, and so where Fit my VRAM lands
+  if (ctxSel) ctxSel.onchange = () => { clearTimeout(t); fetchView(); };
+  if (kvSel) kvSel.onchange = () => { clearTimeout(t); fetchView(); };
   const fitBtn = $("[data-xr-fit]");
-  if (fitBtn) fitBtn.onclick = () => {
-    range.value = String(clampNgl(v.best.ngl, v.n_layer));
-    if (moeRange) moeRange.value = String(v.best.ncmoe || 0);
+  if (fitBtn) fitBtn.onclick = async () => {
+    clearTimeout(t);
+    await (pending || fetchView());
+    const best = cur.best || v.best;
+    range.value = String(clampNgl(best.ngl, v.n_layer));
+    if (moeRange) moeRange.value = String(best.ncmoe || 0);
     update();
   };
   const applyBtn = $("[data-xr-apply]");
@@ -234,7 +283,7 @@ async function xrayModal(src) {
     const shown = flagsEl.textContent;
     if (!await askYes(applyAsk(id, shown),
                       {title: "Apply to " + id, ok: "Apply"})) return;
-    const r = await src.apply(n, k).catch(e => ({error: e.message || String(e)}));
+    const r = await src.apply(n, k, fq()).catch(e => ({error: e.message || String(e)}));
     if (!r || !r.ok) { toast("Couldn't apply: " + ((r && r.error) || "unknown error"), "err"); return; }
     toast(r.was_running ? `Saved ${r.flags}; ${id} was unloaded, load it again to use them`
                         : `Saved ${r.flags} to ${id}`, "ok");
