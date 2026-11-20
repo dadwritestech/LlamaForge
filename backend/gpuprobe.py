@@ -1,17 +1,18 @@
 """GPU memory on machines where nvidia-smi has nothing to say (AMD, Intel).
 
-Two sources, both stdlib:
+Three sources, all stdlib:
+- `rocm-smi --csv`: ROCm GPU telemetry with utilization and temperature.
 - `llama-server --list-devices`: whatever backend the build has (Vulkan, ROCm,
   SYCL, CUDA) prints each device with its total and free MiB. This is the
   engine's own view, so fit ratings match what llama.cpp will actually use.
 - Linux amdgpu sysfs (`/sys/class/drm/card*/device/mem_info_vram_*`), for an
   AMD card before any GPU build is installed.
 
-Results have routes._gpu_telemetry()'s shape plus "via" (where they came from);
-utilization and temperature aren't known here, so they're None. Elastic VRAM
-stays NVIDIA-only and skips anything with "via".
+Results have routes._gpu_telemetry()'s shape plus "via" (where they came from).
+rocm-smi provides utilization and temperature; the other sources report None.
+Elastic VRAM stays NVIDIA-only and skips anything with "via".
 """
-import os, platform, re, subprocess
+import csv, io, os, platform, re, subprocess
 
 IS_LINUX = platform.system() == "Linux"
 _CREATE_NO_WINDOW = 0x08000000 if os.name == "nt" else 0
@@ -67,6 +68,45 @@ def _read(path):
         return ""
 
 
+def rocm_smi_telemetry():
+    """Query ROCm GPUs via rocm-smi for utilization and temperature."""
+    try:
+        r = subprocess.run(["rocm-smi", "--csv"], capture_output=True, text=True,
+                           timeout=10, creationflags=_CREATE_NO_WINDOW)
+        if r.returncode != 0:
+            return []
+    except (OSError, subprocess.SubprocessError):
+        return []
+
+    try:
+        reader = csv.DictReader(io.StringIO(r.stdout))
+        devices = []
+        for row in reader:
+            try:
+                idx = int(row.get("index", -1))
+                if idx < 0:
+                    continue
+                name = row.get("name", "").strip() or "AMD GPU"
+                vram_total = int(row.get("vram_total", 0))
+                vram_used = int(row.get("vram_used", 0))
+                temp = row.get("gpu_temp", "").strip()
+                util = row.get("utilization", "").strip()
+                devices.append({
+                    "index": idx,
+                    "name": name,
+                    "used": vram_used,
+                    "total": vram_total,
+                    "util": int(util) if util else None,
+                    "temp": int(temp) if temp else None,
+                    "via": "rocm-smi",
+                })
+            except (ValueError, KeyError):
+                continue
+        return _drop_integrated(devices)
+    except Exception:
+        return []
+
+
 def amdgpu_sysfs(root="/sys/class/drm"):
     try:
         cards = sorted((n for n in os.listdir(root) if re.fullmatch(r"card\d+", n)),
@@ -101,7 +141,11 @@ def _list_devices(server_bin):
 
 
 def other_gpus(server_bin):
-    """The engine's devices, else amdgpu sysfs on Linux, else []."""
+    """rocm-smi for AMD utilization/temp, else the engine's devices, else sysfs."""
+    if IS_LINUX:
+        found = rocm_smi_telemetry()
+        if found:
+            return found
     if server_bin and os.path.isfile(server_bin):
         found = telemetry(parse_list_devices(_list_devices(server_bin)))
         if found:

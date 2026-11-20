@@ -94,6 +94,13 @@ def caps_from_items(items):
 
 # ---------------------------------------------------------------- placements
 
+def device_name(gpu):
+    """Backend-agnostic device name: ROCm for AMD, CUDA otherwise."""
+    if gpu.get("backend") == "amd" or gpu.get("via") == "ROCm":
+        return f"ROCm{gpu['index']}"
+    return f"CUDA{gpu['index']}"
+
+
 def _ratio(vrams, off):
     if len(vrams) == 2:
         a = round(_SPLIT_UNITS * vrams[0] / max(sum(vrams), 1)) + off
@@ -114,7 +121,7 @@ def placements(gpus, caps, steps=STEPS_QUICK):
     out = []
     if k["device"] and "none" in caps["split_modes"]:
         for g in gpus:
-            s = dict(ngl, **{k["split_mode"]: "none", k["device"]: f"CUDA{g['index']}"})
+            s = dict(ngl, **{k["split_mode"]: "none", k["device"]: device_name(g)})
             out.append({"name": f"solo{g['index']}", "settings": s, "devices": [g["index"]]})
     if k["tensor_split"]:
         modes = [m for m in caps["split_modes"] if m != "none"] or [None]
@@ -145,7 +152,7 @@ def _drafter_options(inv, caps):
     k, types = caps["keys"], caps["spec_types"]
     gpus = inv.get("gpus") or []
     out = [(None, {})]
-    devices = [f"CUDA{g['index']}" for g in gpus] if len(gpus) >= 2 and k["draft_device"] else [None]
+    devices = [device_name(g) for g in gpus] if len(gpus) >= 2 and k["draft_device"] else [None]
     for d in inv.get("drafters") or ():
         kind = d.get("kind", "draft")
         spec = _SPEC.get(kind)
@@ -262,7 +269,11 @@ _FLAGS_N_MAX_KEYS = ("spec-draft-n-max", "draft-max", "draft-n-max")
 
 def _dev_index(v):
     v = str(v or "")
-    return int(v[4:]) if v.upper().startswith("CUDA") and v[4:].isdigit() else None
+    if v.upper().startswith("CUDA") and v[4:].isdigit():
+        return int(v[4:])
+    if v.upper().startswith("ROCM") and v[4:].isdigit():
+        return int(v[4:])
+    return None
 
 
 def split_estimate(settings, total_mib, draft_mib, n_gpus):

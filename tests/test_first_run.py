@@ -181,7 +181,7 @@ class BuildPathValidationTest(unittest.TestCase):
     def test_run_build_fails_fast_without_invoking_cmake(self):
         bm = BuildManager(tempfile.mkdtemp())
         calls = []
-        bm._stream = lambda cmd, cwd=None: calls.append(cmd) or 0
+        bm._stream = lambda cmd, cwd=None, env=None: calls.append(cmd) or 0
         bm.run_build("", "", {}, pull=False)
         self.assertEqual(calls, [], "invoked cmake despite unset paths")
         self.assertEqual(bm.state["phase"], "failed")
