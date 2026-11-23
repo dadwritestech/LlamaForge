@@ -125,7 +125,7 @@ class Panel:
             raise self._d.ApiError(400, f"couldn't read the arguments of {sbin}")
         gpus = hardware.detect_gpus()
         if not gpus:
-            raise self._d.ApiError(400, "Forge needs at least one NVIDIA GPU (nvidia-smi found none)")
+            raise self._d.ApiError(400, "Forge needs at least one GPU (none detected)")
         settings = self._settings(mid)
         drafters = inventory.drafters(settings.get("model", ""), settings,
                                       self._model_paths(settings.get("model", "")),

@@ -12,7 +12,7 @@ import hashlib
 import json
 import os
 
-# Split modes that run on CUDA. `row` parses and then fails; `graph` is documented
+# Split modes that run on GPU backends. `row` parses and then fails; `graph` is documented
 # by some builds and rejected by their parser. Neither is ever generated.
 _RUNNABLE_SPLITS = ("none", "layer", "tensor")
 _SPLIT_UNITS = 32                       # tensor-split ratios are integers summing to this

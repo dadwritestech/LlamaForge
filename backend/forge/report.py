@@ -69,7 +69,8 @@ _METRICS = ("code", "prose")
 
 
 def _short_gpu(name):
-    return re.sub(r"^(NVIDIA\s+)?(GeForce\s+)?", "", str(name or "")).strip() or "GPU"
+    """'NVIDIA GeForce RTX 4090' -> 'RTX 4090'; 'AMD Radeon RX 9070 XT' -> 'RX 9070 XT'."""
+    return re.sub(r"^(NVIDIA\s+)?(GeForce\s+)?", "", re.sub(r"^(AMD\s+)?(Radeon\s+)?", "", str(name or "")).strip()) or "GPU"
 
 
 def _basename(path):
