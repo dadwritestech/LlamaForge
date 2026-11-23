@@ -34,7 +34,7 @@ class PartialBuildTest(unittest.TestCase):
     def _stub(self, build_rc, on_build_step=None):
         """Make _stream succeed for every phase except the build step, which
         returns build_rc. on_build_step fires when the build command runs."""
-        def stream(cmd, cwd=None):
+        def stream(cmd, cwd=None, env=None):
             is_build = "--build" in cmd
             if is_build:
                 if on_build_step:
@@ -79,7 +79,7 @@ class PartialBuildTest(unittest.TestCase):
     def test_configure_failure_is_failure_even_with_a_binary(self):
         _touch(os.path.join(self.build, "bin", "llama-server"))
         # fail the configure step (the first non-git _stream), not the build step
-        def stream(cmd, cwd=None):
+        def stream(cmd, cwd=None, env=None):
             if cmd[:1] == ["cmake"] and "--build" not in cmd:
                 return 1                            # configure fails
             return 0

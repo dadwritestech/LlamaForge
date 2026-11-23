@@ -79,10 +79,21 @@ def proc_status(p):
 
 
 def smi_snapshot():
-    """[{index, name, total_mib, used_mib, free_mib}]; [] without nvidia-smi."""
-    out = osplat.run_text(["nvidia-smi",
-                           "--query-gpu=index,name,memory.total,memory.used,memory.free",
-                           "--format=csv,noheader,nounits"], timeout=8)
+    """[{index, name, total_mib, used_mib, free_mib}]; [] without nvidia-smi or rocm-smi."""
+    gpus = _nvidia_snapshot()
+    if gpus:
+        return gpus
+    return _amd_snapshot()
+
+
+def _nvidia_snapshot():
+    """Try nvidia-smi; return GPU list or empty on failure."""
+    try:
+        out = osplat.run_text(["nvidia-smi",
+                               "--query-gpu=index,name,memory.total,memory.used,memory.free",
+                               "--format=csv,noheader,nounits"], timeout=8)
+    except Exception:
+        return []
     gpus = []
     for ln in out.strip().splitlines():
         f = [x.strip() for x in ln.split(",")]
@@ -91,6 +102,37 @@ def smi_snapshot():
         try:
             gpus.append({"index": int(f[0]), "name": f[1], "total_mib": int(f[2]),
                          "used_mib": int(f[3]), "free_mib": int(f[4])})
+        except ValueError:
+            continue
+    return gpus
+
+
+def _amd_snapshot():
+    """Try rocm-smi CSV output; return GPU list or empty on failure."""
+    try:
+        out = osplat.run_text(["rocm-smi", "--showmeminfo", "vram", "--unit", "MiB", "--csv"],
+                              timeout=8)
+    except Exception:
+        return []
+    lines = out.strip().splitlines()
+    if not lines:
+        return []
+    # Parse CSV: Card,Memory Used [MiB],Memory Total [MiB],Memory Free [MiB]
+    header = lines[0]
+    if "Card" not in header or "Memory Total" not in header:
+        return []
+    gpus = []
+    for ln in lines[1:]:
+        f = [x.strip() for x in ln.split(",")]
+        if len(f) < 4:
+            continue
+        try:
+            idx = int(f[0])
+            used = int(f[1])
+            total = int(f[2])
+            free = int(f[3])
+            gpus.append({"index": idx, "name": f"AMD GPU {idx}", "total_mib": total,
+                         "used_mib": used, "free_mib": free})
         except ValueError:
             continue
     return gpus

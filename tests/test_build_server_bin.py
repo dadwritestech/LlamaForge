@@ -60,7 +60,7 @@ class BuildRecordsBinaryTest(unittest.TestCase):
         self.seen = []
         self.bm = BuildManager(os.path.join(self.tmp, "logs"),
                                on_built=self.seen.append)
-        self.bm._stream = lambda cmd, cwd=None: 0      # never invoke cmake
+        self.bm._stream = lambda cmd, cwd=None, env=None: 0      # never invoke cmake
 
     def test_success_reports_the_located_binary(self):
         want = _touch(os.path.join(self.build, "bin", "llama-server"))
@@ -76,7 +76,7 @@ class BuildRecordsBinaryTest(unittest.TestCase):
 
     def test_failed_build_reports_nothing(self):
         _touch(os.path.join(self.build, "bin", "llama-server"))
-        self.bm._stream = lambda cmd, cwd=None: 1      # cmake configure fails
+        self.bm._stream = lambda cmd, cwd=None, env=None: 1      # cmake configure fails
         self.bm.run_build(self.src, self.build, {}, pull=False)
         self.assertEqual(self.bm.state["phase"], "failed")
         self.assertEqual(self.seen, [])
@@ -86,7 +86,7 @@ class BuildRecordsBinaryTest(unittest.TestCase):
         def boom(_):
             raise OSError("config.json is read-only")
         bm = BuildManager(os.path.join(self.tmp, "logs2"), on_built=boom)
-        bm._stream = lambda cmd, cwd=None: 0
+        bm._stream = lambda cmd, cwd=None, env=None: 0
         bm.run_build(self.src, self.build, {}, pull=False)
         self.assertEqual(bm.state["phase"], "done")
         self.assertIn("read-only", bm.tail())

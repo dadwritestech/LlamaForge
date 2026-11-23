@@ -29,6 +29,29 @@ def _toolset(flags):
     return toolset_args(flags, os.environ, os.name)
 
 
+def _rocm_env(flags):
+    """Environment variables for ROCm/HIP builds.
+
+    llama.cpp's ROCm build requires HIPCXX and HIP_PATH. If the user has ROCm
+    installed (hipconfig available), set them automatically. Otherwise the build
+    will fail with a clear error from cmake.
+    """
+    if not flags or str(flags.get("GGML_HIP", "")).upper() != "ON":
+        return os.environ.copy()
+    env = os.environ.copy()
+    try:
+        import subprocess
+        r = subprocess.run(["hipconfig", "-l"], capture_output=True, text=True, timeout=10)
+        if r.returncode == 0 and r.stdout.strip():
+            env["HIPCXX"] = r.stdout.strip() + "/clang"
+        r = subprocess.run(["hipconfig", "-R"], capture_output=True, text=True, timeout=10)
+        if r.returncode == 0 and r.stdout.strip():
+            env["HIP_PATH"] = r.stdout.strip()
+    except Exception:
+        pass  # hipconfig not available; cmake will report the error
+    return env
+
+
 class BuildManager:
     def __init__(self, log_dir, log_name="build", on_built=None):
         # on_built(path) fires once, after a successful build, with the located
@@ -183,9 +206,9 @@ class BuildManager:
             except Exception as e:
                 self._log(f"[backup] skipped: {e}")
 
-    def _stream(self, cmd, cwd=None):
+    def _stream(self, cmd, cwd=None, env=None):
         self._log(f"\n$ {' '.join(cmd)}")
-        p = subprocess.Popen(cmd, cwd=cwd, stdout=subprocess.PIPE,
+        p = subprocess.Popen(cmd, cwd=cwd, env=env, stdout=subprocess.PIPE,
                              stderr=subprocess.STDOUT, text=True, bufsize=1)
         for line in p.stdout:
             self._log(line.rstrip("\n"))
@@ -214,6 +237,9 @@ class BuildManager:
             self.state["phase"] = "backup"
             self.backup_binaries(build_dir)
 
+            # Determine build environment (ROCm needs HIPCXX/HIP_PATH)
+            build_env = _rocm_env(flags)
+
             self.state["phase"] = "configure"
             self._log("\n=== cmake configure ===")
             cfg = ["cmake", "-B", build_dir, "-S", src,
@@ -223,7 +249,7 @@ class BuildManager:
             # a cached dir keeps its toolset: CMake refuses to switch it
             if not os.path.isfile(os.path.join(build_dir, "CMakeCache.txt")):
                 cfg += _toolset(flags)
-            rc = self._stream(cfg)
+            rc = self._stream(cfg, env=build_env)
             if rc != 0:
                 raise RuntimeError("cmake configure failed")
 
@@ -231,7 +257,7 @@ class BuildManager:
             self._log("\n=== cmake build ===")
             jobs = jobs or os.cpu_count() or 8
             rc = self._stream(["cmake", "--build", build_dir, "--config", "Release",
-                               "--parallel", str(jobs)])
+                               "--parallel", str(jobs)], env=build_env)
             if rc != 0:
                 # cmake returns one code for the whole build. A non-essential
                 # later target (npm/sharp UI assets) can fail after llama-server

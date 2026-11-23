@@ -1,7 +1,7 @@
 """Load one candidate in a sandbox process and say whether it really fits.
 
 "Fits" means the server came up AND no GPU is at the edge of its memory. On
-Windows the CUDA driver quietly spills into shared system RAM instead of failing,
+Windows the GPU driver quietly spills into shared system RAM instead of failing,
 which loads fine and then decodes at a fraction of the speed - so a load that
 leaves a device >98% full is a failure too.
 
@@ -15,7 +15,7 @@ import re
 HEADROOM = 0.98
 POLL_S = 1.0
 
-_OOM = re.compile(r"allocating ([\d.]+) MiB on device (\d+): cudaMalloc failed: out of memory")
+_OOM = re.compile(r"allocating ([\d.]+) MiB on device (\d+): (?:cuda|hip)Malloc failed: out of memory")
 _WHAT = re.compile(r"failed to allocate buffer for ([a-z ]+?)\s*$", re.M)
 _BAD_ARG = re.compile(r"(?:invalid|unknown) argument:\s*(\S+)")
 _ERR_LINE = re.compile(r"^\S*\s+E\s+(?:\w+\s+)?(.*)$")
@@ -44,7 +44,7 @@ def failure_reason(log, exited=False):
     """None while the log shows nothing fatal, else one short reason.
 
     An OOM line alone isn't fatal: when the compute buffer doesn't fit, llama.cpp
-    logs the cudaMalloc failure, retries without pipeline parallelism and loads.
+    logs the GPU allocation failure, retries without pipeline parallelism and loads.
     It counts once a fatal line follows, or once the process has exited."""
     if not log:
         return None

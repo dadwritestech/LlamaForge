@@ -22,7 +22,7 @@ class FreshDirToolset(unittest.TestCase):
         os.makedirs(self.src)
         self.ran = []
         self.bm = BuildManager(os.path.join(self.tmp, "logs"))
-        self.bm._stream = lambda cmd, cwd=None: self.ran.append(cmd) or 0
+        self.bm._stream = lambda cmd, cwd=None, env=None: self.ran.append(cmd) or 0
         self.seen_flags = []
         real = builder._toolset
 
